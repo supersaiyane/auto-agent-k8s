@@ -1,0 +1,73 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: autoremidiationpolicies.autoagent.io
+spec:
+  group: autoagent.io
+  scope: Namespaced
+  names:
+    kind: AutoRemediationPolicy
+    plural: autoremidiationpolicies
+    singular: autoremidiationpolicy
+    shortNames: [arp]
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              targetSelector:
+                description: Label selector applied to Pods/Deployments
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              actions:
+                type: object
+                properties:
+                  restartStuckPods: { type: boolean }
+                  bumpMemoryPercent: { type: integer, minimum: 0, maximum: 200 }
+                  scale:
+                    type: object
+                    properties:
+                      enabled: { type: boolean }
+                      minReplicas: { type: integer, minimum: 0 }
+                      maxReplicas: { type: integer, minimum: 0 }
+                      step:       { type: integer, minimum: 1 }
+                      allowHPAOverride: { type: boolean }
+              escalation:
+                type: object
+                properties:
+                  slackChannel: { type: string }
+                  ticketing:
+                    type: object
+                    properties:
+                      provider: { type: string, enum: ["github","jira","none"] }
+                      projectOrRepo: { type: string }
+                      assignees:
+                        type: array
+                        items: { type: string }
+                      labels:
+                        type: array
+                        items: { type: string }
+                  runbookURL: { type: string }
+              safety:
+                type: object
+                properties:
+                  cooldown: { type: string }
+                  maxActionsPerHour: { type: integer }
+                  requireApproval: { type: boolean }
+              anomalies:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    promql: { type: string }
+                    zscoreThreshold: { type: number }
+                    minSamples: { type: integer }
+    subresources:
+      status: {}

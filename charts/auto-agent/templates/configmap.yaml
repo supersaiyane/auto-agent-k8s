@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auto-agent-config
+  namespace: {{ .Values.namespace }}
+data:
+  AUTO_MODE: "{{ .Values.agent.mode }}"
+  HPA_COEXISTENCE: "{{ .Values.agent.hpaCoexistence }}"
+  SCALE_CPU_THRESHOLD: "{{ .Values.agent.cpuThreshold }}"
+  SCALE_WINDOW: "{{ .Values.agent.scaleWindow }}"
+  MAX_SCALE_STEP: "{{ .Values.agent.maxScaleStep }}"
+  MAX_ACTIONS_PER_10M: "{{ .Values.agent.maxActionsPer10m }}"
+  NAMESPACE_ALLOWLIST: "{{ join "," .Values.agent.namespaceAllowlist }}"
+  EXCLUDED_ANNOTATION: "{{ .Values.agent.excludedAnnotation }}"
+  PROM_QUERY_FOR_SLO: |-
+{{ .Values.agent.promQueryForSlo | indent 4 }}
+  LOG_LEVEL: "{{ .Values.agent.logLevel }}"
+  METRICS_PROVIDER: "{{ .Values.metricsProvider.type }}"
+  PROMETHEUS_URL: "{{ .Values.metricsProvider.prometheusUrl }}"
+  LLM_ENABLED: "{{ .Values.llm.enabled }}"
+  LLM_API_URL: "{{ .Values.llm.apiUrl }}"
+  LLM_MODEL: "{{ .Values.llm.model }}"
+  GITOPS_MODE: "{{ .Values.gitops.mode }}"
+  GITOPS_PROVIDER: "{{ .Values.gitops.provider }}"
+  GITOPS_REPO: "{{ .Values.gitops.repo }}"
+  GITOPS_BRANCH: "{{ .Values.gitops.branch }}"
+  GITOPS_VALUES_FILE: "{{ .Values.gitops.valuesFile }}"
+  GITOPS_AUTHOR_NAME: "{{ .Values.gitops.author.name }}"
+  GITOPS_AUTHOR_EMAIL: "{{ .Values.gitops.author.email }}"
+  TICKETS_ENABLED: "{{ .Values.tickets.enabled }}"
+  TICKETS_PROVIDER: "{{ .Values.tickets.provider }}"
+  GITHUB_REPO: "{{ .Values.tickets.github.repo }}"
+  JIRA_BASE_URL: "{{ .Values.tickets.jira.baseUrl }}"
+  JIRA_PROJECT_KEY: "{{ .Values.tickets.jira.projectKey }}"
+  ANOMALIES_POLL_INTERVAL: "{{ .Values.anomalies.pollInterval }}"
+  COOLDOWN_UP: "{{ .Values.agent.cooldownUp }}"
+  COOLDOWN_DOWN: "{{ .Values.agent.cooldownDown }}"
+  MIN_SAMPLES: "{{ .Values.agent.minSamples }}"
+  LOG_STORE: "{{ .Values.logs.store }}"
+  LOG_S3_BUCKET: "{{ .Values.logs.s3.bucket }}"
+  LOG_S3_PREFIX: "{{ .Values.logs.s3.prefix }}"
+  LOG_EFS_PATH: "{{ .Values.logs.efs.path }}"
+  IMAGE_MIRROR_ENABLED: "{{ .Values.images.mirror.enabled }}"
+  IMAGE_MIRROR_PREFIX: "{{ .Values.images.mirror.prefix }}"
+  IMAGE_MIRROR_ALLOWLIST: "{{ join "," .Values.images.mirror.allowList }}"

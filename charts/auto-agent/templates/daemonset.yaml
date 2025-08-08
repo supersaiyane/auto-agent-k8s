@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: auto-agent
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "auto-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: auto-agent
+  template:
+    metadata:
+      labels:
+        app: auto-agent
+        {{- include "auto-agent.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: auto-agent
+      priorityClassName: {{ .Values.priorityClassName }}
+      tolerations: {{- toYaml .Values.tolerations | nindent 6 }}
+      volumes:
+      - name: efs-logs
+        hostPath:
+          path: {{ .Values.logs.efs.path }}
+          type: DirectoryOrCreate
+      containers:
+      - name: agent
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        envFrom:
+          - configMapRef: { name: auto-agent-config }
+          - secretRef:    { name: auto-agent-secrets }
+        env:
+        - name: POD_NAMESPACE
+          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+        volumeMounts:
+        - name: efs-logs
+          mountPath: {{ .Values.logs.efs.path }}
+        {{- if .Values.env }}
+        {{- toYaml .Values.env | nindent 8 }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 5
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}

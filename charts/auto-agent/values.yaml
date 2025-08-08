@@ -1,0 +1,82 @@
+image:
+  repository: ghcr.io/yourorg/auto-agent
+  tag: "0.3.0"
+  pullPolicy: IfNotPresent
+
+namespace: kube-system
+priorityClassName: system-node-critical
+
+agent:
+  mode: fix                   # observe|suggest|fix
+  hpaCoexistence: true        # skip scaling if HPA present
+  cpuThreshold: 0.8           # avg CPU threshold (fallback if no Prometheus)
+  scaleWindow: 5m
+  maxScaleStep: 2
+  maxActionsPer10m: 10
+  namespaceAllowlist: ["default","prod"]
+  excludedAnnotation: "auto-agent.io/disable"
+  promQueryForSlo: ""         # optional promql for latency/queue
+  logLevel: info
+  cooldownUp: 2m              # minimum time between scale-ups per workload
+  cooldownDown: 10m           # long cooldown for scale-down
+  minSamples: 12              # anomaly min samples
+
+llm:
+  apiUrl: "https://llm-gateway.internal/v1/chat/completions"
+  model: "gpt-4o-mini"
+  enabled: true
+
+slack:
+  webhookUrl: ""              # put in secret or here for POC
+
+metricsProvider:
+  type: "prometheus"          # "metrics-server" or "prometheus"
+  prometheusUrl: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+gitops:
+  mode: pr                    # pr|live
+  provider: github            # github|gitlab
+  repo: "yourorg/helm-env"
+  branch: "main"
+  valuesFile: "environments/prod/values.yaml"
+  author:
+    name: "auto-agent-bot"
+    email: "auto-agent@yourorg.io"
+
+tickets:
+  enabled: true
+  provider: github            # github|jira
+  github:
+    repo: yourorg/api-service
+  jira:
+    baseUrl: ""               # https://yourorg.atlassian.net
+    projectKey: ""
+
+anomalies:
+  pollInterval: 30s
+
+logs:
+  store: s3                   # s3|efs|none
+  s3:
+    bucket: your-bucket-name
+    prefix: auto-agent/logs
+  efs:
+    path: /var/log/auto-agent # mount your EFS at this path via DaemonSet volume
+  retentionDays: 7
+
+images:
+  mirror:
+    enabled: false
+    prefix: "registry.internal/"
+    allowList: [] # e.g., ["docker.io/library/nginx", "ghcr.io/org/api"]
+
+env: []                       # extra env
+tolerations:
+  - operator: "Exists"
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 300m
+    memory: 384Mi

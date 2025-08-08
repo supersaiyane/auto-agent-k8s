@@ -1,0 +1,6 @@
+apiVersion: v2
+name: auto-agent
+description: Per-node auto SRE agent (DaemonSet) with Slack + LLM + GitOps + CRD policies
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
