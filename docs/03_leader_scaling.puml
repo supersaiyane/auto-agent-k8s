@@ -1,0 +1,29 @@
+@startuml
+skinparam shadowing false
+title Leader — Multi-signal Scaling (CPU + latency/errors/queue)
+
+participant "Auto-Agent (Leader)" as Leader
+participant "Prometheus" as Prom
+participant "K8s API Server" as API
+participant "GitOps Provider" as GitOps
+
+loop every 30s (leader-elected)
+  Leader -> Prom : Query CPU avg(window)
+  Leader -> Prom : Query p95 latency / error rate / queue depth
+  Leader -> Leader : Check sustained breach + cooldowns + min/max + HPA guard
+  alt Scale Up (CPU>thr AND any gate)
+    alt GitOps mode = PR
+      Leader -> GitOps : Open PR (+step)
+    else live patch
+      Leader -> API : Patch replicas (+step)
+    end
+  else Scale Down (CPU<0.30 AND no gates AND long cooldown)
+    alt GitOps mode = PR
+      Leader -> GitOps : Open PR (-step)
+    else live patch
+      Leader -> API : Patch replicas (-step)
+    end
+  else No change
+  end
+end
+@enduml

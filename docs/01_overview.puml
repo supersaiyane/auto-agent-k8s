@@ -1,0 +1,59 @@
+@startuml
+!pragma layout smetana
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam wrapWidth 200
+title Auto-Agent — Overview (click components to drill down)
+
+package "Kubernetes Cluster" {
+  node "Node A" { [Auto-Agent (DaemonSet)\nPod] as AgentA [[02_agent_remediation.svg]] }
+  node "Node B" { [Auto-Agent (DaemonSet)\nPod] as AgentB [[02_agent_remediation.svg]] }
+  node "Node C" { [Auto-Agent (DaemonSet)\nPod] as AgentC [[02_agent_remediation.svg]] }
+
+  [Leader Election\n(Lease)] as Leader
+  [K8s API Server] as APIServer
+  [AutoRemediationPolicy\nCRD + CRs] as ARP [[04_action_budget_state.svg]]
+  [Workloads\n(Deployments/RS/Pods)] as Apps
+}
+
+package "Observability" {
+  [Prometheus\n(scrape & query)] as Prom [[03_leader_scaling.svg]]
+  [/metrics\n(agent self-metrics)] as Metrics
+}
+
+package "Integrations" {
+  [Slack\n(Alerts & Approvals)] as Slack
+  [LLM Service\n(RCA suggestions)] as LLM [[02_agent_remediation.svg]]
+  [GitOps Provider\n(GitHub/GitLab PRs)] as GitOps [[03_leader_scaling.svg]]
+  [Ticketing\n(Jira / GitHub Issues)] as Tickets [[02_agent_remediation.svg]]
+  [Log Storage\n(S3 / EFS)] as Storage [[02_agent_remediation.svg]]
+}
+
+AgentA -[#blue]-> APIServer : Watch Pods/Nodes/Events
+AgentB -[#blue]-> APIServer
+AgentC -[#blue]-> APIServer
+APIServer -[#blue]-> ARP : Watch/Cache CRDs
+
+AgentA -[#green]-> Prom : Query CPU/latency/errors/queue
+AgentA -[#green]-> Metrics : Expose /metrics
+Leader -[#brown]-> AgentA : Cluster-wide actions
+
+AgentA -[#purple]-> Slack
+AgentA -[#purple]-> LLM
+AgentA -[#purple]-> Storage
+AgentA -[#purple]-> GitOps
+AgentA -[#purple]-> Tickets
+
+AgentA -[#red]-> APIServer : Delete stuck pod / Evict on pressure
+Leader -[#red]-> APIServer : Scale up/down (HPA-safe)
+APIServer -[#black]-> Apps : Recreate/scale workloads
+
+note right of ARP
+AutoRemediationPolicy
+- targetSelector
+- actions (scale/restart/bump)
+- safety (cooldowns/budgets)
+- escalation (Slack/Tickets)
+- anomalies (PromQL + z-score)
+end note
+@enduml

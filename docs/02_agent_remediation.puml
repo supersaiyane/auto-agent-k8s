@@ -1,0 +1,38 @@
+@startuml
+skinparam shadowing false
+title Auto-Agent (Node) — Pod Remediation (CrashLoop/ImagePull/OOM/Pressure)
+
+actor "K8s API Server" as API
+participant "Auto-Agent (Node)" as Agent
+participant "S3/EFS" as S3
+participant "Slack" as SlackSys
+participant "LLM Service" as LLMsvc
+
+API -> Agent : Pod Update (CrashLoop/OOM/ImagePull)
+alt CrashLoopBackOff
+  Agent -> API : Fetch last 50 logs + Events
+  Agent -> S3 : Save bundle
+  Agent -> LLMsvc : RCA suggestion
+  alt mode=fix
+    Agent -> API : Delete pod (clear backoff)
+  else suggest/observe
+    Agent -> SlackSys : Suggest (/approve)
+  end
+  Agent -> SlackSys : Notify + link + LLM
+else ImagePullBackOff
+  Agent -> API : Fetch Events
+  Agent -> S3 : Save bundle
+  Agent -> SlackSys : Suggest mirror (GitOps PR)
+  alt mode=fix
+    Agent -> API : Delete pod to retry pull
+  end
+else OOMKilled
+  Agent -> API : Fetch logs + Events
+  Agent -> S3 : Save bundle
+  Agent -> LLMsvc : Advice
+  Agent -> SlackSys : Open PR (+20% memory) or notify
+else NodePressure
+  Agent -> API : Cordon node + Evict non-critical pods
+  Agent -> SlackSys : Notify
+end
+@enduml

@@ -1,0 +1,72 @@
+@startuml
+skinparam roundcorner 8
+hide empty description
+title Policy Guarding — Action Budget & Cooldowns
+
+[*] --> Idle
+Idle --> EventDetected : Pod/Node event or scale tick
+EventDetected --> LoadPolicy : Match AutoRemediationPolicy
+LoadPolicy --> GuardCheck
+
+state GuardCheck {
+  state ModeCheck
+  state BudgetCheck
+  state CooldownCheck
+  state ApprovalCheck
+  state Allowed
+  state SuggestOnly
+  state ObserveOnly
+  state Backoff
+
+  [*] --> ModeCheck
+  ModeCheck --> BudgetCheck : mode in {fix,suggest,observe}
+  ModeCheck --> SuggestOnly : mode==suggest
+  ModeCheck --> ObserveOnly : mode==observe
+  BudgetCheck --> CooldownCheck : budget_remaining>0
+  BudgetCheck --> Backoff : budget_exhausted
+  CooldownCheck --> ApprovalCheck : cooldown_passed
+  CooldownCheck --> Backoff : cooldown_active
+  ApprovalCheck --> Allowed : !requireApproval OR approved
+  ApprovalCheck --> SuggestOnly : requireApproval && pending
+}
+
+GuardCheck --> DecideAction : Allowed
+GuardCheck --> NotifyOnly : SuggestOnly
+GuardCheck --> Idle : ObserveOnly
+GuardCheck --> Idle : Backoff
+
+state DecideAction {
+  state "PodFix?" as PodFix
+  state ExecDeletePod
+  state ExecPRMem
+  state "Scale?" as ScaleQ
+  state ExecScaleUp
+  state ExecScaleDown
+
+  [*] --> PodFix : CrashLoop/ImagePull/OOM/NodePressure
+  PodFix --> ExecDeletePod : CrashLoop/ImagePull (fix)
+  PodFix --> ExecPRMem : OOM (+20% via PR)
+  [*] --> ScaleQ : ScaleTick/Anomaly
+  ScaleQ --> ExecScaleUp : gates pass
+  ScaleQ --> ExecScaleDown : cooldown & no gates
+}
+
+DecideAction --> PersistAndNotify
+
+state PersistAndNotify {
+  state Persist
+  state LLMAsk
+  state SlackMsg
+  state TicketGate
+  state Done
+
+  [*] --> Persist : Save logs/events (S3/EFS)
+  Persist --> LLMAsk : RCA suggestion
+  LLMAsk --> SlackMsg : Slack (links/LLM)
+  SlackMsg --> TicketGate : (Jira/GitHub Issue)
+  TicketGate --> Done
+}
+
+PersistAndNotify --> Idle : set last_action_ts; budget--
+NotifyOnly --> PersistAndNotify
+@enduml

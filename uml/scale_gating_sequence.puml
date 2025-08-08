@@ -1,0 +1,27 @@
+@startuml
+skinparam shadowing false
+title Scale Up/Down — Multi-signal Gating
+
+participant "Auto-Agent (Leader)" as Leader
+participant "Prometheus" as Prom
+participant "K8s API Server" as API2
+participant "GitOps Provider" as GitOpsSvc
+
+loop every 30s
+  Leader -> Prom : Query CPU avg(window)
+  Leader -> Prom : Query p95 latency / error rate / queue depth
+  Leader -> Leader : Evaluate gates + cooldowns + min/max
+  alt Scale Up (CPU>thr AND any gate)
+    Leader -> API2 : Patch Deployment replicas +step
+    alt GitOps mode = PR
+      Leader -> GitOpsSvc : Open PR to values.yaml
+    end
+  else Scale Down (CPU<0.30 AND no gates AND long cooldown)
+    Leader -> API2 : Patch Deployment replicas -step
+    alt GitOps mode = PR
+      Leader -> GitOpsSvc : Open PR to values.yaml
+    end
+  else No change
+  end
+end
+@enduml

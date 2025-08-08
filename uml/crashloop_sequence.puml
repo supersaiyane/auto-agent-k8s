@@ -1,0 +1,23 @@
+@startuml
+skinparam shadowing false
+title CrashLoopBackOff — Remediation Flow
+
+actor "K8s API Server" as API
+participant "Auto-Agent (Node)" as Agent
+participant "S3/EFS" as S3
+participant "Slack" as SlackSys
+participant "LLM Service" as LLMsvc
+
+API -> Agent : Pod Update (CrashLoopBackOff)
+Agent -> API : Fetch last 50 logs + Events
+Agent -> S3 : Save bundle {logs,events,context}
+Agent -> LLMsvc : Diagnose (RCA hints)
+Agent -> SlackSys : Notify + link + LLM advice
+
+alt Policy Mode = fix
+  Agent -> API : Delete pod (clear backoff)
+  API --> Agent : ReplicaSet recreates pod
+else suggest/observe
+  Agent -> SlackSys : Suggest action (/approve)
+end
+@enduml
