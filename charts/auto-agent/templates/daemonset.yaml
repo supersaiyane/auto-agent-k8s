@@ -9,6 +9,10 @@ spec:
   selector:
     matchLabels:
       app: auto-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -17,6 +21,7 @@ spec:
     spec:
       serviceAccountName: auto-agent
       priorityClassName: {{ .Values.priorityClassName }}
+      terminationGracePeriodSeconds: 30
       tolerations: {{- toYaml .Values.tolerations | nindent 6 }}
       volumes:
       - name: efs-logs
@@ -31,8 +36,12 @@ spec:
           - configMapRef: { name: auto-agent-config }
           - secretRef:    { name: auto-agent-secrets }
         env:
+        - name: POD_NAME
+          valueFrom: { fieldRef: { fieldPath: metadata.name } }
         - name: POD_NAMESPACE
           valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+        - name: NODE_NAME
+          valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
         volumeMounts:
         - name: efs-logs
           mountPath: {{ .Values.logs.efs.path }}
@@ -42,8 +51,22 @@ spec:
         ports:
         - name: http
           containerPort: 8080
-        readinessProbe:
+        livenessProbe:
           httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /readyz, port: 8080 }
           initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]

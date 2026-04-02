@@ -3,15 +3,40 @@ kind: ClusterRole
 metadata:
   name: auto-agent
 rules:
+# Core resources
 - apiGroups: [""]
-  resources: ["pods","pods/status","pods/eviction","nodes","events","namespaces","configmaps"]
-  verbs: ["get","list","watch","create","patch","update","delete"]
+  resources: ["pods", "pods/log", "pods/status", "nodes", "events", "namespaces", "configmaps", "resourcequotas"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+# Apps resources
 - apiGroups: ["apps"]
-  resources: ["deployments","replicasets","statefulsets"]
-  verbs: ["get","list","watch","patch","update"]
+  resources: ["deployments", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+# Batch resources (Jobs, CronJobs)
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "delete"]
+# Autoscaling (HPA detection)
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+# Policy (PDB awareness)
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+# Leader election
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
-  verbs: ["get","list","watch","create","update"]
+  verbs: ["get", "list", "watch", "create", "update"]
+# CRD
 - apiGroups: ["autoagent.io"]
-  resources: ["autoremidiationpolicies","autoremidiationpolicies/status"]
-  verbs: ["get","list","watch","update","patch"]
+  resources: ["autoremidiationpolicies", "autoremidiationpolicies/status"]
+  verbs: ["get", "list", "watch", "update", "patch"]

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: auto-agent
-description: Per-node auto SRE agent (DaemonSet) with Slack + LLM + GitOps + CRD policies
+description: Kubernetes auto-remediation agent (DaemonSet) with rate limiting, deduplication, HPA awareness, CRD policies, and LLM diagnostics
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 1.0.0
+appVersion: "1.0.0"

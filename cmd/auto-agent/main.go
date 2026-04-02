@@ -1,75 +1,164 @@
 package main
 
 import (
-    "context"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "k8s.io/client-go/kubernetes"
-    "k8s.io/client-go/rest"
-    "k8s.io/client-go/dynamic"
-    "k8s.io/klog/v2"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 
-    "github.com/yourorg/auto-agent/internal/httpapi"
-    "github.com/yourorg/auto-agent/internal/leader"
-    "github.com/yourorg/auto-agent/internal/kube"
-    "github.com/yourorg/auto-agent/internal/metrics"
-    "github.com/yourorg/auto-agent/internal/policy"
-    "github.com/yourorg/auto-agent/internal/slack"
-    "github.com/yourorg/auto-agent/internal/llm"
-    "github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/httpapi"
+	"github.com/yourorg/auto-agent/internal/kube"
+	"github.com/yourorg/auto-agent/internal/leader"
+	"github.com/yourorg/auto-agent/internal/llm"
+	"github.com/yourorg/auto-agent/internal/metrics"
+	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/yourorg/auto-agent/internal/policy"
+	"github.com/yourorg/auto-agent/internal/ratelimit"
+	"github.com/yourorg/auto-agent/internal/slack"
+	"github.com/yourorg/auto-agent/internal/storage"
 )
 
+const version = "1.0.0"
+
 func main() {
-    klog.InitFlags(nil)
-    ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-    defer cancel()
+	klog.InitFlags(nil)
 
-    cfg, err := rest.InClusterConfig()
-    if err != nil { klog.Fatalf("in-cluster config: %v", err) }
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-    kc, err := kubernetes.NewForConfig(cfg)
-    if err != nil { klog.Fatalf("kube client: %v", err) }
-    dyn, err := dynamic.NewForConfig(cfg)
-    if err != nil { klog.Fatalf("dynamic client: %v", err) }
+	// --- Load policy ---
+	pol := policy.LoadFromEnv()
+	klog.Infof("auto-agent %s starting (mode=%s, namespaces=%v)", version, pol.Mode, namespaceList(pol))
 
-    pol := policy.LoadFromEnv()
-    sl := slack.New(os.Getenv("SLACK_WEBHOOK_URL"))
-    ll := llm.New(os.Getenv("LLM_API_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL"), pol.LLMEnabled)
+	// --- Publish info metric ---
+	obs.InfoGauge.WithLabelValues(version, string(pol.Mode)).Set(1)
 
-    mp, err := metrics.NewProviderFromEnv(ctx)
-    if err != nil { klog.Fatalf("metrics provider: %v", err) }
+	// --- HTTP server (health + metrics) ---
+	httpSrv := httpapi.NewServer(":8080")
+	go httpSrv.Start()
 
-    // health + metrics endpoint
-    go httpapi.Serve(":8080")
+	// --- Kubernetes clients ---
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		klog.Fatalf("in-cluster config: %v", err)
+	}
+	// Increase QPS for high-throughput remediation
+	cfg.QPS = 50
+	cfg.Burst = 100
 
-    // CRD controller
-    store := crd.NewStore()
-    crd.StartController(ctx, dyn, store)
+	kc, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("kube client: %v", err)
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("dynamic client: %v", err)
+	}
 
-    // leader election (for cluster-wide scaling)
-    le := leader.Start(ctx, kc, "auto-agent-leader")
+	// --- Initialize dependencies ---
+	sl := slack.New(os.Getenv("SLACK_WEBHOOK_URL"), pol.SlackTimeoutSec)
+	ll := llm.New(
+		os.Getenv("LLM_API_URL"),
+		os.Getenv("LLM_API_KEY"),
+		os.Getenv("LLM_MODEL"),
+		pol.LLMEnabled,
+		pol.LLMTimeoutSec,
+	)
 
-    // start pod watcher: node-local remediation
-    go kube.WatchPods(ctx, kc, mp, pol, sl, ll)
+	mp, err := metrics.NewProviderFromEnv(ctx)
+	if err != nil {
+		klog.Fatalf("metrics provider: %v", err)
+	}
 
-    // scaling + anomalies (leader-only)
-    go func() {
-        t := time.NewTicker(30 * time.Second)
-        defer t.Stop()
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            case <-t.C:
-                if !le.IsLeader() { continue }
-                kube.EvaluateAndScale(ctx, kc, mp, pol, sl, ll) // global policy + values
-                kube.CheckAnomalies(ctx, kc, mp, pol, sl, ll, store) // CRD-driven anomalies
-            }
-        }
-    }()
+	sink := storage.GlobalSink()
+	dedup := ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second)
+	limiter := ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute)
 
-    <-ctx.Done()
+	// CRD store + controller
+	crdStore := crd.NewStore()
+	crd.StartController(ctx, dyn, crdStore)
+
+	// --- Build dependency struct ---
+	deps := &kube.Deps{
+		Client:   kc,
+		Metrics:  mp,
+		Policy:   pol,
+		Slack:    sl,
+		LLM:     ll,
+		Dedup:    dedup,
+		Limiter:  limiter,
+		Sink:     sink,
+		CRDStore: crdStore,
+	}
+
+	// --- Leader election (for cluster-wide scaling) ---
+	le := leader.Start(ctx, kc, "auto-agent-leader")
+
+	// --- Start watchers (pod + node informers) ---
+	kube.StartWatchers(ctx, deps)
+
+	// --- Mark ready ---
+	httpSrv.SetReady()
+	sl.Postf("auto-agent %s started on node `%s` (mode=%s)", version, hostname(), pol.Mode)
+
+	// --- Leader-only periodic loops ---
+	go func() {
+		scaleTicker := time.NewTicker(30 * time.Second)
+		jobTicker := time.NewTicker(2 * time.Minute)
+		defer scaleTicker.Stop()
+		defer jobTicker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-scaleTicker.C:
+				if !le.IsLeader() {
+					continue
+				}
+				kube.EvaluateAndScale(ctx, deps)
+				kube.CheckAnomalies(ctx, deps)
+			case <-jobTicker.C:
+				if !le.IsLeader() {
+					continue
+				}
+				kube.CheckFailedJobs(ctx, deps)
+			}
+		}
+	}()
+
+	// --- Wait for shutdown ---
+	<-ctx.Done()
+	klog.Infof("shutting down...")
+
+	// Graceful shutdown with 10s deadline
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	dedup.Stop()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		klog.Warningf("http shutdown: %v", err)
+	}
+	sl.Post("auto-agent shutting down")
+	klog.Infof("auto-agent stopped")
+}
+
+func hostname() string {
+	h, _ := os.Hostname()
+	return h
+}
+
+func namespaceList(pol *policy.Policy) []string {
+	nss := make([]string, 0, len(pol.NamespaceAllow))
+	for ns := range pol.NamespaceAllow {
+		nss = append(nss, ns)
+	}
+	return nss
 }
