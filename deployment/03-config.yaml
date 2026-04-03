@@ -4,10 +4,7 @@ metadata:
   name: auto-agent-config
   namespace: auto-agent
 data:
-  # Agent mode: observe (alert only), suggest (alert + recommend), fix (auto-remediate), dry-run (simulate)
-  AUTO_MODE: "dryrun"
-
-  # Namespaces to watch (comma-separated)
+  AUTO_MODE: "fix"
   NAMESPACE_ALLOWLIST: "default,test1,test2"
 
   # Scaling
@@ -20,16 +17,26 @@ data:
   COOLDOWN_UP: "2m"
   COOLDOWN_DOWN: "10m"
 
-  # Rate limiting and safety
+  # Safety
   MAX_ACTIONS_PER_10M: "10"
   DEDUP_TTL_SECONDS: "300"
   EXCLUDED_ANNOTATION: "auto-agent.io/disable"
+  QUIET_HOURS: ""
 
-  # Metrics
-  METRICS_PROVIDER: "metrics-server"
-  PROMETHEUS_URL: ""
+  # Metrics — Prometheus (installed by deploy.sh)
+  METRICS_PROVIDER: "prometheus"
+  PROMETHEUS_URL: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
 
-  # LLM diagnosis (disabled by default)
+  # Alertmanager (installed with Prometheus)
+  ALERTMANAGER_URL: "http://prometheus-kube-prometheus-alertmanager.monitoring:9093"
+
+  # Ticketing
+  TICKETS_ENABLED: "true"
+  TICKETS_PROVIDER: "jira"
+  JIRA_BASE_URL: "https://senghgurpreett.atlassian.net"
+  JIRA_PROJECT_KEY: "SCRUM"
+
+  # LLM diagnosis
   LLM_ENABLED: "false"
   LLM_API_URL: ""
   LLM_MODEL: ""
@@ -41,23 +48,15 @@ data:
   LOG_EFS_PATH: "/var/log/auto-agent"
   LOG_S3_BUCKET: ""
   LOG_S3_PREFIX: ""
+  LOG_FORMAT: ""
   SLACK_TIMEOUT_SEC: "5"
-
-  # Quiet hours (UTC, empty = disabled). Example: "02:00-06:00"
-  QUIET_HOURS: ""
-
-  # Audit log path
   AUDIT_LOG_PATH: "/var/log/auto-agent/audit.jsonl"
 
-  # Structured JSON logging (set to "json" for ELK/Loki)
-  LOG_FORMAT: ""
+  # Cost
+  COST_PROVIDER: "kubecost"
 
-  # Cost estimation — pick ONE:
-  #   "kubecost" — auto-installs Kubecost (most accurate, free tier)
-  #   "opencost" — auto-installs OpenCost (fully open-source)
-  #   "manual"   — set COST_CPU_PER_HOUR and COST_MEM_PER_GIB_HOUR below
-  #   ""         — uses built-in instance-type lookup (40+ AWS/GCP/Azure types)
-  COST_PROVIDER: ""
+  # Learning
+  LEARNING_ENABLED: "true"
 ---
 apiVersion: v1
 kind: Secret
@@ -66,7 +65,9 @@ metadata:
   namespace: auto-agent
 type: Opaque
 stringData:
-  SLACK_WEBHOOK_URL: "REDACTED_SLACK_WEBHOOK"
+  # IMPORTANT: Set these via kubectl patch, not in this file
+  # kubectl patch secret auto-agent-secrets -n auto-agent --type merge -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://..."}}'
+  SLACK_WEBHOOK_URL: ""
   LLM_API_KEY: ""
   GIT_TOKEN: ""
   GITHUB_TOKEN: ""
