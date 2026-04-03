@@ -1,0 +1,86 @@
+##############################################################
+# TEST: Auto-Scaling
+# EXPECTED: Agent evaluates CPU metrics, scales deployment
+#           up when threshold exceeded, respects max replicas
+# NOTE: Requires Prometheus with real CPU metrics
+##############################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scale-test
+  namespace: test-apps
+  labels:
+    app: scale-test
+    test-scenario: scaling
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scale-test
+  template:
+    metadata:
+      labels:
+        app: scale-test
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo 'working'; dd if=/dev/urandom bs=1M count=10 of=/dev/null 2>/dev/null; done"]
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "100m"
+            limits:
+              memory: "64Mi"
+              cpu: "200m"
+---
+# HPA for coexistence test — agent should skip scaling this deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-protected
+  namespace: test-apps
+  labels:
+    app: hpa-protected
+    test-scenario: hpa-skip
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hpa-protected
+  template:
+    metadata:
+      labels:
+        app: hpa-protected
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "64Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hpa-protected
+  namespace: test-apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hpa-protected
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

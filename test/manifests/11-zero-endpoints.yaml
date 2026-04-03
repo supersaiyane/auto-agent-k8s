@@ -1,0 +1,20 @@
+##############################################################
+# TEST: Service with 0 Endpoints (Traffic Blackhole)
+# EXPECTED: Agent detects service with no ready endpoints,
+#           alerts about traffic blackhole
+##############################################################
+
+# Service pointing to non-existent pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackhole-svc
+  namespace: test-apps
+  labels:
+    test-scenario: zero-endpoints
+spec:
+  selector:
+    app: this-app-does-not-exist
+  ports:
+    - port: 80
+      targetPort: 8080

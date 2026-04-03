@@ -1,0 +1,38 @@
+##############################################################
+# TEST: NotReady Pod Detection
+# EXPECTED: After 3min, agent detects container running but
+#           failing readiness probe, deletes pod to restart
+##############################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notready-test
+  namespace: test-apps
+  labels:
+    app: notready-test
+    test-scenario: notready
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notready-test
+  template:
+    metadata:
+      labels:
+        app: notready-test
+    spec:
+      containers:
+        - name: unhealthy
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'Running but unhealthy'; sleep infinity"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "50m"

@@ -1,0 +1,46 @@
+##############################################################
+# TEST: Stuck Rollout (ProgressDeadlineExceeded)
+# STEPS: 1. Deploy working version
+#        2. Update to broken image
+# EXPECTED: After progressDeadlineSeconds, agent detects stuck
+#           rollout and auto-rolls back to previous revision
+##############################################################
+
+# Step 1: Deploy working version first
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rollout-test
+  namespace: test-apps
+  labels:
+    app: rollout-test
+    test-scenario: stuck-rollout
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 60
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: rollout-test
+  template:
+    metadata:
+      labels:
+        app: rollout-test
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'v1 running'; sleep infinity"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "50m"

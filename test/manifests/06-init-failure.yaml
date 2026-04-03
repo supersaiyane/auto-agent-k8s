@@ -1,0 +1,39 @@
+##############################################################
+# TEST: Init Container Failure
+# EXPECTED: Agent detects Init:Error/Init:CrashLoopBackOff,
+#           collects init container logs, alerts
+##############################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: init-fail-test
+  namespace: test-apps
+  labels:
+    app: init-fail-test
+    test-scenario: init-failure
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: init-fail-test
+  template:
+    metadata:
+      labels:
+        app: init-fail-test
+    spec:
+      initContainers:
+        - name: db-check
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'Checking database...'; sleep 2; echo 'ERROR: connection to postgres:5432 refused'; exit 1"]
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "50m"
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep", "infinity"]
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "50m"

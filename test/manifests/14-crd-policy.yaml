@@ -1,0 +1,69 @@
+##############################################################
+# TEST: CRD Policy Enforcement
+# EXPECTED: Agent respects per-workload policy:
+#           - requireApproval=true blocks automated fixes
+#           - bumpMemoryPercent=30 used in OOM PR
+#           - cooldown="10m" overrides global cooldown
+#           - Anomaly PromQL rules evaluated
+##############################################################
+apiVersion: autoagent.io/v1alpha1
+kind: AutoRemediationPolicy
+metadata:
+  name: api-policy
+  namespace: test-apps
+spec:
+  targetSelector:
+    matchLabels:
+      app: policy-test
+  actions:
+    restartStuckPods: true
+    bumpMemoryPercent: 30
+    scale:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      step: 1
+  escalation:
+    slackChannel: "#test-alerts"
+    runbookURL: "https://wiki.example.com/runbooks/api"
+    ticketing:
+      provider: github
+      projectOrRepo: "yourorg/test-repo"
+  safety:
+    cooldown: "10m"
+    maxActionsPerHour: 3
+    requireApproval: true
+  anomalies:
+    - name: high_error_rate
+      promql: 'rate(http_requests_total{status=~"5.."}[5m]) > 0.5'
+      zscoreThreshold: 2.0
+---
+# Deploy a test app matching the policy
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-test
+  namespace: test-apps
+  labels:
+    app: policy-test
+    test-scenario: crd-policy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: policy-test
+  template:
+    metadata:
+      labels:
+        app: policy-test
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          # This will crash, but CRD policy has requireApproval=true
+          # so agent should NOT auto-delete the pod
+          command: ["sh", "-c", "echo 'policy-protected app'; sleep 2; exit 1"]
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "50m"

@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-apps
+  labels:
+    purpose: auto-agent-testing
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-apps-2
+  labels:
+    purpose: auto-agent-testing
