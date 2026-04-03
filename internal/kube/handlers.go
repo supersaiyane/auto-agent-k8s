@@ -244,6 +244,14 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 
 	obs.ActionsTotal.WithLabelValues(actionType, ns, wl).Inc()
 	auditAction(deps, actionType, ns, wl, pod, reason, "success", "")
+	// Record as a "fixed" action event for the dashboard
+	recordEvent(deps, eventsvc.Event{
+		Type: eventsvc.Action, Severity: eventsvc.SevInfo,
+		Namespace: ns, Workload: wl, Pod: pod,
+		Reason:  reason,
+		Message: successMsg,
+		Action:  actionType,
+	})
 	return fmt.Sprintf("_Action_: %s.\n", successMsg)
 }
 

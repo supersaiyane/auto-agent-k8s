@@ -81,6 +81,7 @@
       <div class="tab active" data-tab="events" data-filter="">Agent Events</div>
       <div class="tab" data-tab="events" data-filter="incident">Incidents</div>
       <div class="tab" data-tab="events" data-filter="scaling">Scaling</div>
+      <div class="tab" data-tab="fixed">Fixed</div>
       <div class="tab" data-tab="cluster">Cluster</div>
       <div class="tab" data-tab="nodes">Nodes</div>
     </div>
@@ -94,6 +95,7 @@
       </div>
       <div id="k8s-event-list" class="event-list"><div class="empty">Loading...</div></div>
     </div>
+    <div id="panel-fixed" class="panel"><div id="fixed-list" class="event-list"><div class="empty">Loading...</div></div></div>
     <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
     <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
   </div>
@@ -203,6 +205,29 @@ async function fetchK8sEvents(){
 document.getElementById('k8s-ns-filter').addEventListener('change',fetchK8sEvents);
 document.getElementById('k8s-type-filter').addEventListener('change',fetchK8sEvents);
 
+// --- Fixed (successful remediations) ---
+async function fetchFixed(){
+  try{
+    const evts=await(await fetch('/api/events?limit=200&type=action')).json();
+    const el=document.getElementById('fixed-list');
+    if(!evts||!evts.length){el.innerHTML='<div class="empty">No remediations yet. Agent will show fixed issues here after taking action.</div>';return;}
+    el.innerHTML=`<div style="margin-bottom:12px;font-size:13px;color:var(--green)">
+      ${evts.length} successful remediation${evts.length>1?'s':''}</div>` +
+    evts.map(e=>{const t=new Date(e.timestamp);
+      return `<div class="event" style="border-left:3px solid var(--green)">
+        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+        <div><span class="pill pill-green">${esc(e.action||'fix')}</span></div>
+        <div>
+          ${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}
+          <span class="reason">${esc(e.reason)}</span>
+          <span style="color:var(--green)">${esc(e.message)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">${esc(e.workload||'')}</div>
+      </div>`;
+    }).join('');
+  }catch(e){document.getElementById('fixed-list').innerHTML='<div class="empty">Error</div>';}
+}
+
 // --- Cluster ---
 async function fetchCluster(){
   const cv=document.getElementById('cluster-view');
@@ -290,6 +315,7 @@ function refresh(){
   fetchStatus();fetchStats();
   if(currentTab==='events')fetchEvents();
   else if(currentTab==='k8sevents')fetchK8sEvents();
+  else if(currentTab==='fixed')fetchFixed();
   else if(currentTab==='cluster')fetchCluster();
   else if(currentTab==='nodes')fetchNodes();
 }

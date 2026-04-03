@@ -1,0 +1,65 @@
+##############################################################
+# Demo App — healthy baseline deployment
+# The test script will break this in various ways and verify
+# the agent detects and fixes each issue
+##############################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-config
+  namespace: test-apps
+data:
+  APP_MODE: "healthy"
+  DB_HOST: "postgres.test-apps.svc"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: test-apps
+  labels:
+    app: demo-app
+    team: platform
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 60
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+        team: platform
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'demo-app v1 running healthy'; while true; do sleep 10; done"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+          envFrom:
+            - configMapRef:
+                name: demo-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: test-apps
+spec:
+  selector:
+    app: demo-app
+  ports:
+    - port: 80
+      targetPort: 8080

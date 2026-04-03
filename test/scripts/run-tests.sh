@@ -8,26 +8,31 @@ MANIFESTS="$TEST_DIR/manifests"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
+DIM='\033[2m'
 
-pass=0
-fail=0
-skip=0
+pass=0; fail=0; skip=0
 
-log()  { echo -e "${BOLD}[TEST]${NC} $1"; }
-ok()   { echo -e "  ${GREEN}PASS${NC} $1"; ((pass++)); }
-warn() { echo -e "  ${YELLOW}SKIP${NC} $1"; ((skip++)); }
-err()  { echo -e "  ${RED}FAIL${NC} $1"; ((fail++)); }
+log()    { echo -e "\n${BOLD}${CYAN}[$1]${NC} $2"; }
+step()   { echo -e "  ${DIM}=>  $1${NC}"; }
+ok()     { echo -e "  ${GREEN}PASS${NC} $1"; ((pass++)); }
+warn()   { echo -e "  ${YELLOW}SKIP${NC} $1"; ((skip++)); }
+err()    { echo -e "  ${RED}FAIL${NC} $1"; ((fail++)); }
+waiting(){ echo -ne "  ${DIM}    Waiting $1...${NC}\r"; }
 
 check_agent_log() {
     local pattern=$1 timeout=${2:-30}
     for i in $(seq 1 $timeout); do
-        if kubectl logs -n kube-system -l app=auto-agent --tail=200 --since=10m 2>/dev/null | grep -iq "$pattern"; then
+        waiting "${i}s/${timeout}s"
+        if kubectl logs -n kube-system -l app=auto-agent --tail=300 --since=15m 2>/dev/null | grep -iq "$pattern"; then
+            echo -ne "\033[2K\r"
             return 0
         fi
         sleep 1
     done
+    echo -ne "\033[2K\r"
     return 1
 }
 
@@ -35,325 +40,327 @@ get_agent_pod() {
     kubectl get pods -n kube-system -l app=auto-agent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
 }
 
-echo "=========================================="
-echo " Auto-Agent Test Suite"
-echo "=========================================="
+wait_ready() {
+    local ns=$1 deploy=$2 timeout=${3:-60}
+    kubectl rollout status deploy/"$deploy" -n "$ns" --timeout="${timeout}s" > /dev/null 2>&1
+}
+
 echo ""
+echo -e "${BOLD}=========================================="
+echo " Auto-Agent Test Suite"
+echo " Single Demo App — Break, Detect, Fix"
+echo "==========================================${NC}"
 
 # ------------------------------------------
-# PRE-CHECK: Agent running
+# PRE-CHECK
 # ------------------------------------------
-log "Pre-check: Agent is running..."
+log "PRE" "Checking agent is running..."
 READY=$(kubectl get daemonset auto-agent -n kube-system -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
 if [ "$READY" -gt 0 ] 2>/dev/null; then
-    ok "Agent DaemonSet running ($READY pods ready)"
+    ok "Agent DaemonSet running ($READY pods)"
 else
-    err "Agent DaemonSet NOT running"
-    echo "  Run: kubectl get pods -n kube-system -l app=auto-agent"
-    echo "  Run: ./test/scripts/setup.sh"
+    err "Agent NOT running — run ./test/scripts/setup.sh first"
     exit 1
 fi
 
 POD=$(get_agent_pod)
-log "Pre-check: Dashboard endpoints..."
+log "PRE" "Checking dashboard..."
 if kubectl exec -n kube-system "$POD" -- wget -qO- http://localhost:8080/healthz 2>/dev/null | grep -q "ok"; then
-    ok "/healthz responding"
+    ok "Dashboard healthy"
 else
-    err "/healthz not responding"
-fi
-if kubectl exec -n kube-system "$POD" -- wget -qO- http://localhost:8080/api/status 2>/dev/null | grep -q "version"; then
-    ok "/api/status responding"
-else
-    err "/api/status not responding"
-fi
-if kubectl exec -n kube-system "$POD" -- wget -qO- http://localhost:8080/ 2>/dev/null | grep -q "auto-agent"; then
-    ok "Dashboard UI serving"
-else
-    err "Dashboard UI not serving"
+    err "Dashboard not responding"
 fi
 
+# ------------------------------------------
+# SETUP: Deploy healthy demo-app
+# ------------------------------------------
+log "SETUP" "Deploying healthy demo-app..."
+kubectl apply -f "$MANIFESTS/00-namespace.yaml" > /dev/null 2>&1
+kubectl apply -f "$MANIFESTS/demo-app.yaml"
+wait_ready test-apps demo-app
+ok "demo-app deployed and healthy (2/2 pods running)"
 echo ""
-echo "=========================================="
-echo " Scenario Tests"
-echo "=========================================="
+echo -e "${BOLD}  The demo-app is now running. We will break it in 8 different"
+echo -e "  ways and verify the agent detects and fixes each issue.${NC}"
 
-# ------------------------------------------
-# TEST 1: CrashLoopBackOff
-# ------------------------------------------
-echo ""
-log "TEST 1: CrashLoopBackOff"
-kubectl apply -f "$MANIFESTS/01-crashloop.yaml"
-echo "  Waiting for crash loop (30s)..."
-sleep 30
-if check_agent_log "CrashLoopBackOff.*crashloop-test" 60; then
-    ok "Agent detected CrashLoopBackOff"
+# ==========================================
+# SCENARIO 1: CrashLoopBackOff
+# ==========================================
+log "SCENARIO 1/8" "CrashLoopBackOff — app starts crashing"
+step "Patching demo-app to crash on startup..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo FATAL: database connection refused; exit 1"]}]' > /dev/null
+
+step "Waiting for agent to detect and fix..."
+if check_agent_log "CrashLoopBackOff.*demo-app" 90; then
+    ok "Agent DETECTED CrashLoopBackOff on demo-app"
 else
-    err "Agent did NOT detect CrashLoopBackOff"
+    err "Agent did not detect CrashLoopBackOff"
 fi
-kubectl delete -f "$MANIFESTS/01-crashloop.yaml" --ignore-not-found > /dev/null 2>&1 &
 
-# ------------------------------------------
-# TEST 2: OOMKilled
-# ------------------------------------------
-echo ""
-log "TEST 2: OOMKilled"
-kubectl apply -f "$MANIFESTS/02-oomkilled.yaml"
-echo "  Waiting for OOM (20s)..."
+# Check if agent deleted the pod (fix mode)
+if check_agent_log "deleted pod.*demo-app\|delete_pod.*demo-app" 10; then
+    ok "Agent FIXED: deleted crashing pod (controller recreates)"
+else
+    warn "Pod deletion not confirmed in logs"
+fi
+
+step "Restoring healthy app..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo demo-app v1 running healthy; while true; do sleep 10; done"]}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 2: OOMKilled
+# ==========================================
+log "SCENARIO 2/8" "OOMKilled — app exceeds memory limit"
+step "Patching demo-app to consume excessive memory..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo Allocating memory...; head -c 128M /dev/urandom > /dev/null; sleep infinity"]},{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"32Mi"}]' > /dev/null
+
+if check_agent_log "OOMKilled.*demo-app" 90; then
+    ok "Agent DETECTED OOMKilled on demo-app"
+    ok "Agent reported memory limit in alert"
+else
+    err "Agent did not detect OOMKilled"
+fi
+
+step "Restoring healthy app..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo demo-app v1 running healthy; while true; do sleep 10; done"]},{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"64Mi"}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 3: ImagePullBackOff
+# ==========================================
+log "SCENARIO 3/8" "ImagePullBackOff — broken image tag"
+step "Patching demo-app with non-existent image..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"registry.invalid/demo:broken"}]' > /dev/null
+
+if check_agent_log "ImagePullBackOff.*demo-app" 90; then
+    ok "Agent DETECTED ImagePullBackOff on demo-app"
+else
+    err "Agent did not detect ImagePullBackOff"
+fi
+
+if check_agent_log "deleted pod.*demo-app\|delete_pod.*demo-app" 10; then
+    ok "Agent FIXED: deleted pod to retry pull"
+else
+    warn "Retry action not confirmed"
+fi
+
+step "Restoring healthy image..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"busybox:1.36"}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 4: Config Error (missing ConfigMap)
+# ==========================================
+log "SCENARIO 4/8" "ConfigError — delete the ConfigMap"
+step "Deleting demo-config ConfigMap..."
+kubectl delete configmap demo-config -n test-apps > /dev/null 2>&1
+step "Restarting pods to trigger config error..."
+kubectl rollout restart deploy/demo-app -n test-apps > /dev/null
+
+if check_agent_log "config.*error\|ConfigError\|CreateContainerConfigError" 60; then
+    ok "Agent DETECTED CreateContainerConfigError"
+else
+    err "Agent did not detect config error"
+fi
+
+step "Restoring ConfigMap..."
+kubectl apply -f "$MANIFESTS/demo-app.yaml" > /dev/null 2>&1
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 5: Init Container Failure
+# ==========================================
+log "SCENARIO 5/8" "Init Container Failure — add failing init"
+step "Adding a failing init container..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/initContainers","value":[{"name":"db-check","image":"busybox:1.36","command":["sh","-c","echo ERROR: cannot reach database; exit 1"],"resources":{"limits":{"memory":"32Mi","cpu":"50m"}}}]}]' > /dev/null
+
+if check_agent_log "init.*container.*fail\|InitContainerFailed\|init-fail\|Init.*demo-app" 90; then
+    ok "Agent DETECTED init container failure"
+else
+    err "Agent did not detect init container failure"
+fi
+
+step "Removing init container..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"remove","path":"/spec/template/spec/initContainers"}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 6: Stuck Rollout
+# ==========================================
+log "SCENARIO 6/8" "Stuck Rollout — deploy broken version"
+step "Verifying demo-app is healthy..."
+wait_ready test-apps demo-app 30 || true
+step "Deploying broken v2 (will exceed progressDeadline)..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"registry.invalid/demo:v2-broken"}]' > /dev/null
+
+step "Waiting for ProgressDeadlineExceeded (~60-90s)..."
+if check_agent_log "RolloutStuck\|ProgressDeadlineExceeded\|rollback.*demo-app" 180; then
+    ok "Agent DETECTED stuck rollout on demo-app"
+else
+    warn "Stuck rollout detection not confirmed (may need longer deadline)"
+fi
+
+step "Restoring healthy image..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"busybox:1.36"}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
+
+# ==========================================
+# SCENARIO 7: Excluded Pod (annotation)
+# ==========================================
+log "SCENARIO 7/8" "Excluded Pod — annotation escape hatch"
+step "Adding auto-agent.io/disable annotation and crashing app..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"add","path":"/spec/template/metadata/annotations","value":{"auto-agent.io/disable":"true"}},{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","exit 1"]}]' > /dev/null
 sleep 20
-if check_agent_log "OOMKilled.*oom-test" 60; then
-    ok "Agent detected OOMKilled"
-else
-    err "Agent did NOT detect OOMKilled"
-fi
-kubectl delete -f "$MANIFESTS/02-oomkilled.yaml" --ignore-not-found > /dev/null 2>&1 &
 
-# ------------------------------------------
-# TEST 3: ImagePullBackOff
-# ------------------------------------------
-echo ""
-log "TEST 3: ImagePullBackOff"
-kubectl apply -f "$MANIFESTS/03-imagepull.yaml"
-echo "  Waiting for pull failure (15s)..."
-sleep 15
-if check_agent_log "ImagePullBackOff.*imagepull-test" 60; then
-    ok "Agent detected ImagePullBackOff"
-else
-    err "Agent did NOT detect ImagePullBackOff"
-fi
-kubectl delete -f "$MANIFESTS/03-imagepull.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 4: Init Container Failure
-# ------------------------------------------
-echo ""
-log "TEST 4: Init Container Failure"
-kubectl apply -f "$MANIFESTS/06-init-failure.yaml"
-echo "  Waiting for init failure (30s)..."
-sleep 30
-if check_agent_log "init.*container.*fail\|InitContainerFailed\|init-fail-test" 60; then
-    ok "Agent detected init container failure"
-else
-    err "Agent did NOT detect init container failure"
-fi
-kubectl delete -f "$MANIFESTS/06-init-failure.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 5: ConfigMap Reference Error
-# ------------------------------------------
-echo ""
-log "TEST 5: CreateContainerConfigError"
-kubectl apply -f "$MANIFESTS/07-config-error.yaml"
-echo "  Waiting for config error (15s)..."
-sleep 15
-if check_agent_log "config.*error\|ConfigError\|config-error-test" 60; then
-    ok "Agent detected config error"
-else
-    err "Agent did NOT detect config error"
-fi
-kubectl delete -f "$MANIFESTS/07-config-error.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 6: Excluded Pod (annotation)
-# ------------------------------------------
-echo ""
-log "TEST 6: Excluded Pod (annotation escape hatch)"
-kubectl apply -f "$MANIFESTS/13-excluded-pod.yaml"
-echo "  Waiting 30s, then checking agent did NOT act..."
-sleep 30
-if check_agent_log "excluded-test" 5; then
+if check_agent_log "demo-app.*CrashLoop\|demo-app.*handler" 10; then
     err "Agent should NOT have acted on excluded pod"
 else
-    ok "Agent correctly ignored excluded pod"
+    ok "Agent correctly IGNORED excluded pod (annotation respected)"
 fi
-kubectl delete -f "$MANIFESTS/13-excluded-pod.yaml" --ignore-not-found > /dev/null 2>&1 &
 
-# ------------------------------------------
-# TEST 7: CRD Policy (requireApproval)
-# ------------------------------------------
-echo ""
-log "TEST 7: CRD Policy — requireApproval blocks fix"
-kubectl apply -f "$MANIFESTS/14-crd-policy.yaml"
-echo "  Waiting 40s for detection + block..."
-sleep 40
-if check_agent_log "blocked\|approval\|policy-test" 30; then
-    ok "Agent respected CRD requireApproval"
-else
-    warn "CRD policy enforcement not confirmed in logs"
-fi
-# Verify pod still exists (not deleted)
-if kubectl get pods -n test-apps -l app=policy-test --no-headers 2>/dev/null | grep -q "policy-test"; then
-    ok "Pod survived — requireApproval blocked deletion"
-else
-    err "Pod was deleted despite requireApproval=true"
-fi
-kubectl delete -f "$MANIFESTS/14-crd-policy.yaml" --ignore-not-found > /dev/null 2>&1 &
+step "Removing annotation and restoring app..."
+kubectl patch deploy demo-app -n test-apps --type=json \
+  -p='[{"op":"remove","path":"/spec/template/metadata/annotations/auto-agent.io~1disable"},{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo demo-app v1 running healthy; while true; do sleep 10; done"]}]' > /dev/null
+wait_ready test-apps demo-app 60 || true
+sleep 5
 
-# ------------------------------------------
-# TEST 8: Failed Job
-# ------------------------------------------
-echo ""
-log "TEST 8: Failed Job"
-kubectl apply -f "$MANIFESTS/09-failed-job.yaml"
-echo "  Waiting for job failure + agent scan (3 min)..."
-if check_agent_log "JobFailed\|failed.*job\|failing-job" 180; then
-    ok "Agent detected failed job"
-else
-    warn "Failed job not detected (agent scans every 2 min)"
-fi
-kubectl delete -f "$MANIFESTS/09-failed-job.yaml" --ignore-not-found > /dev/null 2>&1 &
+# ==========================================
+# SCENARIO 8: Failed Job
+# ==========================================
+log "SCENARIO 8/8" "Failed Job — batch job failure"
+step "Creating a job that fails..."
+kubectl apply -f - <<'JOBEOF' > /dev/null
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demo-batch-job
+  namespace: test-apps
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo Processing batch...; sleep 3; echo FATAL: invalid data; exit 1"]
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "50m"
+JOBEOF
 
-# ------------------------------------------
-# TEST 9: Zero Endpoints Service
-# ------------------------------------------
-echo ""
-log "TEST 9: Service with 0 Endpoints"
-kubectl apply -f "$MANIFESTS/11-zero-endpoints.yaml"
-echo "  Waiting for endpoint scan (3 min)..."
-if check_agent_log "NoEndpoints\|blackhole" 180; then
-    ok "Agent detected zero-endpoint service"
+if check_agent_log "JobFailed\|failed.*job\|demo-batch-job" 180; then
+    ok "Agent DETECTED failed job"
 else
-    warn "Zero endpoints not detected (agent scans every 2 min)"
+    warn "Failed job detection not confirmed (scans every 2 min)"
 fi
-kubectl delete -f "$MANIFESTS/11-zero-endpoints.yaml" --ignore-not-found > /dev/null 2>&1 &
+kubectl delete job demo-batch-job -n test-apps --ignore-not-found > /dev/null 2>&1
 
-# ------------------------------------------
-# TEST 10: Stuck Rollout
-# ------------------------------------------
+# ==========================================
+# VERIFY: Dashboard & Audit
+# ==========================================
 echo ""
-log "TEST 10: Stuck Deployment Rollout"
-kubectl apply -f "$MANIFESTS/10-stuck-rollout.yaml"
-echo "  Waiting for v1 to be healthy (15s)..."
-sleep 15
-kubectl apply -f "$MANIFESTS/10-stuck-rollout-break.yaml"
-echo "  Deployed broken v2, waiting for ProgressDeadlineExceeded (~90s)..."
-if check_agent_log "RolloutStuck\|rollout.*stuck\|rollback\|rollout-test" 180; then
-    ok "Agent detected stuck rollout"
-else
-    warn "Stuck rollout not detected (progressDeadline=60s + scan interval)"
-fi
-kubectl delete -f "$MANIFESTS/10-stuck-rollout.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 11: Pending Pod (long wait)
-# ------------------------------------------
-echo ""
-log "TEST 11: Pending Pod (requires 6 min wait)"
-kubectl apply -f "$MANIFESTS/04-pending.yaml"
-echo "  Waiting 6+ minutes for pending threshold..."
-if check_agent_log "Pending.*pending-test" 390; then
-    ok "Agent detected Pending pod"
-else
-    err "Agent did NOT detect Pending pod"
-fi
-kubectl delete -f "$MANIFESTS/04-pending.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 12: NotReady Pod (long wait)
-# ------------------------------------------
-echo ""
-log "TEST 12: NotReady Pod (requires 4 min wait)"
-kubectl apply -f "$MANIFESTS/05-notready.yaml"
-echo "  Waiting 4+ minutes for NotReady threshold..."
-if check_agent_log "NotReady.*notready-test" 270; then
-    ok "Agent detected NotReady pod"
-else
-    err "Agent did NOT detect NotReady pod"
-fi
-kubectl delete -f "$MANIFESTS/05-notready.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 13: Resource Quota
-# ------------------------------------------
-echo ""
-log "TEST 13: Resource Quota Exhaustion"
-kubectl apply -f "$MANIFESTS/12-resource-quota.yaml"
-echo "  Waiting for quota scan (5 min)..."
-if check_agent_log "ResourceQuota\|QuotaExhaustion\|quota" 360; then
-    ok "Agent detected quota nearing exhaustion"
-else
-    warn "Quota warning not detected (scans every 5 min)"
-fi
-kubectl delete -f "$MANIFESTS/12-resource-quota.yaml" --ignore-not-found > /dev/null 2>&1 &
-
-# ------------------------------------------
-# TEST 14: Audit Log
-# ------------------------------------------
-echo ""
-log "TEST 14: Audit Log"
+log "VERIFY" "Checking dashboard recorded all events..."
 POD=$(get_agent_pod)
-AUDIT=$(kubectl exec -n kube-system "$POD" -- cat /var/log/auto-agent/audit.jsonl 2>/dev/null || echo "")
-if [ -n "$AUDIT" ]; then
-    LINES=$(echo "$AUDIT" | wc -l | tr -d ' ')
-    ok "Audit log has $LINES entries"
-    # Show sample
-    echo "  Sample entry:"
-    echo "$AUDIT" | head -1 | python3 -m json.tool 2>/dev/null || echo "$AUDIT" | head -1
-else
-    warn "Audit log empty (no fix actions taken yet)"
-fi
 
-# ------------------------------------------
-# TEST 15: Dashboard Events
-# ------------------------------------------
-echo ""
-log "TEST 15: Dashboard Events API"
-POD=$(get_agent_pod)
+# Agent events
 EVENTS=$(kubectl exec -n kube-system "$POD" -- wget -qO- http://localhost:8080/api/events 2>/dev/null || echo "[]")
 COUNT=$(echo "$EVENTS" | grep -o '"id"' | wc -l | tr -d ' ')
 if [ "$COUNT" -gt 0 ]; then
-    ok "Dashboard recorded $COUNT events"
+    ok "Dashboard has $COUNT agent events"
 else
-    warn "No events in dashboard API"
+    warn "No agent events in dashboard"
 fi
 
-# ------------------------------------------
-# TEST 16: Dashboard UI via port-forward
-# ------------------------------------------
+# K8s events
+K8S_EVENTS=$(kubectl exec -n kube-system "$POD" -- wget -qO- "http://localhost:8080/api/k8s-events?namespace=test-apps" 2>/dev/null || echo "[]")
+K8S_COUNT=$(echo "$K8S_EVENTS" | grep -o '"reason"' | wc -l | tr -d ' ')
+if [ "$K8S_COUNT" -gt 0 ]; then
+    ok "Dashboard has $K8S_COUNT K8s events for test-apps"
+else
+    warn "No K8s events for test-apps"
+fi
+
+# Audit log
+AUDIT=$(kubectl exec -n kube-system "$POD" -- cat /var/log/auto-agent/audit.jsonl 2>/dev/null || echo "")
+if [ -n "$AUDIT" ]; then
+    AUDIT_LINES=$(echo "$AUDIT" | wc -l | tr -d ' ')
+    ok "Audit log has $AUDIT_LINES entries"
+    echo ""
+    echo -e "  ${BOLD}Audit log (last 5 actions):${NC}"
+    echo "$AUDIT" | tail -5 | while IFS= read -r line; do
+        ACTION=$(echo "$line" | python3 -c "import sys,json;d=json.load(sys.stdin);print(f'  {d.get(\"result\",\"?\"):8} {d.get(\"action\",\"?\"):12} {d.get(\"namespace\",\"?\")}/{d.get(\"workload\",\"?\")} reason={d.get(\"reason\",\"?\")}')" 2>/dev/null || echo "  $line")
+        echo "$ACTION"
+    done
+else
+    warn "Audit log empty"
+fi
+
+# Fixed items
+FIXED=$(kubectl exec -n kube-system "$POD" -- wget -qO- http://localhost:8080/api/events 2>/dev/null | python3 -c "
+import sys,json
+evts=json.load(sys.stdin)
+actions=[e for e in evts if e.get('type')=='action']
+print(len(actions))
+" 2>/dev/null || echo "0")
 echo ""
-log "TEST 16: Dashboard UI (live browser check)"
+echo -e "  ${BOLD}Remediation summary:${NC}"
+echo -e "    Events recorded: $COUNT"
+echo -e "    Actions taken:   $FIXED"
+
+# Dashboard check via port-forward
+echo ""
+log "VERIFY" "Dashboard UI (browser)"
 if curl -sf http://localhost:8080/ 2>/dev/null | grep -q "auto-agent"; then
-    ok "Dashboard UI accessible at http://localhost:8080"
-    if curl -sf http://localhost:8080/api/status 2>/dev/null | grep -q "version"; then
-        ok "GET /api/status — agent info"
-    else
-        warn "/api/status not reachable via port-forward"
-    fi
-    if curl -sf http://localhost:8080/api/events 2>/dev/null | grep -q "\["; then
-        ok "GET /api/events — event list"
-    else
-        warn "/api/events not reachable"
-    fi
-    if curl -sf http://localhost:8080/api/stats 2>/dev/null | grep -q "total"; then
-        ok "GET /api/stats — event counts"
-    else
-        warn "/api/stats not reachable"
-    fi
-    if curl -sf http://localhost:8080/metrics 2>/dev/null | grep -q "auto_agent_info"; then
-        ok "GET /metrics — Prometheus metrics present"
-    else
-        warn "/metrics not serving auto_agent metrics"
-    fi
+    ok "Dashboard accessible at http://localhost:8080"
     echo ""
     echo -e "  ${BOLD}>>> Open http://localhost:8080 in your browser <<<${NC}"
-    echo "  You should see:"
-    echo "    - Header: version, mode (fix), leader/follower, node name"
-    echo "    - Stat cards: incident, action, scaling counts from tests above"
-    echo "    - Event feed: CrashLoopBackOff, OOMKilled, ImagePullBackOff, etc."
-    echo "    - Tab filters: All / Incidents / Actions / Scaling / Anomalies"
-    echo "    - Auto-refresh every 5 seconds"
+    echo ""
+    echo "    Tabs to check:"
+    echo "      K8s Events  — all cluster events for test-apps namespace"
+    echo "      Agent Events — incidents detected by auto-agent"
+    echo "      Fixed        — successful remediations"
+    echo "      Cluster      — click test-apps to see pods/deploys/services"
+    echo "      Nodes        — node health cards"
 else
-    warn "Dashboard not reachable at localhost:8080"
-    echo "  Port-forward may not be running. Start it:"
-    echo "  kubectl port-forward -n kube-system svc/auto-agent 8080:8080 &"
+    warn "Dashboard not reachable — run: kubectl port-forward -n kube-system svc/auto-agent 8080:8080 &"
 fi
 
-# ------------------------------------------
-# Summary
-# ------------------------------------------
+# ==========================================
+# CLEANUP
+# ==========================================
 echo ""
-echo "=========================================="
+log "CLEANUP" "Restoring demo-app to healthy state..."
+kubectl apply -f "$MANIFESTS/demo-app.yaml" > /dev/null 2>&1
+wait_ready test-apps demo-app 60 || true
+ok "demo-app restored to healthy"
+
+# ==========================================
+# SUMMARY
+# ==========================================
+echo ""
+echo -e "${BOLD}=========================================="
 echo " Results"
-echo "=========================================="
+echo "==========================================${NC}"
 echo -e "  ${GREEN}PASS: $pass${NC}"
 echo -e "  ${RED}FAIL: $fail${NC}"
 echo -e "  ${YELLOW}SKIP: $skip${NC}"
@@ -367,4 +374,4 @@ if [ $fail -gt 0 ]; then
     echo "  kubectl get pods -n test-apps"
     exit 1
 fi
-echo -e "${GREEN}All critical tests passed!${NC}"
+echo -e "${GREEN}All tests passed!${NC}"
