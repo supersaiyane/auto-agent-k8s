@@ -4,7 +4,10 @@ metadata:
   name: auto-agent-config
   namespace: auto-agent
 data:
+  # Mode: observe | suggest | fix | dry-run
   AUTO_MODE: "fix"
+
+  # Namespaces to watch
   NAMESPACE_ALLOWLIST: "default,test1,test2"
 
   # Scaling
@@ -23,18 +26,25 @@ data:
   EXCLUDED_ANNOTATION: "auto-agent.io/disable"
   QUIET_HOURS: ""
 
-  # Metrics — Prometheus (installed by deploy.sh)
+  # Prometheus (installed in monitoring namespace)
   METRICS_PROVIDER: "prometheus"
   PROMETHEUS_URL: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
 
   # Alertmanager (installed with Prometheus)
   ALERTMANAGER_URL: "http://prometheus-kube-prometheus-alertmanager.monitoring:9093"
 
-  # Ticketing
+  # Ticketing (Jira)
   TICKETS_ENABLED: "true"
   TICKETS_PROVIDER: "jira"
-  JIRA_BASE_URL: "https://senghgurpreett.atlassian.net"
-  JIRA_PROJECT_KEY: "SCRUM"
+  JIRA_BASE_URL: ""
+  JIRA_PROJECT_KEY: ""
+
+  # Cost (OpenCost installed in opencost namespace)
+  COST_PROVIDER: "opencost"
+  OPENCOST_URL: "http://opencost.opencost:9003"
+
+  # Learning mode
+  LEARNING_ENABLED: "true"
 
   # LLM diagnosis
   LLM_ENABLED: "false"
@@ -51,12 +61,6 @@ data:
   LOG_FORMAT: ""
   SLACK_TIMEOUT_SEC: "5"
   AUDIT_LOG_PATH: "/var/log/auto-agent/audit.jsonl"
-
-  # Cost
-  COST_PROVIDER: "kubecost"
-
-  # Learning
-  LEARNING_ENABLED: "true"
 ---
 apiVersion: v1
 kind: Secret
@@ -65,8 +69,9 @@ metadata:
   namespace: auto-agent
 type: Opaque
 stringData:
-  # IMPORTANT: Set these via kubectl patch, not in this file
-  # kubectl patch secret auto-agent-secrets -n auto-agent --type merge -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://..."}}'
+  # Set credentials via kubectl patch — DO NOT commit real values here
+  # kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
+  #   -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://hooks.slack.com/..."}}'
   SLACK_WEBHOOK_URL: ""
   LLM_API_KEY: ""
   GIT_TOKEN: ""
