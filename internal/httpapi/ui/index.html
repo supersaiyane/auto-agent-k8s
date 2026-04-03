@@ -8,55 +8,76 @@
     :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--green:#22c55e;--yellow:#eab308;--red:#ef4444;--orange:#f97316;--purple:#a78bfa}
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:var(--bg);color:var(--text)}
-    .header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
-    .header h1{font-size:20px;font-weight:600} .header h1 span{color:var(--accent)}
-    .status-bar{display:flex;gap:16px;align-items:center;font-size:13px}
-    .badge{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase}
+    .header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+    .header h1{font-size:18px;font-weight:600} .header h1 span{color:var(--accent)}
+    .status-bar{display:flex;gap:14px;align-items:center;font-size:12px}
+    .badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase}
     .badge-fix{background:rgba(239,68,68,.2);color:var(--red)} .badge-suggest{background:rgba(234,179,8,.2);color:var(--yellow)}
     .badge-observe{background:rgba(56,189,248,.2);color:var(--accent)} .badge-leader{background:rgba(34,197,94,.2);color:var(--green)}
-    .badge-follower{background:rgba(148,163,184,.2);color:var(--muted)}
-    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:20px 24px}
-    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
-    .stat-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-    .stat-card .value{font-size:28px;font-weight:700;margin-top:4px}
-    .stat-card .value.red{color:var(--red)} .stat-card .value.green{color:var(--green)}
-    .stat-card .value.accent{color:var(--accent)} .stat-card .value.yellow{color:var(--yellow)}
-    .uptime-tick{font-family:monospace;font-size:24px;font-weight:700;color:var(--yellow);margin-top:4px}
+    .badge-follower{background:rgba(148,163,184,.2);color:var(--muted)} .badge-dry-run{background:rgba(167,139,250,.2);color:var(--purple)}
+
+    /* Stat boxes — clickable filters */
+    .stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:16px 24px}
+    .stat-box{background:var(--surface);border:2px solid var(--border);border-radius:8px;padding:14px;cursor:pointer;transition:all .2s}
+    .stat-box:hover{border-color:var(--accent);transform:translateY(-1px)}
+    .stat-box.active{border-color:var(--accent);box-shadow:0 0 12px rgba(56,189,248,.2)}
+    .stat-box .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .stat-box .val{font-size:26px;font-weight:700;margin-top:2px}
+    .stat-box .val.red{color:var(--red)} .stat-box .val.green{color:var(--green)}
+    .stat-box .val.accent{color:var(--accent)} .stat-box .val.yellow{color:var(--yellow)} .stat-box .val.purple{color:var(--purple)}
+    .uptime{font-family:monospace;font-size:22px;font-weight:700;color:var(--yellow);margin-top:2px}
+
     .main{padding:0 24px 24px}
-    .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
-    .tab{padding:10px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s}
+    .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:14px}
+    .tab{padding:9px 18px;cursor:pointer;font-size:12px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s}
     .tab:hover{color:var(--text)} .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
     .panel{display:none} .panel.active{display:block}
-    .event-list{display:flex;flex-direction:column;gap:8px;max-height:65vh;overflow-y:auto}
-    .event{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 16px;display:grid;grid-template-columns:100px 80px 1fr auto;gap:12px;align-items:center;font-size:13px}
+
+    .event-list{display:flex;flex-direction:column;gap:6px;max-height:62vh;overflow-y:auto}
+    .event{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 14px;display:grid;grid-template-columns:90px 70px 1fr auto;gap:10px;align-items:center;font-size:12px}
     .event:hover{border-color:var(--accent)}
-    .event .time{color:var(--muted);font-size:12px;font-family:monospace}
-    .event .type{font-weight:600;font-size:11px;text-transform:uppercase}
-    .event .type.incident,.event .type.Warning{color:var(--red)} .event .type.action,.event .type.Normal{color:var(--green)}
-    .event .type.scaling{color:var(--accent)} .event .type.anomaly{color:var(--orange)} .event .type.info{color:var(--purple)}
-    .event .reason{font-weight:600;color:var(--yellow);margin-right:8px}
-    .event .ns{background:rgba(56,189,248,.15);color:var(--accent);padding:2px 8px;border-radius:4px;font-size:11px;font-family:monospace}
-    .severity-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-    .severity-dot.critical,.severity-dot.Warning{background:var(--red)} .severity-dot.warning{background:var(--yellow)}
-    .severity-dot.info,.severity-dot.Normal{background:var(--green)}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.5px;border-bottom:1px solid var(--border)}
-    td{padding:8px 12px;border-bottom:1px solid rgba(51,65,85,.5)}
+    .event .time{color:var(--muted);font-size:11px;font-family:monospace}
+    .event .type{font-weight:600;font-size:10px;text-transform:uppercase}
+    .event .type.incident{color:var(--red)} .event .type.action{color:var(--green)} .event .type.scaling{color:var(--accent)}
+    .event .reason{font-weight:600;color:var(--yellow);margin-right:6px}
+    .event .ns{background:rgba(56,189,248,.15);color:var(--accent);padding:1px 6px;border-radius:3px;font-size:10px;font-family:monospace}
+    .severity-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+    .severity-dot.critical{background:var(--red)} .severity-dot.warning{background:var(--yellow)} .severity-dot.info{background:var(--accent)}
+
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th{text-align:left;padding:7px 10px;color:var(--muted);font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+    td{padding:7px 10px;border-bottom:1px solid rgba(51,65,85,.5)}
     tr:hover td{background:rgba(56,189,248,.05)}
     .ns-row{cursor:pointer} .ns-row:hover td{background:rgba(56,189,248,.1)}
-    .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+    .pill{display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600}
     .pill-green{background:rgba(34,197,94,.2);color:var(--green)} .pill-red{background:rgba(239,68,68,.2);color:var(--red)}
     .pill-yellow{background:rgba(234,179,8,.2);color:var(--yellow)} .pill-blue{background:rgba(56,189,248,.2);color:var(--accent)}
     .pill-muted{background:rgba(148,163,184,.15);color:var(--muted)}
-    .back-btn{cursor:pointer;color:var(--accent);font-size:13px;margin-bottom:12px;display:inline-block}
+    .back-btn{cursor:pointer;color:var(--accent);font-size:12px;margin-bottom:10px;display:inline-block}
     .back-btn:hover{text-decoration:underline}
-    .node-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-    .node-card .nn{font-weight:600;font-size:15px} .node-card .nd{font-size:12px;color:var(--muted);margin-top:4px}
-    .empty{text-align:center;color:var(--muted);padding:60px;font-size:14px}
-    .k8s-count{font-size:11px;color:var(--muted);margin-left:4px}
-    .filter-bar{display:flex;gap:8px;margin-bottom:12px;align-items:center}
-    .filter-bar select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px}
-    @media(max-width:768px){.grid{grid-template-columns:repeat(2,1fr)}.event{grid-template-columns:1fr;gap:4px}.node-card{grid-template-columns:1fr}}
+    .node-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    .node-card .nn{font-weight:600;font-size:14px} .node-card .nd{font-size:11px;color:var(--muted);margin-top:3px}
+    .empty{text-align:center;color:var(--muted);padding:50px;font-size:13px}
+    .filter-bar{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+    .filter-bar select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:11px}
+
+    /* Charts */
+    .chart-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+    .chart-card h4{font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:12px}
+    .pie-container{position:relative;width:180px;height:180px;margin:0 auto}
+    .pie-container canvas{width:180px!important;height:180px!important}
+    .bar-container{height:200px;position:relative}
+    .bar{display:flex;align-items:flex-end;gap:4px;height:170px;padding-top:10px}
+    .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .bar-fill{width:100%;border-radius:3px 3px 0 0;min-height:2px;transition:height .3s}
+    .bar-label{font-size:9px;color:var(--muted);text-align:center;word-break:break-all}
+    .bar-val{font-size:10px;font-weight:600}
+    .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:10px}
+    .legend-item{display:flex;align-items:center;gap:4px}
+    .legend-dot{width:8px;height:8px;border-radius:50%}
+
+    @media(max-width:768px){.stat-row{grid-template-columns:repeat(2,1fr)}.chart-row{grid-template-columns:1fr}.event{grid-template-columns:1fr;gap:3px}.node-card{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -69,548 +90,401 @@
       <span id="node-name" style="color:var(--muted);font-family:monospace"></span>
     </div>
   </div>
-  <div class="grid">
-    <div class="stat-card"><div class="label">Incidents</div><div class="value red" id="stat-incidents">-</div></div>
-    <div class="stat-card"><div class="label">Actions</div><div class="value green" id="stat-actions">-</div></div>
-    <div class="stat-card"><div class="label">Scaling</div><div class="value accent" id="stat-scaling">-</div></div>
-    <div class="stat-card"><div class="label">Uptime</div><div class="uptime-tick" id="stat-uptime">00:00:00</div></div>
+
+  <!-- Clickable stat boxes — clicking filters the event list below -->
+  <div class="stat-row">
+    <div class="stat-box active" id="box-all" onclick="filterBy('all')">
+      <div class="label">Total Events</div><div class="val accent" id="stat-total">-</div>
+    </div>
+    <div class="stat-box" id="box-incident" onclick="filterBy('incident')">
+      <div class="label">Incidents</div><div class="val red" id="stat-incidents">-</div>
+    </div>
+    <div class="stat-box" id="box-action" onclick="filterBy('action')">
+      <div class="label">Actions</div><div class="val green" id="stat-actions">-</div>
+    </div>
+    <div class="stat-box" id="box-scaling" onclick="filterBy('scaling')">
+      <div class="label">Scaling</div><div class="val purple" id="stat-scaling">-</div>
+    </div>
+    <div class="stat-box" id="box-uptime">
+      <div class="label">Uptime</div><div class="uptime" id="stat-uptime">00:00:00</div>
+    </div>
   </div>
+
   <div class="main">
     <div class="tabs">
+      <div class="tab active" data-tab="events">Events</div>
       <div class="tab" data-tab="k8sevents">K8s Events</div>
-      <div class="tab active" data-tab="events" data-filter="">Agent Events</div>
-      <div class="tab" data-tab="events" data-filter="incident">Incidents</div>
-      <div class="tab" data-tab="events" data-filter="scaling">Scaling</div>
-      <div class="tab" data-tab="fixed">Fixed</div>
+      <div class="tab" data-tab="actions">Actions</div>
+      <div class="tab" data-tab="charts">Charts</div>
+      <div class="tab" data-tab="report">Report</div>
       <div class="tab" data-tab="cluster">Cluster</div>
       <div class="tab" data-tab="nodes">Nodes</div>
       <div class="tab" data-tab="cost">Cost</div>
       <div class="tab" data-tab="resources">Resources</div>
       <div class="tab" data-tab="terminal">Terminal</div>
     </div>
+
     <div id="panel-events" class="panel active"><div id="event-list" class="event-list"><div class="empty">Connecting...</div></div></div>
     <div id="panel-k8sevents" class="panel">
       <div class="filter-bar">
-        <label style="font-size:12px;color:var(--muted)">Namespace:</label>
+        <label style="font-size:11px;color:var(--muted)">Namespace:</label>
         <select id="k8s-ns-filter"><option value="">All</option></select>
-        <label style="font-size:12px;color:var(--muted)">Type:</label>
+        <label style="font-size:11px;color:var(--muted)">Type:</label>
         <select id="k8s-type-filter"><option value="">All</option><option value="Warning">Warning</option><option value="Normal">Normal</option></select>
       </div>
       <div id="k8s-event-list" class="event-list"><div class="empty">Loading...</div></div>
     </div>
-    <div id="panel-fixed" class="panel"><div id="fixed-list" class="event-list"><div class="empty">Loading...</div></div></div>
+    <div id="panel-actions" class="panel"><div id="actions-view"><div class="empty">Loading...</div></div></div>
+    <div id="panel-charts" class="panel"><div id="charts-view"></div></div>
+    <div id="panel-report" class="panel"><div id="report-view"><div class="empty">Loading...</div></div></div>
     <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
     <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
-    <div id="panel-cost" class="panel"><div id="cost-view"><div class="empty">Loading cost data...</div></div></div>
+    <div id="panel-cost" class="panel"><div id="cost-view"><div class="empty">Loading...</div></div></div>
     <div id="panel-resources" class="panel"><div id="resources-view"><div class="empty">Loading...</div></div></div>
     <div id="panel-terminal" class="panel">
-      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Courier New',monospace;font-size:13px;height:70vh;display:flex;flex-direction:column">
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px;font-family:'Courier New',monospace;font-size:12px;height:68vh;display:flex;flex-direction:column">
         <div id="term-output" style="flex:1;overflow-y:auto;white-space:pre-wrap;color:#c9d1d9;padding-bottom:8px"></div>
         <div style="display:flex;align-items:center;border-top:1px solid var(--border);padding-top:8px">
-          <span style="color:var(--green);margin-right:8px;font-weight:bold">$</span>
+          <span style="color:var(--green);margin-right:6px;font-weight:bold">$</span>
           <span style="color:var(--muted);margin-right:4px">kubectl</span>
-          <input id="term-input" type="text" placeholder="get pods -n test-apps" autocomplete="off" spellcheck="false"
-            style="flex:1;background:transparent;border:none;color:#c9d1d9;font-family:inherit;font-size:13px;outline:none">
+          <input id="term-input" type="text" placeholder="get pods -n default" autocomplete="off" spellcheck="false"
+            style="flex:1;background:transparent;border:none;color:#c9d1d9;font-family:inherit;font-size:12px;outline:none">
         </div>
       </div>
-      <div style="margin-top:8px;font-size:11px;color:var(--muted)">
-        Type <strong style="color:var(--accent)">help</strong> for supported commands.
-        Supports: get, describe, logs, top, version. No write operations.
-      </div>
+      <div style="margin-top:6px;font-size:10px;color:var(--muted)">Type <strong style="color:var(--accent)">help</strong> for commands. Supports: get, describe, logs, version.</div>
     </div>
   </div>
-<script>
-let currentTab='events',currentFilter='',selectedNs=null,startedAt=null;
 
+<script>
+let currentTab='events',currentFilter='',selectedNs=null,selectedResNs=null,startedAt=null,allEventsCache=[];
+
+// --- Stat box click filtering ---
+function filterBy(type){
+  document.querySelectorAll('.stat-box').forEach(b=>b.classList.remove('active'));
+  document.getElementById('box-'+type).classList.add('active');
+  currentFilter=type==='all'?'':type;
+  currentTab='events';
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('[data-tab="events"]').classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-events').classList.add('active');
+  fetchEvents();
+}
+
+// --- Tab switching ---
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     tab.classList.add('active');
-    currentTab=tab.dataset.tab; currentFilter=tab.dataset.filter||''; selectedNs=null;
+    currentTab=tab.dataset.tab;
+    selectedNs=null;selectedResNs=null;
     document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
     document.getElementById('panel-'+currentTab).classList.add('active');
-    if(currentTab==='terminal')focusTerminal();
+    if(currentTab==='terminal')setTimeout(()=>{const i=document.getElementById('term-input');if(i)i.focus();},100);
     refresh();
   });
 });
 
-// --- Live uptime ticker ---
-function tickUptime(){
+// --- Uptime ---
+setInterval(()=>{
   if(!startedAt)return;
-  const diff=Math.floor((Date.now()-startedAt)/1000);
-  const h=Math.floor(diff/3600), m=Math.floor((diff%3600)/60), s=diff%60;
-  document.getElementById('stat-uptime').textContent=
-    String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
-}
-setInterval(tickUptime,1000);
+  const d=Math.floor((Date.now()-startedAt)/1000);
+  const h=Math.floor(d/3600),m=Math.floor((d%3600)/60),s=d%60;
+  document.getElementById('stat-uptime').textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+},1000);
 
 async function fetchStatus(){
   try{
     const d=await(await fetch('/api/status')).json();
     document.getElementById('version').textContent='v'+d.version;
     document.getElementById('node-name').textContent=d.nodeName||'';
-    const mb=document.getElementById('mode-badge');
-    mb.textContent=d.mode;mb.className='badge badge-'+d.mode;
+    const mb=document.getElementById('mode-badge');mb.textContent=d.mode;mb.className='badge badge-'+d.mode;
     const lb=document.getElementById('leader-badge');
-    lb.textContent=d.isLeader?'leader':'follower';
-    lb.className='badge '+(d.isLeader?'badge-leader':'badge-follower');
-    if(d.startedAt&&!startedAt){startedAt=new Date(d.startedAt).getTime();tickUptime();}
+    lb.textContent=d.isLeader?'leader':'follower';lb.className='badge '+(d.isLeader?'badge-leader':'badge-follower');
+    if(d.startedAt&&!startedAt)startedAt=new Date(d.startedAt).getTime();
   }catch(e){}
 }
 async function fetchStats(){
   try{
     const d=await(await fetch('/api/stats')).json();
+    document.getElementById('stat-total').textContent=d.total||0;
     document.getElementById('stat-incidents').textContent=d.byType?.incident||0;
     document.getElementById('stat-actions').textContent=d.byType?.action||0;
     document.getElementById('stat-scaling').textContent=d.byType?.scaling||0;
   }catch(e){}
 }
 
-// --- Agent Events ---
+// --- Events ---
 async function fetchEvents(){
   try{
-    let url='/api/events?limit=100';
+    let url='/api/events?limit=200';
     if(currentFilter)url+='&type='+currentFilter;
     const evts=await(await fetch(url)).json();
+    allEventsCache=evts;
     const el=document.getElementById('event-list');
-    if(!evts||!evts.length){el.innerHTML='<div class="empty">No agent events yet. Deploy test workloads to trigger incidents.</div>';return;}
+    if(!evts||!evts.length){el.innerHTML='<div class="empty">No events'+(currentFilter?' of type "'+currentFilter+'"':'')+'. Deploy test workloads to trigger.</div>';return;}
     el.innerHTML=evts.map(e=>{const t=new Date(e.timestamp);
-      return `<div class="event">
-        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+      return `<div class="event"><div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
         <div><span class="severity-dot ${e.severity||'info'}"></span><span class="type ${e.type}">${e.type}</span></div>
-        <div>${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}<span class="reason">${esc(e.reason)}</span> ${esc(trunc(e.message,100))}</div>
-        <div style="font-size:12px">${e.logUrl?`<a href="${esc(e.logUrl)}" style="color:var(--accent)">logs</a> `:''}${e.prUrl?`<a href="${esc(e.prUrl)}" style="color:var(--accent)">PR</a>`:''}</div>
-      </div>`;
+        <div>${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}<span class="reason">${esc(e.reason)}</span> ${esc(trunc(e.message,90))}</div>
+        <div style="font-size:11px">${e.logUrl?`<a href="${esc(e.logUrl)}" style="color:var(--accent)">logs</a> `:''}${e.action?`<span class="pill pill-green">${esc(e.action)}</span>`:''}</div></div>`;
     }).join('');
   }catch(e){document.getElementById('event-list').innerHTML='<div class="empty">Error</div>';}
 }
 
-// --- K8s Events (from cluster) ---
+// --- K8s Events ---
 async function fetchK8sEvents(){
   try{
-    const nsFilter=document.getElementById('k8s-ns-filter').value;
-    const typeFilter=document.getElementById('k8s-type-filter').value;
-    let url='/api/k8s-events';
-    if(nsFilter)url+='?namespace='+nsFilter;
-    const evts=await(await fetch(url)).json();
-    const el=document.getElementById('k8s-event-list');
-
-    // Populate namespace dropdown if empty
+    const nsF=document.getElementById('k8s-ns-filter').value;
+    const tpF=document.getElementById('k8s-type-filter').value;
+    let url='/api/k8s-events';if(nsF)url+='?namespace='+nsF;
+    let evts=await(await fetch(url)).json();
     const sel=document.getElementById('k8s-ns-filter');
-    if(sel.options.length<=1){
-      const nss=[...new Set(evts.map(e=>e.namespace))].sort();
-      nss.forEach(ns=>{const o=document.createElement('option');o.value=ns;o.textContent=ns;sel.appendChild(o);});
-    }
-
-    let filtered=evts;
-    if(typeFilter)filtered=filtered.filter(e=>e.type===typeFilter);
-
-    if(!filtered||!filtered.length){el.innerHTML='<div class="empty">No events</div>';return;}
-    el.innerHTML=filtered.map(e=>{
-      const t=new Date(e.timestamp);
-      const isWarn=e.type==='Warning';
-      return `<div class="event">
-        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-        <div><span class="severity-dot ${isWarn?'Warning':'Normal'}"></span><span class="type ${e.type}">${e.type}</span></div>
-        <div>
-          <span class="ns">${esc(e.namespace)}</span>
-          <span style="color:var(--muted);font-size:11px">${esc(e.kind)}/</span><span class="reason">${esc(e.name)}</span>
-          ${esc(trunc(e.message,120))}
-          ${e.count>1?`<span class="k8s-count">x${e.count}</span>`:''}
-        </div>
-        <div style="font-size:12px;color:var(--muted)">${esc(e.reason)}<br>${esc(e.source)}</div>
-      </div>`;
+    if(sel.options.length<=1){[...new Set(evts.map(e=>e.namespace))].sort().forEach(ns=>{const o=document.createElement('option');o.value=ns;o.textContent=ns;sel.appendChild(o);});}
+    if(tpF)evts=evts.filter(e=>e.type===tpF);
+    const el=document.getElementById('k8s-event-list');
+    if(!evts||!evts.length){el.innerHTML='<div class="empty">No events</div>';return;}
+    el.innerHTML=evts.map(e=>{const t=new Date(e.timestamp);const w=e.type==='Warning';
+      return `<div class="event"><div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+        <div><span class="severity-dot ${w?'critical':'info'}"></span><span class="type ${e.type}">${e.type}</span></div>
+        <div><span class="ns">${esc(e.namespace)}</span> <span style="color:var(--muted);font-size:10px">${esc(e.kind)}/</span><span class="reason">${esc(e.name)}</span> ${esc(trunc(e.message,90))}${e.count>1?` <span style="color:var(--muted)">x${e.count}</span>`:''}</div>
+        <div style="font-size:10px;color:var(--muted)">${esc(e.reason)}</div></div>`;
     }).join('');
-  }catch(e){document.getElementById('k8s-event-list').innerHTML='<div class="empty">Failed to load</div>';}
+  }catch(e){document.getElementById('k8s-event-list').innerHTML='<div class="empty">Error</div>';}
 }
 document.getElementById('k8s-ns-filter').addEventListener('change',fetchK8sEvents);
 document.getElementById('k8s-type-filter').addEventListener('change',fetchK8sEvents);
 
-// --- Fixed (successful remediations) ---
-async function fetchFixed(){
+// --- Actions (was Fixed) ---
+async function fetchActions(){
+  const av=document.getElementById('actions-view');
   try{
     const d=await(await fetch('/api/fixes')).json();
-    const el=document.getElementById('fixed-list');
-    let h='';
-
-    // Summary cards
-    h+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      <div class="stat-card"><div class="label">Verified Fixed</div><div class="value green">${d.fixedCount||0}</div></div>
-      <div class="stat-card"><div class="label">Pending Verification</div><div class="value yellow">${d.pendingCount||0}</div></div>
-      <div class="stat-card"><div class="label">Not Fixed</div><div class="value red">${d.failedCount||0}</div></div>
+    let h=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+      <div class="stat-box" style="cursor:default"><div class="label">Verified Fixed</div><div class="val green">${d.fixedCount||0}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Pending</div><div class="val yellow">${d.pendingCount||0}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Not Fixed</div><div class="val red">${d.failedCount||0}</div></div>
     </div>`;
-
-    // Verified fixes
     const fixed=d.fixed||[];
     if(fixed.length){
-      h+=`<h4 style="margin:12px 0 8px;color:var(--green);font-size:12px;text-transform:uppercase">Verified Fixes (${fixed.length})</h4>`;
-      h+=fixed.map(f=>{const t=new Date(f.timestamp);const v=new Date(f.verifiedAt);
-        return `<div class="event" style="border-left:3px solid var(--green)">
-          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-          <div><span class="pill pill-green">FIXED</span></div>
-          <div>
-            <span class="ns">${esc(f.namespace)}</span>
-            <span class="reason">${esc(f.reason)}</span>
-            <span style="color:var(--green)">Action: ${esc(f.action)} &rarr; ${esc(f.detail)}</span>
-          </div>
-          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)} &middot; verified ${v.toLocaleTimeString()}</div>
-        </div>`;
-      }).join('');
+      h+=`<h4 style="margin:10px 0 6px;color:var(--green);font-size:11px;text-transform:uppercase">Verified Fixes (${fixed.length})</h4>`;
+      h+=fixed.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--green)">
+        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+        <div><span class="pill pill-green">FIXED</span></div>
+        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--green)">${esc(f.detail)}</span></div>
+        <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
     }
-
-    // Pending verification
     const pending=d.pending||[];
     if(pending.length){
-      h+=`<h4 style="margin:20px 0 8px;color:var(--yellow);font-size:12px;text-transform:uppercase">Pending Verification (${pending.length})</h4>`;
-      h+=pending.map(f=>{const t=new Date(f.timestamp);
-        return `<div class="event" style="border-left:3px solid var(--yellow)">
-          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-          <div><span class="pill pill-yellow">VERIFYING</span></div>
-          <div>
-            <span class="ns">${esc(f.namespace)}</span>
-            <span class="reason">${esc(f.reason)}</span>
-            Action: ${esc(f.action)} &mdash; waiting for pods to recover...
-          </div>
-          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)}</div>
-        </div>`;
-      }).join('');
+      h+=`<h4 style="margin:14px 0 6px;color:var(--yellow);font-size:11px;text-transform:uppercase">Pending (${pending.length})</h4>`;
+      h+=pending.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--yellow)">
+        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+        <div><span class="pill pill-yellow">VERIFYING</span></div>
+        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> ${esc(f.action)} — waiting...</div>
+        <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
     }
-
-    // Failed fixes
     const failed=d.failed||[];
     if(failed.length){
-      h+=`<h4 style="margin:20px 0 8px;color:var(--red);font-size:12px;text-transform:uppercase">Not Fixed (${failed.length})</h4>`;
-      h+=failed.map(f=>{const t=new Date(f.timestamp);
-        return `<div class="event" style="border-left:3px solid var(--red)">
-          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-          <div><span class="pill pill-red">NOT FIXED</span></div>
-          <div>
-            <span class="ns">${esc(f.namespace)}</span>
-            <span class="reason">${esc(f.reason)}</span>
-            Action: ${esc(f.action)} &mdash; <span style="color:var(--red)">${esc(f.detail)}</span>
-          </div>
-          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)}</div>
-        </div>`;
-      }).join('');
+      h+=`<h4 style="margin:14px 0 6px;color:var(--red);font-size:11px;text-transform:uppercase">Not Fixed (${failed.length})</h4>`;
+      h+=failed.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--red)">
+        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+        <div><span class="pill pill-red">FAILED</span></div>
+        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--red)">${esc(f.detail)}</span></div>
+        <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
     }
-
-    if(!fixed.length&&!pending.length&&!failed.length){
-      h+='<div class="empty">No remediation actions yet. Deploy failing workloads and set agent to fix mode.</div>';
-    }
-    el.innerHTML=h;
-  }catch(e){document.getElementById('fixed-list').innerHTML='<div class="empty">Error loading fixes</div>';}
+    if(!fixed.length&&!pending.length&&!failed.length)h+='<div class="empty">No actions yet. Agent will show remediation results here.</div>';
+    av.innerHTML=h;
+  }catch(e){av.innerHTML='<div class="empty">Error</div>';}
 }
 
-// --- Cluster ---
-async function fetchCluster(){
-  const cv=document.getElementById('cluster-view');
+// --- Charts ---
+async function fetchCharts(){
+  const cv=document.getElementById('charts-view');
   try{
-    if(selectedNs){await fetchNsDetail(selectedNs);return;}
-    const data=await(await fetch('/api/cluster')).json();
-    if(!data||!data.length){cv.innerHTML='<div class="empty">No namespaces</div>';return;}
-    cv.innerHTML=`<table>
-      <tr><th>Namespace</th><th>Pods</th><th>Running</th><th>Pending</th><th>Failed</th><th>CrashLoop</th><th>NotReady</th><th>Deploys</th><th>Svcs</th><th>Jobs</th></tr>
-      ${data.map(ns=>`<tr class="ns-row" onclick="selNs('${esc(ns.name)}')">
-        <td><strong>${esc(ns.name)}</strong></td><td>${ns.pods.total}</td>
-        <td>${ns.pods.running?`<span class="pill pill-green">${ns.pods.running}</span>`:'<span class="pill pill-muted">0</span>'}</td>
-        <td>${ns.pods.pending?`<span class="pill pill-yellow">${ns.pods.pending}</span>`:'0'}</td>
-        <td>${ns.pods.failed?`<span class="pill pill-red">${ns.pods.failed}</span>`:'0'}</td>
-        <td>${ns.pods.crashLoop?`<span class="pill pill-red">${ns.pods.crashLoop}</span>`:'0'}</td>
-        <td>${ns.pods.notReady?`<span class="pill pill-yellow">${ns.pods.notReady}</span>`:'0'}</td>
-        <td>${ns.deployments}</td><td>${ns.services}</td><td>${ns.jobs}</td>
-      </tr>`).join('')}</table>`;
-  }catch(e){cv.innerHTML='<div class="empty">Failed</div>';}
-}
-function selNs(ns){selectedNs=ns;fetchCluster();}
-function backNs(){selectedNs=null;fetchCluster();}
-async function fetchNsDetail(ns){
-  const cv=document.getElementById('cluster-view');
-  try{
-    const d=await(await fetch('/api/namespace/'+ns)).json();
-    let h=`<div class="back-btn" onclick="backNs()">&#8592; All namespaces</div>`;
-    h+=`<h3 style="margin-bottom:16px;font-size:16px">Namespace: <span style="color:var(--accent)">${esc(ns)}</span></h3>`;
-    h+=`<h4 style="margin:12px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Pods (${d.pods?.length||0})</h4>`;
-    if(d.pods&&d.pods.length){
-      h+=`<table><tr><th>Name</th><th>Ready</th><th>Status</th><th>Restarts</th><th>Node</th><th>IP</th><th>Age</th></tr>`;
-      h+=d.pods.map(p=>{
-        let sc='pill-green';
-        if(p.status==='CrashLoopBackOff'||p.status==='Error'||p.status==='OOMKilled'||p.phase==='Failed')sc='pill-red';
-        else if(p.status==='Pending'||p.status.startsWith('Init:')||p.status==='ContainerCreating')sc='pill-yellow';
-        else if(p.status!=='Running')sc='pill-muted';
-        return `<tr><td style="font-family:monospace;font-size:12px">${esc(p.name)}</td><td>${p.ready}</td>
-          <td><span class="pill ${sc}">${esc(p.status)}</span></td>
-          <td>${p.restarts>0?`<span style="color:var(--yellow)">${p.restarts}</span>`:'0'}</td>
-          <td style="font-size:12px;color:var(--muted)">${esc(p.node)}</td>
-          <td style="font-family:monospace;font-size:11px;color:var(--muted)">${esc(p.ip)}</td><td>${p.age}</td></tr>`;
-      }).join('');
-      h+='</table>';
-    } else h+='<div style="color:var(--muted);padding:12px">No pods</div>';
-    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Deployments (${d.deployments?.length||0})</h4>`;
-    if(d.deployments&&d.deployments.length){
-      h+=`<table><tr><th>Name</th><th>Ready</th><th>Up-to-date</th><th>Available</th><th>Age</th></tr>`;
-      h+=d.deployments.map(dep=>`<tr><td><strong>${esc(dep.name)}</strong></td><td>${dep.ready}</td><td>${dep.upToDate}</td><td>${dep.available}</td><td>${dep.age}</td></tr>`).join('');
-      h+='</table>';
+    const [stats,fixes,resources,cost]=await Promise.all([
+      fetch('/api/events?limit=500').then(r=>r.json()),
+      fetch('/api/fixes').then(r=>r.json()),
+      fetch('/api/resources').then(r=>r.json()),
+      fetch('/api/cost').then(r=>r.json()),
+    ]);
+
+    // Aggregate data
+    const byReason={},byNs={},byType={incident:0,action:0,scaling:0,info:0};
+    (stats||[]).forEach(e=>{
+      byReason[e.reason]=(byReason[e.reason]||0)+1;
+      if(e.namespace)byNs[e.namespace]=(byNs[e.namespace]||0)+1;
+      byType[e.type]=(byType[e.type]||0)+1;
+    });
+
+    let h='<div class="chart-row">';
+
+    // PIE 1: Events by Type
+    h+=`<div class="chart-card"><h4>Events by Type</h4>${renderPie([
+      {label:'Incidents',value:byType.incident,color:'#ef4444'},
+      {label:'Actions',value:byType.action,color:'#22c55e'},
+      {label:'Scaling',value:byType.scaling,color:'#a78bfa'},
+      {label:'Info',value:byType.info||0,color:'#38bdf8'},
+    ])}</div>`;
+
+    // PIE 2: Fix Status
+    h+=`<div class="chart-card"><h4>Remediation Status</h4>${renderPie([
+      {label:'Fixed',value:fixes?.fixedCount||0,color:'#22c55e'},
+      {label:'Pending',value:fixes?.pendingCount||0,color:'#eab308'},
+      {label:'Failed',value:fixes?.failedCount||0,color:'#ef4444'},
+    ])}</div>`;
+
+    // PIE 3: Resource Efficiency
+    let totRight=0,totOver=0,totUnder=0,totNoLim=0;
+    (resources||[]).forEach(ns=>{totRight+=ns.healthy||0;totOver+=ns.overuse||0;totUnder+=ns.underuse||0;totNoLim+=ns.noLimits||0;});
+    h+=`<div class="chart-card"><h4>Pod Sizing</h4>${renderPie([
+      {label:'Right-sized',value:totRight,color:'#22c55e'},
+      {label:'Overuse',value:totOver,color:'#ef4444'},
+      {label:'Underuse',value:totUnder,color:'#eab308'},
+      {label:'No Limits',value:totNoLim,color:'#f97316'},
+    ])}</div>`;
+
+    h+='</div><div class="chart-row">';
+
+    // BAR: Top 10 Issues by Reason
+    const topReasons=Object.entries(byReason).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    h+=`<div class="chart-card" style="grid-column:span 2"><h4>Top Issues by Reason</h4>${renderBar(topReasons)}</div>`;
+
+    // BAR: Events by Namespace
+    const topNs=Object.entries(byNs).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    h+=`<div class="chart-card"><h4>Events by Namespace</h4>${renderBar(topNs,'#38bdf8')}</div>`;
+
+    h+='</div>';
+
+    // Cost bar
+    if(cost&&cost.namespaces){
+      const costNs=cost.namespaces.filter(n=>n.monthly>0).sort((a,b)=>b.monthly-a.monthly).slice(0,8);
+      h+=`<div class="chart-row"><div class="chart-card" style="grid-column:span 3"><h4>Monthly Cost by Namespace ($)</h4>${renderBar(costNs.map(n=>[n.name,n.monthly]),'#22c55e')}</div></div>`;
     }
-    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Services (${d.services?.length||0})</h4>`;
-    if(d.services&&d.services.length){
-      h+=`<table><tr><th>Name</th><th>Type</th><th>Cluster-IP</th><th>Ports</th><th>Age</th></tr>`;
-      h+=d.services.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td><span class="pill pill-blue">${esc(s.type)}</span></td><td style="font-family:monospace;font-size:12px">${esc(s.clusterIP)}</td><td>${esc(s.ports)}</td><td>${s.age}</td></tr>`).join('');
-      h+='</table>';
-    }
+
     cv.innerHTML=h;
-  }catch(e){cv.innerHTML='<div class="empty">Failed</div>';}
+  }catch(e){cv.innerHTML='<div class="empty">Failed to load charts</div>';}
 }
 
-// --- Nodes ---
-async function fetchNodes(){
-  const nv=document.getElementById('nodes-view');
-  try{
-    const nodes=await(await fetch('/api/nodes')).json();
-    if(!nodes||!nodes.length){nv.innerHTML='<div class="empty">No nodes</div>';return;}
-    nv.innerHTML=nodes.map(n=>{
-      let sp='pill-green',st=n.status;
-      if(n.status!=='Ready')sp='pill-red';
-      if(n.unschedulable){sp='pill-yellow';st+=',Cordoned';}
-      if(n.memoryPressure){sp='pill-red';st+=',MemPressure';}
-      if(n.diskPressure){sp='pill-red';st+=',DiskPressure';}
-      return `<div class="node-card">
-        <div><div class="nn">${esc(n.name)}</div><div class="nd">${esc(n.roles)} &middot; ${esc(n.version)}</div><div class="nd">${esc(n.os)} (${esc(n.arch)})</div></div>
-        <div><div><span class="pill ${sp}">${st}</span></div><div class="nd" style="margin-top:8px">Pods: <strong>${n.pods}</strong></div><div class="nd">Age: ${n.age}</div></div>
-        <div><div>CPU: <strong>${esc(n.cpu)}</strong></div><div>Memory: <strong>${esc(n.memory)}</strong></div></div>
-      </div>`;
-    }).join('');
-  }catch(e){nv.innerHTML='<div class="empty">Failed</div>';}
+function renderPie(slices){
+  const total=slices.reduce((s,x)=>s+x.value,0);
+  if(!total)return '<div class="empty" style="padding:20px">No data</div>';
+  let h='<div class="pie-container"><svg viewBox="0 0 100 100" style="width:180px;height:180px;transform:rotate(-90deg)">';
+  let cumulative=0;
+  slices.forEach(s=>{
+    if(!s.value)return;
+    const pct=s.value/total;const dash=pct*314.159;const gap=314.159-dash;const offset=-cumulative*314.159;
+    h+=`<circle cx="50" cy="50" r="40" fill="none" stroke="${s.color}" stroke-width="20" stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${offset}" opacity="0.85"/>`;
+    cumulative+=pct;
+  });
+  h+=`<text x="50" y="50" text-anchor="middle" dy=".3em" fill="white" font-size="16" font-weight="bold" style="transform:rotate(90deg);transform-origin:center">${total}</text>`;
+  h+='</svg></div><div class="legend">';
+  slices.forEach(s=>{if(s.value)h+=`<div class="legend-item"><div class="legend-dot" style="background:${s.color}"></div>${s.label}: ${s.value}</div>`;});
+  h+='</div>';
+  return h;
 }
 
-// --- Resources ---
-let selectedResNs=null;
-function selResNs(ns){selectedResNs=ns;fetchResources();}
-function backResNs(){selectedResNs=null;fetchResources();}
+function renderBar(entries,defaultColor){
+  if(!entries.length)return '<div class="empty" style="padding:20px">No data</div>';
+  const max=Math.max(...entries.map(e=>e[1]));
+  const colors=['#ef4444','#f97316','#eab308','#22c55e','#38bdf8','#a78bfa','#ec4899','#14b8a6','#8b5cf6','#06b6d4'];
+  let h='<div class="bar">';
+  entries.forEach(([label,val],i)=>{
+    const pct=max>0?(val/max)*160:0;
+    const c=defaultColor||colors[i%colors.length];
+    h+=`<div class="bar-col"><div class="bar-val" style="color:${c}">${typeof val==='number'&&val%1?val.toFixed(1):val}</div><div class="bar-fill" style="height:${pct}px;background:${c}"></div><div class="bar-label">${esc(trunc(label,12))}</div></div>`;
+  });
+  h+='</div>';
+  return h;
+}
 
-async function fetchResources(){
-  const rv=document.getElementById('resources-view');
+// --- Report ---
+async function fetchReport(){
+  const rv=document.getElementById('report-view');
   try{
-    if(selectedResNs){await fetchResourcesNs(selectedResNs);return;}
-    const data=await(await fetch('/api/resources')).json();
-    if(!data||!data.length){rv.innerHTML='<div class="empty">No namespaces</div>';return;}
+    const [evts,fixes,resources]=await Promise.all([
+      fetch('/api/events?limit=1000').then(r=>r.json()),
+      fetch('/api/fixes').then(r=>r.json()),
+      fetch('/api/resources').then(r=>r.json()),
+    ]);
+
+    // Aggregate
+    const byService={};// workload -> {incidents, fixed, pending, failed, reasons}
+    (evts||[]).forEach(e=>{
+      if(e.type!=='incident'&&e.type!=='action')return;
+      const key=e.namespace+'/'+e.workload;
+      if(!byService[key])byService[key]={namespace:e.namespace,workload:e.workload,incidents:0,actions:0,reasons:{}};
+      if(e.type==='incident'){byService[key].incidents++;byService[key].reasons[e.reason]=(byService[key].reasons[e.reason]||0)+1;}
+      if(e.type==='action')byService[key].actions++;
+    });
+
+    const fixedCount=fixes?.fixedCount||0;
+    const pendingCount=fixes?.pendingCount||0;
+    const failedCount=fixes?.failedCount||0;
+    const totalIncidents=(evts||[]).filter(e=>e.type==='incident').length;
+    const totalActions=(evts||[]).filter(e=>e.type==='action').length;
+
+    let h=`<h3 style="margin-bottom:14px;font-size:15px">Incident Report</h3>`;
+
     // Summary
-    let totOver=0,totUnder=0,totNoLim=0,totOk=0;
-    data.forEach(ns=>{totOver+=ns.overuse;totUnder+=ns.underuse;totNoLim+=ns.noLimits;totOk+=ns.healthy;});
-    let h=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-      <div class="stat-card"><div class="label">Right-sized</div><div class="value green">${totOk}</div></div>
-      <div class="stat-card"><div class="label">Overuse</div><div class="value red">${totOver}</div></div>
-      <div class="stat-card"><div class="label">Underuse</div><div class="value yellow">${totUnder}</div></div>
-      <div class="stat-card"><div class="label">No Limits</div><div class="value red">${totNoLim}</div></div>
-    </div>`;
-    h+=`<table><tr><th>Namespace</th><th>Pods</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>Right</th><th>Over</th><th>Under</th><th>No Lim</th><th>$/mo</th></tr>`;
-    h+=data.filter(ns=>ns.pods>0).sort((a,b)=>b.monthly-a.monthly).map(ns=>`<tr class="ns-row" onclick="selResNs('${esc(ns.name)}')">
-      <td><strong>${esc(ns.name)}</strong></td><td>${ns.pods}</td>
-      <td>${ns.cpuRequests}</td><td>${ns.cpuLimits}</td>
-      <td>${ns.memRequestsMi}Mi</td><td>${ns.memLimitsMi}Mi</td>
-      <td>${ns.healthy?`<span class="pill pill-green">${ns.healthy}</span>`:'0'}</td>
-      <td>${ns.overuse?`<span class="pill pill-red">${ns.overuse}</span>`:'0'}</td>
-      <td>${ns.underuse?`<span class="pill pill-yellow">${ns.underuse}</span>`:'0'}</td>
-      <td>${ns.noLimits?`<span class="pill pill-red">${ns.noLimits}</span>`:'0'}</td>
-      <td style="font-weight:600">$${ns.monthly.toFixed(0)}</td>
-    </tr>`).join('');
-    h+='</table>';
-    h+=`<div style="margin-top:12px;font-size:11px;color:var(--muted)">Click a namespace to see per-pod details with sizing recommendations.</div>`;
-    rv.innerHTML=h;
-  }catch(e){rv.innerHTML='<div class="empty">Failed to load</div>';}
-}
-
-async function fetchResourcesNs(ns){
-  const rv=document.getElementById('resources-view');
-  try{
-    const d=await(await fetch('/api/resources/'+ns)).json();
-    const s=d.summary||{};
-    let h=`<div class="back-btn" onclick="backResNs()">&#8592; All namespaces</div>`;
-    h+=`<h3 style="margin-bottom:12px;font-size:16px">Namespace: <span style="color:var(--accent)">${esc(ns)}</span>
-      <span style="font-size:13px;color:var(--muted);margin-left:12px">${s.pods||0} pods &middot; $${s.monthly?.toFixed(0)||0}/mo</span></h3>`;
-    // Summary pills
-    h+=`<div style="display:flex;gap:12px;margin-bottom:16px">
-      <span class="pill pill-green">Right-sized: ${s.healthy||0}</span>
-      <span class="pill pill-red">Overuse: ${s.overuse||0}</span>
-      <span class="pill pill-yellow">Underuse: ${s.underuse||0}</span>
-      <span class="pill pill-red">No Limits: ${s.noLimits||0}</span>
-    </div>`;
-    if(!d.pods||!d.pods.length){h+='<div class="empty">No pods</div>';rv.innerHTML=h;return;}
-    h+=`<table><tr><th>Pod</th><th>Status</th><th>Efficiency</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>Ratio</th><th>$/mo</th><th>Advice</th></tr>`;
-    h+=d.pods.map(p=>{
-      let ec='pill-green';
-      if(p.effColor==='red')ec='pill-red';
-      else if(p.effColor==='yellow')ec='pill-yellow';
-      else if(p.effColor==='muted')ec='pill-muted';
-      return `<tr>
-        <td style="font-family:monospace;font-size:11px">${esc(trunc(p.name,40))}</td>
-        <td><span class="pill ${p.status==='Running'?'pill-green':p.status==='Pending'?'pill-yellow':'pill-red'}">${esc(p.status)}</span></td>
-        <td><span class="pill ${ec}">${esc(p.efficiency)}</span></td>
-        <td>${esc(p.cpuRequest)}</td><td>${esc(p.cpuLimit)}</td>
-        <td>${esc(p.memRequest)}</td><td>${esc(p.memLimit)}</td>
-        <td>${p.limitReqRatio>0?p.limitReqRatio.toFixed(1)+'x':'-'}</td>
-        <td style="font-weight:600">$${p.monthly.toFixed(2)}</td>
-        <td style="font-size:11px;color:${p.effColor==='green'?'var(--green)':p.effColor==='red'?'var(--red)':'var(--yellow)'};max-width:200px">${esc(p.advice)}</td>
-      </tr>`;
-    }).join('');
-    h+='</table>';
-    rv.innerHTML=h;
-  }catch(e){rv.innerHTML='<div class="empty">Failed to load</div>';}
-}
-
-// --- Cost ---
-async function fetchCost(){
-  const cv=document.getElementById('cost-view');
-  try{
-    const d=await(await fetch('/api/cost')).json();
-    let h='';
-
-    // Summary cards
-    h+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-      <div class="stat-card"><div class="label">Total Monthly</div><div class="value green">$${d.totalMonthly?.toFixed(0)||0}</div></div>
-      <div class="stat-card"><div class="label">Workload Cost</div><div class="value accent">$${d.workloadCost?.toFixed(0)||0}</div></div>
-      <div class="stat-card"><div class="label">Wasted (idle)</div><div class="value red">$${d.wastedCost?.toFixed(0)||0}</div></div>
-      <div class="stat-card"><div class="label">Efficiency</div><div class="value yellow">${d.totalMonthly>0?((d.workloadCost/d.totalMonthly)*100).toFixed(0):'0'}%</div></div>
+    h+=`<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
+      <div class="stat-box" style="cursor:default"><div class="label">Total Incidents</div><div class="val red">${totalIncidents}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Actions Taken</div><div class="val accent">${totalActions}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Verified Fixed</div><div class="val green">${fixedCount}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Pending</div><div class="val yellow">${pendingCount}</div></div>
+      <div class="stat-box" style="cursor:default"><div class="label">Not Fixed</div><div class="val red">${failedCount}</div></div>
     </div>`;
 
-    // Resource utilization
-    const s=d.summary||{};
-    h+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-      <div class="stat-card"><div class="label">Nodes</div><div style="font-size:22px;font-weight:700;margin-top:4px">${s.totalNodes||0}</div></div>
-      <div class="stat-card"><div class="label">Total Pods</div><div style="font-size:22px;font-weight:700;margin-top:4px">${s.totalPods||0}</div></div>
-      <div class="stat-card"><div class="label">CPU Allocated</div><div style="font-size:18px;font-weight:600;margin-top:4px">${s.allocatedCpu||0} / ${s.totalCpuCores||0} cores <span class="pill ${s.cpuUtilization>80?'pill-red':s.cpuUtilization>50?'pill-yellow':'pill-green'}">${s.cpuUtilization||0}%</span></div></div>
-      <div class="stat-card"><div class="label">Memory Allocated</div><div style="font-size:18px;font-weight:600;margin-top:4px">${s.allocatedMemGiB||0} / ${s.totalMemoryGiB||0} GiB <span class="pill ${s.memUtilization>80?'pill-red':s.memUtilization>50?'pill-yellow':'pill-green'}">${s.memUtilization||0}%</span></div></div>
-    </div>`;
-
-    // Pricing source badge
-    const cfg=d.config||{};
-    h+=`<div style="margin-bottom:16px;font-size:12px;color:var(--muted)">
-      Pricing source: <span class="pill pill-blue">${cfg.source||'default'}</span>
-      ${cfg.source==='kubecost'?' (live from Kubecost API)':cfg.source==='opencost'?' (live from OpenCost API)':cfg.source==='instance-type'?' (per instance-type pricing)':cfg.source==='manual'?' (custom env vars)':' (built-in estimates)'}
-      &middot; ${cfg.currency||'USD'} &middot; $${cfg.cpuPerHour||0.05}/vCPU/hr &middot; $${cfg.memPerGiBHour||0.005}/GiB/hr
-    </div>`;
-
-    // Node costs
-    h+=`<h4 style="margin:16px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Cost by Node</h4>`;
-    if(d.nodes&&d.nodes.length){
-      h+=`<table><tr><th>Node</th><th>Instance</th><th>CPU</th><th>Memory</th><th>Pods</th><th>CPU Used</th><th>Mem Used</th><th>$/hr</th><th>Monthly</th><th>Source</th></tr>`;
-      h+=d.nodes.map(n=>`<tr>
-        <td><strong>${esc(n.name)}</strong></td>
-        <td style="font-family:monospace;font-size:11px">${esc(n.instanceType)||'<span style="color:var(--muted)">-</span>'}</td>
-        <td>${n.cpuCores} cores</td><td>${n.memoryGiB} GiB</td><td>${n.pods}</td>
-        <td><span class="pill ${n.cpuUsedPct>80?'pill-red':n.cpuUsedPct>50?'pill-yellow':'pill-green'}">${n.cpuUsedPct}%</span></td>
-        <td><span class="pill ${n.memUsedPct>80?'pill-red':n.memUsedPct>50?'pill-yellow':'pill-green'}">${n.memUsedPct}%</span></td>
-        <td style="font-family:monospace;font-size:12px">$${n.hourlyRate?.toFixed(4)||'?'}</td>
-        <td style="font-weight:600">$${n.monthly.toFixed(0)}</td>
-        <td style="font-size:11px;color:var(--muted)">${esc(n.priceSource)}</td>
-      </tr>`).join('');
-      h+='</table>';
-    }
-
-    // Namespace costs
-    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Cost by Namespace</h4>`;
-    if(d.namespaces&&d.namespaces.length){
-      const sorted=[...d.namespaces].sort((a,b)=>b.monthly-a.monthly);
-      h+=`<table><tr><th>Namespace</th><th>Pods</th><th>CPU Requests</th><th>Memory Requests</th><th>Monthly</th></tr>`;
-      h+=sorted.map(ns=>{
-        if(ns.monthly<0.01&&ns.pods===0)return '';
-        return `<tr>
-          <td><strong>${esc(ns.name)}</strong></td><td>${ns.pods}</td>
-          <td>${ns.cpuRequests.toFixed(2)} cores</td><td>${ns.memRequestsMiB.toFixed(0)} MiB</td>
-          <td style="font-weight:600;color:var(--green)">$${ns.monthly.toFixed(2)}</td>
-        </tr>`;
+    // By service table
+    const services=Object.values(byService).sort((a,b)=>b.incidents-a.incidents);
+    h+=`<h4 style="margin:14px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Incidents by Service (${services.length})</h4>`;
+    if(services.length){
+      h+=`<table><tr><th>Namespace</th><th>Workload</th><th>Incidents</th><th>Actions</th><th>Issue Types</th></tr>`;
+      h+=services.map(s=>{
+        const reasons=Object.entries(s.reasons).sort((a,b)=>b[1]-a[1]).map(([r,c])=>`<span class="pill pill-red">${esc(r)} x${c}</span>`).join(' ');
+        return `<tr><td><span class="ns">${esc(s.namespace)}</span></td><td><strong>${esc(s.workload)}</strong></td>
+          <td style="font-weight:600;color:var(--red)">${s.incidents}</td><td style="color:var(--green)">${s.actions}</td>
+          <td>${reasons}</td></tr>`;
       }).join('');
       h+='</table>';
     }
 
-    // Top workloads
-    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Top 20 Workloads by Cost</h4>`;
-    if(d.topWorkloads&&d.topWorkloads.length){
-      h+=`<table><tr><th>Namespace</th><th>Name</th><th>Kind</th><th>Replicas</th><th>CPU</th><th>Memory</th><th>Monthly</th></tr>`;
-      h+=d.topWorkloads.map(w=>`<tr>
-        <td><span class="ns">${esc(w.namespace)}</span></td>
-        <td><strong>${esc(w.name)}</strong></td>
-        <td><span class="pill pill-blue">${w.kind}</span></td>
-        <td>${w.replicas}</td>
-        <td>${w.cpuRequests} cores</td><td>${w.memRequestsMiB} MiB</td>
-        <td style="font-weight:600;color:var(--green)">$${w.monthly.toFixed(2)}</td>
-      </tr>`).join('');
-      h+='</table>';
-    }
+    // Issue type breakdown
+    const reasonTotals={};
+    (evts||[]).filter(e=>e.type==='incident').forEach(e=>{reasonTotals[e.reason]=(reasonTotals[e.reason]||0)+1;});
+    const reasonList=Object.entries(reasonTotals).sort((a,b)=>b[1]-a[1]);
+    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Issue Type Breakdown</h4>`;
+    h+=`<table><tr><th>Issue Type</th><th>Count</th><th>% of Total</th><th></th></tr>`;
+    h+=reasonList.map(([reason,count])=>{
+      const pct=totalIncidents>0?(count/totalIncidents*100).toFixed(1):'0';
+      const barW=totalIncidents>0?(count/totalIncidents*200):0;
+      return `<tr><td><strong>${esc(reason)}</strong></td><td style="font-weight:600">${count}</td><td>${pct}%</td>
+        <td><div style="width:${barW}px;height:12px;background:var(--red);border-radius:3px;opacity:.7"></div></td></tr>`;
+    }).join('');
+    h+='</table>';
 
-    h+=`<div style="margin-top:16px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--muted)">
-      <strong>How to configure pricing:</strong><br>
-      <code>COST_CPU_PER_HOUR=0.05</code> — price per vCPU per hour<br>
-      <code>COST_MEM_PER_GIB_HOUR=0.005</code> — price per GiB memory per hour<br>
-      <code>COST_INSTANCE_PRICES="t3.medium=0.0416,m5.xlarge=0.192"</code> — per instance-type pricing<br>
-      <code>KUBECOST_URL=http://kubecost:9090</code> — use Kubecost for real costs<br>
-      <code>OPENCOST_URL=http://opencost:9003</code> — use OpenCost for real costs<br>
-      Built-in prices for 40+ AWS/GCP/Azure instance types (us-east-1 on-demand).
-    </div>`;
-    cv.innerHTML=h;
-  }catch(e){cv.innerHTML='<div class="empty">Failed to load cost data</div>';}
+    rv.innerHTML=h;
+  }catch(e){rv.innerHTML='<div class="empty">Failed to load report</div>';}
 }
+
+// --- Cluster/Nodes/Cost/Resources/Terminal (keep existing logic compact) ---
+async function fetchCluster(){const cv=document.getElementById('cluster-view');try{if(selectedNs){await fetchNsDetail(selectedNs);return;}const data=await(await fetch('/api/cluster')).json();if(!data||!data.length){cv.innerHTML='<div class="empty">No namespaces</div>';return;}cv.innerHTML=`<table><tr><th>Namespace</th><th>Pods</th><th>Running</th><th>Pending</th><th>Failed</th><th>CrashLoop</th><th>NotReady</th><th>Deploys</th><th>Svcs</th><th>Jobs</th></tr>${data.map(ns=>`<tr class="ns-row" onclick="selNs('${esc(ns.name)}')"><td><strong>${esc(ns.name)}</strong></td><td>${ns.pods.total}</td><td>${ns.pods.running?`<span class="pill pill-green">${ns.pods.running}</span>`:'<span class="pill pill-muted">0</span>'}</td><td>${ns.pods.pending?`<span class="pill pill-yellow">${ns.pods.pending}</span>`:'0'}</td><td>${ns.pods.failed?`<span class="pill pill-red">${ns.pods.failed}</span>`:'0'}</td><td>${ns.pods.crashLoop?`<span class="pill pill-red">${ns.pods.crashLoop}</span>`:'0'}</td><td>${ns.pods.notReady?`<span class="pill pill-yellow">${ns.pods.notReady}</span>`:'0'}</td><td>${ns.deployments}</td><td>${ns.services}</td><td>${ns.jobs}</td></tr>`).join('')}</table>`;}catch(e){cv.innerHTML='<div class="empty">Failed</div>';}}
+function selNs(ns){selectedNs=ns;fetchCluster();}function backNs(){selectedNs=null;fetchCluster();}
+async function fetchNsDetail(ns){const cv=document.getElementById('cluster-view');try{const d=await(await fetch('/api/namespace/'+ns)).json();let h=`<div class="back-btn" onclick="backNs()">&#8592; All namespaces</div><h3 style="margin-bottom:14px;font-size:15px">Namespace: <span style="color:var(--accent)">${esc(ns)}</span></h3>`;h+=`<h4 style="margin:10px 0 6px;color:var(--muted);font-size:11px;text-transform:uppercase">Pods (${d.pods?.length||0})</h4>`;if(d.pods&&d.pods.length){h+=`<table><tr><th>Name</th><th>Ready</th><th>Status</th><th>Restarts</th><th>Node</th><th>IP</th><th>Age</th></tr>`;h+=d.pods.map(p=>{let sc='pill-green';if(p.status==='CrashLoopBackOff'||p.status==='Error'||p.status==='OOMKilled'||p.phase==='Failed')sc='pill-red';else if(p.status==='Pending'||p.status.startsWith('Init:')||p.status==='ContainerCreating')sc='pill-yellow';else if(p.status!=='Running')sc='pill-muted';return `<tr><td style="font-family:monospace;font-size:11px">${esc(p.name)}</td><td>${p.ready}</td><td><span class="pill ${sc}">${esc(p.status)}</span></td><td>${p.restarts>0?`<span style="color:var(--yellow)">${p.restarts}</span>`:'0'}</td><td style="font-size:11px;color:var(--muted)">${esc(p.node)}</td><td style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(p.ip)}</td><td>${p.age}</td></tr>`;}).join('');h+='</table>';}if(d.deployments&&d.deployments.length){h+=`<h4 style="margin:16px 0 6px;color:var(--muted);font-size:11px;text-transform:uppercase">Deployments (${d.deployments.length})</h4><table><tr><th>Name</th><th>Ready</th><th>Up-to-date</th><th>Available</th><th>Age</th></tr>`;h+=d.deployments.map(dep=>`<tr><td><strong>${esc(dep.name)}</strong></td><td>${dep.ready}</td><td>${dep.upToDate}</td><td>${dep.available}</td><td>${dep.age}</td></tr>`).join('');h+='</table>';}if(d.services&&d.services.length){h+=`<h4 style="margin:16px 0 6px;color:var(--muted);font-size:11px;text-transform:uppercase">Services (${d.services.length})</h4><table><tr><th>Name</th><th>Type</th><th>Cluster-IP</th><th>Ports</th><th>Age</th></tr>`;h+=d.services.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td><span class="pill pill-blue">${esc(s.type)}</span></td><td style="font-family:monospace;font-size:11px">${esc(s.clusterIP)}</td><td>${esc(s.ports)}</td><td>${s.age}</td></tr>`).join('');h+='</table>';}cv.innerHTML=h;}catch(e){cv.innerHTML='<div class="empty">Failed</div>';}}
+async function fetchNodes(){const nv=document.getElementById('nodes-view');try{const nodes=await(await fetch('/api/nodes')).json();if(!nodes||!nodes.length){nv.innerHTML='<div class="empty">No nodes</div>';return;}nv.innerHTML=nodes.map(n=>{let sp='pill-green',st=n.status;if(n.status!=='Ready')sp='pill-red';if(n.unschedulable){sp='pill-yellow';st+=',Cordoned';}if(n.memoryPressure){sp='pill-red';st+=',MemP';}if(n.diskPressure){sp='pill-red';st+=',DiskP';}return `<div class="node-card"><div><div class="nn">${esc(n.name)}</div><div class="nd">${esc(n.roles)} &middot; ${esc(n.version)}</div><div class="nd">${esc(n.os)}</div></div><div><div><span class="pill ${sp}">${st}</span></div><div class="nd" style="margin-top:6px">Pods: <strong>${n.pods}</strong></div><div class="nd">Age: ${n.age}</div></div><div><div>CPU: <strong>${esc(n.cpu)}</strong></div><div>Mem: <strong>${esc(n.memory)}</strong></div></div></div>`;}).join('');}catch(e){nv.innerHTML='<div class="empty">Failed</div>';}}
+async function fetchCost(){const cv=document.getElementById('cost-view');try{const d=await(await fetch('/api/cost')).json();const cfg=d.config||{};let h=`<div style="margin-bottom:14px;font-size:11px;color:var(--muted)">Source: <span class="pill pill-blue">${cfg.source||'default'}</span> &middot; ${cfg.currency||'USD'} &middot; $${cfg.cpuPerHour||0.05}/vCPU/hr &middot; $${cfg.memPerGiBHour||0.005}/GiB/hr</div>`;h+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"><div class="stat-box" style="cursor:default"><div class="label">Total Monthly</div><div class="val green">$${d.totalMonthly?.toFixed(0)||0}</div></div><div class="stat-box" style="cursor:default"><div class="label">Workload Cost</div><div class="val accent">$${d.workloadCost?.toFixed(0)||0}</div></div><div class="stat-box" style="cursor:default"><div class="label">Wasted</div><div class="val red">$${d.wastedCost?.toFixed(0)||0}</div></div><div class="stat-box" style="cursor:default"><div class="label">Efficiency</div><div class="val yellow">${d.totalMonthly>0?((d.workloadCost/d.totalMonthly)*100).toFixed(0):'0'}%</div></div></div>`;if(d.nodes&&d.nodes.length){h+=`<h4 style="margin:12px 0 6px;color:var(--muted);font-size:11px;text-transform:uppercase">Nodes</h4><table><tr><th>Node</th><th>Instance</th><th>CPU</th><th>Mem</th><th>Pods</th><th>CPU%</th><th>Mem%</th><th>$/hr</th><th>$/mo</th></tr>`;h+=d.nodes.map(n=>`<tr><td><strong>${esc(n.name)}</strong></td><td style="font-family:monospace;font-size:10px">${esc(n.instanceType)||'-'}</td><td>${n.cpuCores}</td><td>${n.memoryGiB}Gi</td><td>${n.pods}</td><td><span class="pill ${n.cpuUsedPct>80?'pill-red':n.cpuUsedPct>50?'pill-yellow':'pill-green'}">${n.cpuUsedPct}%</span></td><td><span class="pill ${n.memUsedPct>80?'pill-red':n.memUsedPct>50?'pill-yellow':'pill-green'}">${n.memUsedPct}%</span></td><td style="font-family:monospace;font-size:11px">$${n.hourlyRate?.toFixed(4)||'?'}</td><td style="font-weight:600">$${n.monthly.toFixed(0)}</td></tr>`).join('');h+='</table>';}if(d.topWorkloads&&d.topWorkloads.length){h+=`<h4 style="margin:16px 0 6px;color:var(--muted);font-size:11px;text-transform:uppercase">Top Workloads</h4><table><tr><th>NS</th><th>Name</th><th>Kind</th><th>Rep</th><th>CPU</th><th>Mem</th><th>$/mo</th></tr>`;h+=d.topWorkloads.map(w=>`<tr><td><span class="ns">${esc(w.namespace)}</span></td><td><strong>${esc(w.name)}</strong></td><td><span class="pill pill-blue">${w.kind}</span></td><td>${w.replicas}</td><td>${w.cpuRequests}</td><td>${w.memRequestsMiB}Mi</td><td style="font-weight:600;color:var(--green)">$${w.monthly.toFixed(2)}</td></tr>`).join('');h+='</table>';}cv.innerHTML=h;}catch(e){cv.innerHTML='<div class="empty">Failed</div>';}}
+function selResNs(ns){selectedResNs=ns;fetchResources();}function backResNs(){selectedResNs=null;fetchResources();}
+async function fetchResources(){const rv=document.getElementById('resources-view');try{if(selectedResNs){const d=await(await fetch('/api/resources/'+selectedResNs)).json();const s=d.summary||{};let h=`<div class="back-btn" onclick="backResNs()">&#8592; All</div><h3 style="margin-bottom:10px;font-size:15px">${esc(selectedResNs)} <span style="font-size:12px;color:var(--muted)">${s.pods||0} pods &middot; $${s.monthly?.toFixed(0)||0}/mo</span></h3>`;h+=`<div style="display:flex;gap:8px;margin-bottom:12px"><span class="pill pill-green">Right: ${s.healthy||0}</span><span class="pill pill-red">Over: ${s.overuse||0}</span><span class="pill pill-yellow">Under: ${s.underuse||0}</span><span class="pill pill-red">NoLim: ${s.noLimits||0}</span></div>`;if(d.pods&&d.pods.length){h+=`<table><tr><th>Pod</th><th>Status</th><th>Efficiency</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>$/mo</th><th>Advice</th></tr>`;h+=d.pods.map(p=>{let ec='pill-green';if(p.effColor==='red')ec='pill-red';else if(p.effColor==='yellow')ec='pill-yellow';return `<tr><td style="font-family:monospace;font-size:10px">${esc(trunc(p.name,35))}</td><td><span class="pill ${p.status==='Running'?'pill-green':'pill-red'}">${esc(p.status)}</span></td><td><span class="pill ${ec}">${esc(p.efficiency)}</span></td><td>${esc(p.cpuRequest)}</td><td>${esc(p.cpuLimit)}</td><td>${esc(p.memRequest)}</td><td>${esc(p.memLimit)}</td><td style="font-weight:600">$${p.monthly.toFixed(2)}</td><td style="font-size:10px;max-width:180px;color:${p.effColor==='green'?'var(--green)':'var(--red)'}">${esc(p.advice)}</td></tr>`;}).join('');h+='</table>';}rv.innerHTML=h;return;}const data=await(await fetch('/api/resources')).json();let totO=0,totU=0,totN=0,totR=0;data.forEach(n=>{totO+=n.overuse;totU+=n.underuse;totN+=n.noLimits;totR+=n.healthy;});let h=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px"><div class="stat-box" style="cursor:default"><div class="label">Right-sized</div><div class="val green">${totR}</div></div><div class="stat-box" style="cursor:default"><div class="label">Overuse</div><div class="val red">${totO}</div></div><div class="stat-box" style="cursor:default"><div class="label">Underuse</div><div class="val yellow">${totU}</div></div><div class="stat-box" style="cursor:default"><div class="label">No Limits</div><div class="val red">${totN}</div></div></div>`;h+=`<table><tr><th>Namespace</th><th>Pods</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>Right</th><th>Over</th><th>Under</th><th>NoLim</th><th>$/mo</th></tr>`;h+=data.filter(n=>n.pods>0).sort((a,b)=>b.monthly-a.monthly).map(ns=>`<tr class="ns-row" onclick="selResNs('${esc(ns.name)}')"><td><strong>${esc(ns.name)}</strong></td><td>${ns.pods}</td><td>${ns.cpuRequests}</td><td>${ns.cpuLimits}</td><td>${ns.memRequestsMi}Mi</td><td>${ns.memLimitsMi}Mi</td><td>${ns.healthy?`<span class="pill pill-green">${ns.healthy}</span>`:'0'}</td><td>${ns.overuse?`<span class="pill pill-red">${ns.overuse}</span>`:'0'}</td><td>${ns.underuse?`<span class="pill pill-yellow">${ns.underuse}</span>`:'0'}</td><td>${ns.noLimits?`<span class="pill pill-red">${ns.noLimits}</span>`:'0'}</td><td style="font-weight:600">$${ns.monthly.toFixed(0)}</td></tr>`).join('');h+='</table>';rv.innerHTML=h;}catch(e){rv.innerHTML='<div class="empty">Failed</div>';}}
 
 // --- Terminal ---
-const termHistory=[];
-let histIdx=-1;
-const termOut=()=>document.getElementById('term-output');
-const termIn=()=>document.getElementById('term-input');
-
-function termPrint(text,cls){
-  const el=termOut(); if(!el)return;
-  const div=document.createElement('div');
-  div.style.marginBottom='4px';
-  if(cls==='cmd'){div.style.color='#58a6ff';div.textContent='$ kubectl '+text;}
-  else if(cls==='err'){div.style.color='#f85149';div.textContent=text;}
-  else{div.style.color='#c9d1d9';div.textContent=text;}
-  el.appendChild(div);
-  el.scrollTop=el.scrollHeight;
-}
-
-async function termExec(cmd){
-  if(!cmd.trim())return;
-  termHistory.unshift(cmd); histIdx=-1;
-  termPrint(cmd,'cmd');
-  try{
-    const r=await fetch('/api/kubectl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
-    const d=await r.json();
-    if(d.error)termPrint('Error: '+d.error,'err');
-    if(d.output)termPrint(d.output);
-  }catch(e){termPrint('Request failed: '+e,'err');}
-}
-
-document.addEventListener('DOMContentLoaded',()=>{
-  const inp=document.getElementById('term-input');
-  if(!inp)return;
-  inp.addEventListener('keydown',e=>{
-    if(e.key==='Enter'){const cmd=inp.value.trim();inp.value='';termExec(cmd);}
-    else if(e.key==='ArrowUp'){e.preventDefault();if(histIdx<termHistory.length-1){histIdx++;inp.value=termHistory[histIdx];}}
-    else if(e.key==='ArrowDown'){e.preventDefault();if(histIdx>0){histIdx--;inp.value=termHistory[histIdx];}else{histIdx=-1;inp.value='';}}
-  });
-  // Welcome message
-  const out=document.getElementById('term-output');
-  if(out)out.innerHTML='<div style="color:var(--accent)">Auto-Agent Web Terminal</div><div style="color:var(--muted)">Connected to cluster. Type \'help\' for commands.</div><div style="color:var(--muted)">Examples: get pods -A, get nodes, logs &lt;pod&gt; -n &lt;ns&gt;, describe pod &lt;name&gt;</div><br>';
-});
-
-// Focus terminal input when tab is selected
-function focusTerminal(){
-  setTimeout(()=>{const inp=document.getElementById('term-input');if(inp)inp.focus();},100);
-}
+const termHistory=[];let histIdx=-1;
+function termPrint(text,cls){const el=document.getElementById('term-output');if(!el)return;const div=document.createElement('div');div.style.marginBottom='3px';if(cls==='cmd'){div.style.color='#58a6ff';div.textContent='$ kubectl '+text;}else if(cls==='err'){div.style.color='#f85149';div.textContent=text;}else{div.style.color='#c9d1d9';div.textContent=text;}el.appendChild(div);el.scrollTop=el.scrollHeight;}
+async function termExec(cmd){if(!cmd.trim())return;termHistory.unshift(cmd);histIdx=-1;termPrint(cmd,'cmd');try{const r=await fetch('/api/kubectl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});const d=await r.json();if(d.error)termPrint('Error: '+d.error,'err');if(d.output)termPrint(d.output);}catch(e){termPrint('Failed: '+e,'err');}}
+document.addEventListener('DOMContentLoaded',()=>{const inp=document.getElementById('term-input');if(!inp)return;inp.addEventListener('keydown',e=>{if(e.key==='Enter'){const cmd=inp.value.trim();inp.value='';termExec(cmd);}else if(e.key==='ArrowUp'){e.preventDefault();if(histIdx<termHistory.length-1){histIdx++;inp.value=termHistory[histIdx];}}else if(e.key==='ArrowDown'){e.preventDefault();if(histIdx>0){histIdx--;inp.value=termHistory[histIdx];}else{histIdx=-1;inp.value='';}}});const out=document.getElementById('term-output');if(out)out.innerHTML='<div style="color:var(--accent)">Auto-Agent Terminal</div><div style="color:var(--muted)">Type \'help\' for commands.</div><br>';});
 
 function esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function trunc(s,n){return s&&s.length>n?s.substr(0,n)+'...':(s||'');}
-function refresh(){
-  fetchStatus();fetchStats();
-  if(currentTab==='events')fetchEvents();
-  else if(currentTab==='k8sevents')fetchK8sEvents();
-  else if(currentTab==='fixed')fetchFixed();
-  else if(currentTab==='cluster')fetchCluster();
-  else if(currentTab==='nodes')fetchNodes();
-  else if(currentTab==='cost')fetchCost();
-  else if(currentTab==='resources')fetchResources();
-}
-refresh();
-setInterval(refresh,5000);
+function refresh(){fetchStatus();fetchStats();if(currentTab==='events')fetchEvents();else if(currentTab==='k8sevents')fetchK8sEvents();else if(currentTab==='actions')fetchActions();else if(currentTab==='charts')fetchCharts();else if(currentTab==='report')fetchReport();else if(currentTab==='cluster')fetchCluster();else if(currentTab==='nodes')fetchNodes();else if(currentTab==='cost')fetchCost();else if(currentTab==='resources')fetchResources();}
+refresh();setInterval(refresh,5000);
 </script>
 </body>
 </html>
