@@ -78,7 +78,7 @@ func main() {
 		Mode:     string(pol.Mode),
 		NodeName: os.Getenv("NODE_NAME"),
 		PodName:  os.Getenv("POD_NAME"),
-	})
+	}, kc)
 	go httpSrv.Start()
 
 	// --- Admission webhook (optional, requires TLS certs) ---

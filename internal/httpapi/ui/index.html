@@ -13,6 +13,7 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--text); }
+
     .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
     .header h1 { font-size: 20px; font-weight: 600; }
     .header h1 span { color: var(--accent); }
@@ -29,15 +30,18 @@
     .stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
     .stat-card .value.red { color: var(--red); }
-    .stat-card .value.yellow { color: var(--yellow); }
     .stat-card .value.green { color: var(--green); }
     .stat-card .value.accent { color: var(--accent); }
+    .stat-card .value.yellow { color: var(--yellow); }
 
     .main { padding: 0 24px 24px; }
     .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
     .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s; }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
 
     .event-list { display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; }
     .event { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; display: grid; grid-template-columns: 100px 80px 1fr auto; gap: 12px; align-items: center; font-size: 13px; }
@@ -50,15 +54,32 @@
     .event .type.anomaly { color: var(--orange); }
     .event .type.info { color: var(--purple); }
     .event .reason { font-weight: 600; color: var(--yellow); margin-right: 8px; }
-    .event .msg { color: var(--text); }
     .event .ns { background: rgba(56,189,248,0.15); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; }
-    .event .links a { color: var(--accent); text-decoration: none; font-size: 12px; margin-left: 8px; }
-    .event .links a:hover { text-decoration: underline; }
-
     .severity-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
     .severity-dot.critical { background: var(--red); }
     .severity-dot.warning { background: var(--yellow); }
     .severity-dot.info { background: var(--accent); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 12px; border-bottom: 1px solid rgba(51,65,85,0.5); }
+    tr:hover td { background: rgba(56,189,248,0.05); }
+    .ns-row { cursor: pointer; }
+    .ns-row:hover td { background: rgba(56,189,248,0.1); }
+
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .pill-green { background: rgba(34,197,94,0.2); color: var(--green); }
+    .pill-red { background: rgba(239,68,68,0.2); color: var(--red); }
+    .pill-yellow { background: rgba(234,179,8,0.2); color: var(--yellow); }
+    .pill-blue { background: rgba(56,189,248,0.2); color: var(--accent); }
+    .pill-muted { background: rgba(148,163,184,0.15); color: var(--muted); }
+
+    .back-btn { cursor: pointer; color: var(--accent); font-size: 13px; margin-bottom: 12px; display: inline-block; }
+    .back-btn:hover { text-decoration: underline; }
+
+    .node-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .node-card .nn { font-weight: 600; font-size: 15px; }
+    .node-card .nd { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
     .empty { text-align: center; color: var(--muted); padding: 60px; font-size: 14px; }
     .refresh-info { font-size: 11px; color: var(--muted); }
@@ -66,6 +87,7 @@
     @media (max-width: 768px) {
       .grid { grid-template-columns: repeat(2, 1fr); }
       .event { grid-template-columns: 1fr; gap: 4px; }
+      .node-card { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -76,155 +98,190 @@
       <span id="version"></span>
       <span id="mode-badge" class="badge"></span>
       <span id="leader-badge" class="badge"></span>
-      <span id="node-name" style="color: var(--muted); font-family: monospace;"></span>
-      <span class="refresh-info">auto-refresh 5s</span>
+      <span id="node-name" style="color:var(--muted);font-family:monospace"></span>
+      <span class="refresh-info">5s refresh</span>
     </div>
   </div>
 
   <div class="grid">
-    <div class="stat-card">
-      <div class="label">Incidents</div>
-      <div class="value red" id="stat-incidents">-</div>
-    </div>
-    <div class="stat-card">
-      <div class="label">Actions Taken</div>
-      <div class="value green" id="stat-actions">-</div>
-    </div>
-    <div class="stat-card">
-      <div class="label">Scaling Decisions</div>
-      <div class="value accent" id="stat-scaling">-</div>
-    </div>
-    <div class="stat-card">
-      <div class="label">Uptime</div>
-      <div class="value yellow" id="stat-uptime">-</div>
-    </div>
+    <div class="stat-card"><div class="label">Incidents</div><div class="value red" id="stat-incidents">-</div></div>
+    <div class="stat-card"><div class="label">Actions</div><div class="value green" id="stat-actions">-</div></div>
+    <div class="stat-card"><div class="label">Scaling</div><div class="value accent" id="stat-scaling">-</div></div>
+    <div class="stat-card"><div class="label">Uptime</div><div class="value yellow" id="stat-uptime">-</div></div>
   </div>
 
   <div class="main">
     <div class="tabs">
-      <div class="tab active" data-filter="">All Events</div>
-      <div class="tab" data-filter="incident">Incidents</div>
-      <div class="tab" data-filter="action">Actions</div>
-      <div class="tab" data-filter="scaling">Scaling</div>
-      <div class="tab" data-filter="anomaly">Anomalies</div>
+      <div class="tab active" data-tab="events" data-filter="">Events</div>
+      <div class="tab" data-tab="events" data-filter="incident">Incidents</div>
+      <div class="tab" data-tab="events" data-filter="scaling">Scaling</div>
+      <div class="tab" data-tab="cluster">Cluster</div>
+      <div class="tab" data-tab="nodes">Nodes</div>
     </div>
-    <div id="event-list" class="event-list">
-      <div class="empty">Connecting to agent...</div>
-    </div>
+    <div id="panel-events" class="panel active"><div id="event-list" class="event-list"><div class="empty">Connecting...</div></div></div>
+    <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
+    <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
   </div>
 
   <script>
-    let currentFilter = '';
-    let refreshTimer;
+    let currentTab='events', currentFilter='', selectedNs=null;
 
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        currentFilter = tab.dataset.filter;
-        fetchEvents();
+        currentTab = tab.dataset.tab;
+        currentFilter = tab.dataset.filter || '';
+        selectedNs = null;
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.getElementById('panel-'+currentTab).classList.add('active');
+        refresh();
       });
     });
 
     async function fetchStatus() {
       try {
-        const r = await fetch('/api/status');
-        const d = await r.json();
-        document.getElementById('version').textContent = 'v' + d.version;
-        document.getElementById('node-name').textContent = d.nodeName || '';
-
+        const d = await (await fetch('/api/status')).json();
+        document.getElementById('version').textContent = 'v'+d.version;
+        document.getElementById('node-name').textContent = d.nodeName||'';
         const mb = document.getElementById('mode-badge');
-        mb.textContent = d.mode;
-        mb.className = 'badge badge-' + d.mode;
-
+        mb.textContent = d.mode; mb.className = 'badge badge-'+d.mode;
         const lb = document.getElementById('leader-badge');
-        lb.textContent = d.isLeader ? 'leader' : 'follower';
-        lb.className = 'badge ' + (d.isLeader ? 'badge-leader' : 'badge-follower');
-
-        document.getElementById('stat-uptime').textContent = formatUptime(d.uptime);
-      } catch(e) {
-        console.error('status fetch failed:', e);
-      }
+        lb.textContent = d.isLeader?'leader':'follower';
+        lb.className = 'badge '+(d.isLeader?'badge-leader':'badge-follower');
+        document.getElementById('stat-uptime').textContent = fmtUp(d.uptime);
+      } catch(e){}
     }
-
     async function fetchStats() {
       try {
-        const r = await fetch('/api/stats');
-        const d = await r.json();
-        document.getElementById('stat-incidents').textContent = d.byType?.incident || 0;
-        document.getElementById('stat-actions').textContent = d.byType?.action || 0;
-        document.getElementById('stat-scaling').textContent = d.byType?.scaling || 0;
-      } catch(e) {
-        console.error('stats fetch failed:', e);
-      }
+        const d = await (await fetch('/api/stats')).json();
+        document.getElementById('stat-incidents').textContent = d.byType?.incident||0;
+        document.getElementById('stat-actions').textContent = d.byType?.action||0;
+        document.getElementById('stat-scaling').textContent = d.byType?.scaling||0;
+      } catch(e){}
     }
 
+    // --- Events ---
     async function fetchEvents() {
       try {
-        let url = '/api/events?limit=100';
-        if (currentFilter) url += '&type=' + currentFilter;
-        const r = await fetch(url);
-        const events = await r.json();
-        renderEvents(events);
-      } catch(e) {
-        document.getElementById('event-list').innerHTML = '<div class="empty">Failed to connect</div>';
-      }
+        let url='/api/events?limit=100';
+        if(currentFilter) url+='&type='+currentFilter;
+        const evts = await (await fetch(url)).json();
+        const el = document.getElementById('event-list');
+        if(!evts||!evts.length){el.innerHTML='<div class="empty">No events yet</div>';return;}
+        el.innerHTML = evts.map(e => {
+          const t=new Date(e.timestamp);
+          return `<div class="event">
+            <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+            <div><span class="severity-dot ${e.severity||'info'}"></span><span class="type ${e.type}">${e.type}</span></div>
+            <div>${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}<span class="reason">${esc(e.reason)}</span> ${esc(trunc(e.message,100))}</div>
+            <div style="font-size:12px">${e.logUrl?`<a href="${esc(e.logUrl)}" style="color:var(--accent)">logs</a> `:''}${e.prUrl?`<a href="${esc(e.prUrl)}" style="color:var(--accent)">PR</a>`:''}</div>
+          </div>`;
+        }).join('');
+      } catch(e){ document.getElementById('event-list').innerHTML='<div class="empty">Error</div>'; }
     }
 
-    function renderEvents(events) {
-      const el = document.getElementById('event-list');
-      if (!events || events.length === 0) {
-        el.innerHTML = '<div class="empty">No events yet. The agent is watching your cluster.</div>';
-        return;
-      }
-      el.innerHTML = events.map(e => {
-        const time = new Date(e.timestamp).toLocaleTimeString();
-        const date = new Date(e.timestamp).toLocaleDateString();
-        let links = '';
-        if (e.logUrl) links += '<a href="' + esc(e.logUrl) + '" target="_blank">logs</a>';
-        if (e.prUrl) links += '<a href="' + esc(e.prUrl) + '" target="_blank">PR</a>';
-        if (e.ticketUrl) links += '<a href="' + esc(e.ticketUrl) + '" target="_blank">ticket</a>';
+    // --- Cluster ---
+    async function fetchCluster() {
+      const cv=document.getElementById('cluster-view');
+      try {
+        if(selectedNs){await fetchNsDetail(selectedNs);return;}
+        const data = await (await fetch('/api/cluster')).json();
+        if(!data||!data.length){cv.innerHTML='<div class="empty">No namespaces</div>';return;}
+        cv.innerHTML=`<table>
+          <tr><th>Namespace</th><th>Pods</th><th>Running</th><th>Pending</th><th>Failed</th><th>CrashLoop</th><th>NotReady</th><th>Deploys</th><th>Services</th><th>Jobs</th></tr>
+          ${data.map(ns=>`<tr class="ns-row" onclick="selNs('${esc(ns.name)}')">
+            <td><strong>${esc(ns.name)}</strong></td>
+            <td>${ns.pods.total}</td>
+            <td>${ns.pods.running?`<span class="pill pill-green">${ns.pods.running}</span>`:'<span class="pill pill-muted">0</span>'}</td>
+            <td>${ns.pods.pending?`<span class="pill pill-yellow">${ns.pods.pending}</span>`:'0'}</td>
+            <td>${ns.pods.failed?`<span class="pill pill-red">${ns.pods.failed}</span>`:'0'}</td>
+            <td>${ns.pods.crashLoop?`<span class="pill pill-red">${ns.pods.crashLoop}</span>`:'0'}</td>
+            <td>${ns.pods.notReady?`<span class="pill pill-yellow">${ns.pods.notReady}</span>`:'0'}</td>
+            <td>${ns.deployments}</td><td>${ns.services}</td><td>${ns.jobs}</td>
+          </tr>`).join('')}</table>`;
+      } catch(e){cv.innerHTML='<div class="empty">Failed to load</div>';}
+    }
+    function selNs(ns){selectedNs=ns;fetchCluster();}
+    function backNs(){selectedNs=null;fetchCluster();}
 
-        return '<div class="event">' +
-          '<div class="time">' + date + '<br>' + time + '</div>' +
-          '<div>' +
-            '<span class="severity-dot ' + (e.severity || 'info') + '"></span>' +
-            '<span class="type ' + e.type + '">' + e.type + '</span>' +
-          '</div>' +
-          '<div>' +
-            (e.namespace ? '<span class="ns">' + esc(e.namespace) + '</span> ' : '') +
-            '<span class="reason">' + esc(e.reason) + '</span>' +
-            '<span class="msg">' + esc(truncate(e.message, 120)) + '</span>' +
-          '</div>' +
-          '<div class="links">' + links + '</div>' +
-        '</div>';
-      }).join('');
+    async function fetchNsDetail(ns) {
+      const cv=document.getElementById('cluster-view');
+      try {
+        const d = await (await fetch('/api/namespace/'+ns)).json();
+        let h=`<div class="back-btn" onclick="backNs()">&#8592; All namespaces</div>`;
+        h+=`<h3 style="margin-bottom:16px;font-size:16px">Namespace: <span style="color:var(--accent)">${esc(ns)}</span></h3>`;
+
+        h+=`<h4 style="margin:12px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Pods (${d.pods?.length||0})</h4>`;
+        if(d.pods&&d.pods.length){
+          h+=`<table><tr><th>Name</th><th>Ready</th><th>Status</th><th>Restarts</th><th>Node</th><th>IP</th><th>Age</th></tr>`;
+          h+=d.pods.map(p=>{
+            let sc='pill-green';
+            if(p.status==='CrashLoopBackOff'||p.status==='Error'||p.status==='OOMKilled'||p.phase==='Failed')sc='pill-red';
+            else if(p.status==='Pending'||p.status.startsWith('Init:')||p.status==='ContainerCreating')sc='pill-yellow';
+            else if(p.status!=='Running')sc='pill-muted';
+            return `<tr>
+              <td style="font-family:monospace;font-size:12px">${esc(p.name)}</td>
+              <td>${p.ready}</td>
+              <td><span class="pill ${sc}">${esc(p.status)}</span></td>
+              <td>${p.restarts>0?`<span style="color:var(--yellow)">${p.restarts}</span>`:'0'}</td>
+              <td style="font-size:12px;color:var(--muted)">${esc(p.node)}</td>
+              <td style="font-family:monospace;font-size:11px;color:var(--muted)">${esc(p.ip)}</td>
+              <td>${p.age}</td></tr>`;
+          }).join('');
+          h+='</table>';
+        } else h+='<div style="color:var(--muted);padding:12px">No pods</div>';
+
+        h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Deployments (${d.deployments?.length||0})</h4>`;
+        if(d.deployments&&d.deployments.length){
+          h+=`<table><tr><th>Name</th><th>Ready</th><th>Up-to-date</th><th>Available</th><th>Age</th></tr>`;
+          h+=d.deployments.map(dep=>`<tr><td><strong>${esc(dep.name)}</strong></td><td>${dep.ready}</td><td>${dep.upToDate}</td><td>${dep.available}</td><td>${dep.age}</td></tr>`).join('');
+          h+='</table>';
+        }
+
+        h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Services (${d.services?.length||0})</h4>`;
+        if(d.services&&d.services.length){
+          h+=`<table><tr><th>Name</th><th>Type</th><th>Cluster-IP</th><th>Ports</th><th>Age</th></tr>`;
+          h+=d.services.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td><span class="pill pill-blue">${esc(s.type)}</span></td><td style="font-family:monospace;font-size:12px">${esc(s.clusterIP)}</td><td>${esc(s.ports)}</td><td>${s.age}</td></tr>`).join('');
+          h+='</table>';
+        }
+        cv.innerHTML=h;
+      } catch(e){cv.innerHTML='<div class="empty">Failed to load namespace</div>';}
     }
 
-    function esc(s) {
-      if (!s) return '';
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
-    function truncate(s, n) { return s && s.length > n ? s.substr(0, n) + '...' : (s || ''); }
-    function formatUptime(s) {
-      if (!s) return '-';
-      // Go duration format: "1h30m15.123s"
-      const m = s.match(/(?:(\d+)h)?(?:(\d+)m)?/);
-      if (!m) return s;
-      const h = m[1] || '0', min = m[2] || '0';
-      return h + 'h ' + min + 'm';
+    // --- Nodes ---
+    async function fetchNodes() {
+      const nv=document.getElementById('nodes-view');
+      try {
+        const nodes = await (await fetch('/api/nodes')).json();
+        if(!nodes||!nodes.length){nv.innerHTML='<div class="empty">No nodes</div>';return;}
+        nv.innerHTML=nodes.map(n=>{
+          let sp='pill-green',st=n.status;
+          if(n.status!=='Ready'){sp='pill-red';}
+          if(n.unschedulable){sp='pill-yellow';st+=',Cordoned';}
+          if(n.memoryPressure){sp='pill-red';st+=',MemPressure';}
+          if(n.diskPressure){sp='pill-red';st+=',DiskPressure';}
+          return `<div class="node-card">
+            <div><div class="nn">${esc(n.name)}</div><div class="nd">${esc(n.roles)} &middot; ${esc(n.version)}</div><div class="nd">${esc(n.os)} (${esc(n.arch)})</div></div>
+            <div><div><span class="pill ${sp}">${st}</span></div><div class="nd" style="margin-top:8px">Pods: <strong>${n.pods}</strong></div><div class="nd">Age: ${n.age}</div></div>
+            <div><div>CPU: <strong>${esc(n.cpu)}</strong></div><div>Memory: <strong>${esc(n.memory)}</strong></div></div>
+          </div>`;
+        }).join('');
+      } catch(e){nv.innerHTML='<div class="empty">Failed to load</div>';}
     }
 
-    function refresh() {
-      fetchStatus();
-      fetchStats();
-      fetchEvents();
-    }
+    function esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+    function trunc(s,n){return s&&s.length>n?s.substr(0,n)+'...':(s||'');}
+    function fmtUp(s){if(!s)return '-';const m=s.match(/(?:(\d+)h)?(?:(\d+)m)?/);return m?(m[1]||'0')+'h '+(m[2]||'0')+'m':s;}
 
+    function refresh(){
+      fetchStatus(); fetchStats();
+      if(currentTab==='events')fetchEvents();
+      else if(currentTab==='cluster')fetchCluster();
+      else if(currentTab==='nodes')fetchNodes();
+    }
     refresh();
-    refreshTimer = setInterval(refresh, 5000);
+    setInterval(refresh,5000);
   </script>
 </body>
 </html>
