@@ -273,13 +273,28 @@ func main() {
 				kube.CheckServiceEndpoints(ctx, deps)
 				kube.CheckPendingPVCs(ctx, deps)
 				kube.CheckNodeHealth(ctx, deps)
+				kube.CheckNodeExtended(ctx, deps)
 				kube.ScanDeployments(ctx, deps)
+				kube.CheckDeadlineExceeded(ctx, deps)
+				kube.CheckEphemeralStorageFull(ctx, deps)
+				kube.CheckStatefulSetStuck(ctx, deps)
+				kube.CheckDaemonSetMissing(ctx, deps)
+				kube.CheckHPAIssues(ctx, deps)
+				kube.CheckCronJobMissed(ctx, deps)
+				kube.CheckDeploymentPaused(ctx, deps)
+				kube.CheckReplicaSetFailure(ctx, deps)
 			case <-quotaTicker.C:
 				if !le.IsLeader() {
 					continue
 				}
 				kube.CheckResourceQuotas(ctx, deps)
 				kube.CollectBaselines(ctx, deps)
+				kube.CheckStorageIssues(ctx, deps)
+				kube.CheckVolumeAttachments(ctx, deps)
+				kube.CheckNetworkIssues(ctx, deps)
+				kube.CheckSecurityIssues(ctx, deps)
+				kube.CheckWebhookBlocking(ctx, deps)
+				kube.CheckRBACDenied(ctx, deps)
 			case <-healthTicker.C:
 				kube.SelfCheck(ctx, deps)
 			}

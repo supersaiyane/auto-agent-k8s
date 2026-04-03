@@ -191,6 +191,20 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 			return
 		}
 
+		// Additional pod waiting reasons (RunContainerError, ContainerCannotRun, etc.)
+		if cs.State.Waiting != nil && isAdditionalPodReason(cs.State.Waiting.Reason) {
+			reason := cs.State.Waiting.Reason
+			key := dedupKey(newPod.Namespace, wl, reason)
+			if !deps.Dedup.Check(key) {
+				obs.DedupSkippedTotal.WithLabelValues(reason).Inc()
+				return
+			}
+			runHandler(ctx, func(hCtx context.Context) {
+				handleAdditionalPodIssue(hCtx, deps, newPod, cs.Name, reason, cs.State.Waiting.Message)
+			})
+			return
+		}
+
 		// NotReady (container running but not ready for extended period)
 		if cs.State.Running != nil && !cs.Ready && cs.RestartCount == 0 {
 			if cs.State.Running.StartedAt.Time.Before(time.Now().Add(-3 * time.Minute)) {
