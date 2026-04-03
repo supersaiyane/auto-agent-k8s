@@ -84,6 +84,7 @@
       <div class="tab" data-tab="fixed">Fixed</div>
       <div class="tab" data-tab="cluster">Cluster</div>
       <div class="tab" data-tab="nodes">Nodes</div>
+      <div class="tab" data-tab="terminal">Terminal</div>
     </div>
     <div id="panel-events" class="panel active"><div id="event-list" class="event-list"><div class="empty">Connecting...</div></div></div>
     <div id="panel-k8sevents" class="panel">
@@ -98,6 +99,21 @@
     <div id="panel-fixed" class="panel"><div id="fixed-list" class="event-list"><div class="empty">Loading...</div></div></div>
     <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
     <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
+    <div id="panel-terminal" class="panel">
+      <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Courier New',monospace;font-size:13px;height:70vh;display:flex;flex-direction:column">
+        <div id="term-output" style="flex:1;overflow-y:auto;white-space:pre-wrap;color:#c9d1d9;padding-bottom:8px"></div>
+        <div style="display:flex;align-items:center;border-top:1px solid var(--border);padding-top:8px">
+          <span style="color:var(--green);margin-right:8px;font-weight:bold">$</span>
+          <span style="color:var(--muted);margin-right:4px">kubectl</span>
+          <input id="term-input" type="text" placeholder="get pods -n test-apps" autocomplete="off" spellcheck="false"
+            style="flex:1;background:transparent;border:none;color:#c9d1d9;font-family:inherit;font-size:13px;outline:none">
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+        Type <strong style="color:var(--accent)">help</strong> for supported commands.
+        Supports: get, describe, logs, top, version. No write operations.
+      </div>
+    </div>
   </div>
 <script>
 let currentTab='events',currentFilter='',selectedNs=null,startedAt=null;
@@ -109,6 +125,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     currentTab=tab.dataset.tab; currentFilter=tab.dataset.filter||''; selectedNs=null;
     document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
     document.getElementById('panel-'+currentTab).classList.add('active');
+    if(currentTab==='terminal')focusTerminal();
     refresh();
   });
 });
@@ -307,6 +324,53 @@ async function fetchNodes(){
       </div>`;
     }).join('');
   }catch(e){nv.innerHTML='<div class="empty">Failed</div>';}
+}
+
+// --- Terminal ---
+const termHistory=[];
+let histIdx=-1;
+const termOut=()=>document.getElementById('term-output');
+const termIn=()=>document.getElementById('term-input');
+
+function termPrint(text,cls){
+  const el=termOut(); if(!el)return;
+  const div=document.createElement('div');
+  div.style.marginBottom='4px';
+  if(cls==='cmd'){div.style.color='#58a6ff';div.textContent='$ kubectl '+text;}
+  else if(cls==='err'){div.style.color='#f85149';div.textContent=text;}
+  else{div.style.color='#c9d1d9';div.textContent=text;}
+  el.appendChild(div);
+  el.scrollTop=el.scrollHeight;
+}
+
+async function termExec(cmd){
+  if(!cmd.trim())return;
+  termHistory.unshift(cmd); histIdx=-1;
+  termPrint(cmd,'cmd');
+  try{
+    const r=await fetch('/api/kubectl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
+    const d=await r.json();
+    if(d.error)termPrint('Error: '+d.error,'err');
+    if(d.output)termPrint(d.output);
+  }catch(e){termPrint('Request failed: '+e,'err');}
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const inp=document.getElementById('term-input');
+  if(!inp)return;
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){const cmd=inp.value.trim();inp.value='';termExec(cmd);}
+    else if(e.key==='ArrowUp'){e.preventDefault();if(histIdx<termHistory.length-1){histIdx++;inp.value=termHistory[histIdx];}}
+    else if(e.key==='ArrowDown'){e.preventDefault();if(histIdx>0){histIdx--;inp.value=termHistory[histIdx];}else{histIdx=-1;inp.value='';}}
+  });
+  // Welcome message
+  const out=document.getElementById('term-output');
+  if(out)out.innerHTML='<div style="color:var(--accent)">Auto-Agent Web Terminal</div><div style="color:var(--muted)">Connected to cluster. Type \'help\' for commands.</div><div style="color:var(--muted)">Examples: get pods -A, get nodes, logs &lt;pod&gt; -n &lt;ns&gt;, describe pod &lt;name&gt;</div><br>';
+});
+
+// Focus terminal input when tab is selected
+function focusTerminal(){
+  setTimeout(()=>{const inp=document.getElementById('term-input');if(inp)inp.focus();},100);
 }
 
 function esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
