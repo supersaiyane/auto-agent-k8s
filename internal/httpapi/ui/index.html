@@ -256,43 +256,73 @@ document.getElementById('k8s-ns-filter').addEventListener('change',fetchK8sEvent
 document.getElementById('k8s-type-filter').addEventListener('change',fetchK8sEvents);
 
 // --- Actions (was Fixed) ---
+let actionsFilter='all',reportFilter='all';
+function filterReport(f){reportFilter=f;fetchReport();}
+
+// Jump from Report → Events tab filtered by reason or workload
+function jumpToReason(reason){
+  currentFilter='incident';currentTab='events';
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('[data-tab="events"]').classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-events').classList.add('active');
+  document.querySelectorAll('.stat-box').forEach(b=>b.classList.remove('active'));
+  document.getElementById('box-incident').classList.add('active');
+  // Custom fetch with reason filter
+  fetch('/api/events?limit=200&type=incident').then(r=>r.json()).then(evts=>{
+    const filtered=evts.filter(e=>e.reason===reason);
+    const el=document.getElementById('event-list');
+    el.innerHTML=`<div style="margin-bottom:8px;font-size:12px"><span class="back-btn" onclick="filterBy('incident')">&#8592; All incidents</span> &middot; Showing: <span class="pill pill-red">${esc(reason)}</span> (${filtered.length})</div>`+
+    filtered.map(e=>{const t=new Date(e.timestamp);return `<div class="event"><div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div><div><span class="severity-dot ${e.severity||'info'}"></span><span class="type ${e.type}">${e.type}</span></div><div>${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}<span class="reason">${esc(e.reason)}</span> ${esc(trunc(e.message,90))}</div><div style="font-size:11px">${e.workload?esc(e.workload):''}</div></div>`;}).join('');
+  });
+}
+function jumpToWorkload(ns,wl){
+  currentTab='events';currentFilter='';
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('[data-tab="events"]').classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-events').classList.add('active');
+  document.querySelectorAll('.stat-box').forEach(b=>b.classList.remove('active'));
+  document.getElementById('box-all').classList.add('active');
+  fetch('/api/events?limit=500').then(r=>r.json()).then(evts=>{
+    const filtered=evts.filter(e=>e.namespace===ns&&e.workload===wl);
+    const el=document.getElementById('event-list');
+    el.innerHTML=`<div style="margin-bottom:8px;font-size:12px"><span class="back-btn" onclick="filterBy('all')">&#8592; All events</span> &middot; <span class="ns">${esc(ns)}</span> <strong>${esc(wl)}</strong> (${filtered.length})</div>`+
+    filtered.map(e=>{const t=new Date(e.timestamp);return `<div class="event"><div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div><div><span class="severity-dot ${e.severity||'info'}"></span><span class="type ${e.type}">${e.type}</span></div><div><span class="reason">${esc(e.reason)}</span> ${esc(trunc(e.message,90))}</div><div style="font-size:11px">${e.action?`<span class="pill pill-green">${esc(e.action)}</span>`:''}</div></div>`;}).join('');
+  });
+}
+
+let actionsFilter='all';
+function filterActions(f){actionsFilter=f;fetchActions();}
+
 async function fetchActions(){
   const av=document.getElementById('actions-view');
   try{
     const d=await(await fetch('/api/fixes')).json();
-    let h=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
-      <div class="stat-box" style="cursor:default"><div class="label">Verified Fixed</div><div class="val green">${d.fixedCount||0}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Pending</div><div class="val yellow">${d.pendingCount||0}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Not Fixed</div><div class="val red">${d.failedCount||0}</div></div>
+    const fixed=d.fixed||[],pending=d.pending||[],failed=d.failed||[];
+    const af=actionsFilter;
+
+    let h=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+      <div class="stat-box ${af==='all'?'active':''}" onclick="filterActions('all')"><div class="label">All</div><div class="val accent">${(d.fixedCount||0)+(d.pendingCount||0)+(d.failedCount||0)}</div></div>
+      <div class="stat-box ${af==='fixed'?'active':''}" onclick="filterActions('fixed')"><div class="label">Verified Fixed</div><div class="val green">${d.fixedCount||0}</div></div>
+      <div class="stat-box ${af==='pending'?'active':''}" onclick="filterActions('pending')"><div class="label">Pending</div><div class="val yellow">${d.pendingCount||0}</div></div>
+      <div class="stat-box ${af==='failed'?'active':''}" onclick="filterActions('failed')"><div class="label">Not Fixed</div><div class="val red">${d.failedCount||0}</div></div>
     </div>`;
-    const fixed=d.fixed||[];
-    if(fixed.length){
-      h+=`<h4 style="margin:10px 0 6px;color:var(--green);font-size:11px;text-transform:uppercase">Verified Fixes (${fixed.length})</h4>`;
-      h+=fixed.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--green)">
+
+    const renderList=(items,color,label,badge)=>{
+      if(!items.length)return '';
+      return items.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--${color})">
         <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-        <div><span class="pill pill-green">FIXED</span></div>
-        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--green)">${esc(f.detail)}</span></div>
+        <div><span class="pill pill-${color}">${badge}</span></div>
+        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--${color})">${esc(f.detail||f.action||'')}</span></div>
         <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
-    }
-    const pending=d.pending||[];
-    if(pending.length){
-      h+=`<h4 style="margin:14px 0 6px;color:var(--yellow);font-size:11px;text-transform:uppercase">Pending (${pending.length})</h4>`;
-      h+=pending.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--yellow)">
-        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-        <div><span class="pill pill-yellow">VERIFYING</span></div>
-        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> ${esc(f.action)} — waiting...</div>
-        <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
-    }
-    const failed=d.failed||[];
-    if(failed.length){
-      h+=`<h4 style="margin:14px 0 6px;color:var(--red);font-size:11px;text-transform:uppercase">Not Fixed (${failed.length})</h4>`;
-      h+=failed.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--red)">
-        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-        <div><span class="pill pill-red">FAILED</span></div>
-        <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--red)">${esc(f.detail)}</span></div>
-        <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
-    }
-    if(!fixed.length&&!pending.length&&!failed.length)h+='<div class="empty">No actions yet. Agent will show remediation results here.</div>';
+    };
+
+    if(af==='all'||af==='fixed') h+=renderList(fixed,'green','Fixed','FIXED');
+    if(af==='all'||af==='pending') h+=renderList(pending,'yellow','Pending','VERIFYING');
+    if(af==='all'||af==='failed') h+=renderList(failed,'red','Failed','FAILED');
+
+    if(!fixed.length&&!pending.length&&!failed.length)h+='<div class="empty">No actions yet.</div>';
     av.innerHTML=h;
   }catch(e){av.innerHTML='<div class="empty">Error</div>';}
 }
@@ -425,42 +455,89 @@ async function fetchReport(){
 
     let h=`<h3 style="margin-bottom:14px;font-size:15px">Incident Report</h3>`;
 
-    // Summary
+    // Summary — clickable boxes filter the sections below
     h+=`<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
-      <div class="stat-box" style="cursor:default"><div class="label">Total Incidents</div><div class="val red">${totalIncidents}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Actions Taken</div><div class="val accent">${totalActions}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Verified Fixed</div><div class="val green">${fixedCount}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Pending</div><div class="val yellow">${pendingCount}</div></div>
-      <div class="stat-box" style="cursor:default"><div class="label">Not Fixed</div><div class="val red">${failedCount}</div></div>
+      <div class="stat-box ${reportFilter==='all'?'active':''}" onclick="filterReport('all')"><div class="label">Total Incidents</div><div class="val red">${totalIncidents}</div></div>
+      <div class="stat-box ${reportFilter==='actions'?'active':''}" onclick="filterReport('actions')"><div class="label">Actions Taken</div><div class="val accent">${totalActions}</div></div>
+      <div class="stat-box ${reportFilter==='fixed'?'active':''}" onclick="filterReport('fixed')"><div class="label">Verified Fixed</div><div class="val green">${fixedCount}</div></div>
+      <div class="stat-box ${reportFilter==='pending'?'active':''}" onclick="filterReport('pending')"><div class="label">Pending</div><div class="val yellow">${pendingCount}</div></div>
+      <div class="stat-box ${reportFilter==='failed'?'active':''}" onclick="filterReport('failed')"><div class="label">Not Fixed</div><div class="val red">${failedCount}</div></div>
     </div>`;
 
-    // By service table
+    // Filter: show only relevant section
+    const rf=reportFilter;
+
+    // By service table — filter events based on selection
     const services=Object.values(byService).sort((a,b)=>b.incidents-a.incidents);
-    h+=`<h4 style="margin:14px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Incidents by Service (${services.length})</h4>`;
-    if(services.length){
-      h+=`<table><tr><th>Namespace</th><th>Workload</th><th>Incidents</th><th>Actions</th><th>Issue Types</th></tr>`;
-      h+=services.map(s=>{
-        const reasons=Object.entries(s.reasons).sort((a,b)=>b[1]-a[1]).map(([r,c])=>`<span class="pill pill-red">${esc(r)} x${c}</span>`).join(' ');
-        return `<tr><td><span class="ns">${esc(s.namespace)}</span></td><td><strong>${esc(s.workload)}</strong></td>
-          <td style="font-weight:600;color:var(--red)">${s.incidents}</td><td style="color:var(--green)">${s.actions}</td>
-          <td>${reasons}</td></tr>`;
+    if(rf==='all'||rf==='actions'){
+      h+=`<h4 style="margin:14px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Incidents by Service (${services.length})</h4>`;
+      if(services.length){
+        h+=`<table><tr><th>Namespace</th><th>Workload</th><th>Incidents</th><th>Actions</th><th>Issue Types</th></tr>`;
+        h+=services.map(s=>{
+          // Clicking a row jumps to Events tab filtered by that workload
+          const reasons=Object.entries(s.reasons).sort((a,b)=>b[1]-a[1]).map(([r,c])=>`<span class="pill pill-red" style="cursor:pointer" onclick="jumpToReason('${esc(r)}')">${esc(r)} x${c}</span>`).join(' ');
+          return `<tr class="ns-row" onclick="jumpToWorkload('${esc(s.namespace)}','${esc(s.workload)}')"><td><span class="ns">${esc(s.namespace)}</span></td><td><strong>${esc(s.workload)}</strong></td>
+            <td style="font-weight:600;color:var(--red)">${s.incidents}</td><td style="color:var(--green)">${s.actions}</td>
+            <td>${reasons}</td></tr>`;
+        }).join('');
+        h+='</table>';
+      }
+    }
+
+    // Fixed items list
+    if(rf==='fixed'){
+      h+=`<h4 style="margin:14px 0 8px;color:var(--green);font-size:11px;text-transform:uppercase">Verified Fixes (${fixedCount})</h4>`;
+      const fixedItems=(fixes?.fixed||[]);
+      if(fixedItems.length){
+        h+=fixedItems.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--green)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-green">FIXED</span></div>
+          <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--green)">${esc(f.detail)}</span></div>
+          <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
+      } else h+='<div class="empty">No verified fixes yet</div>';
+    }
+
+    // Pending items
+    if(rf==='pending'){
+      h+=`<h4 style="margin:14px 0 8px;color:var(--yellow);font-size:11px;text-transform:uppercase">Pending Verification (${pendingCount})</h4>`;
+      const pendingItems=(fixes?.pending||[]);
+      if(pendingItems.length){
+        h+=pendingItems.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--yellow)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-yellow">VERIFYING</span></div>
+          <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> ${esc(f.action)} — waiting...</div>
+          <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
+      } else h+='<div class="empty">No pending verifications</div>';
+    }
+
+    // Failed items
+    if(rf==='failed'){
+      h+=`<h4 style="margin:14px 0 8px;color:var(--red);font-size:11px;text-transform:uppercase">Not Fixed (${failedCount})</h4>`;
+      const failedItems=(fixes?.failed||[]);
+      if(failedItems.length){
+        h+=failedItems.map(f=>{const t=new Date(f.timestamp);return `<div class="event" style="border-left:3px solid var(--red)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-red">FAILED</span></div>
+          <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span> <span style="color:var(--red)">${esc(f.detail)}</span></div>
+          <div style="font-size:10px;color:var(--muted)">${esc(f.workload)}</div></div>`;}).join('');
+      } else h+='<div class="empty">No failed remediations</div>';
+    }
+
+    // Issue type breakdown — always visible, rows clickable to filter events
+    if(rf==='all'){
+      const reasonTotals={};
+      (evts||[]).filter(e=>e.type==='incident').forEach(e=>{reasonTotals[e.reason]=(reasonTotals[e.reason]||0)+1;});
+      const reasonList=Object.entries(reasonTotals).sort((a,b)=>b[1]-a[1]);
+      h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Issue Type Breakdown</h4>`;
+      h+=`<table><tr><th>Issue Type</th><th>Count</th><th>% of Total</th><th></th></tr>`;
+      h+=reasonList.map(([reason,count])=>{
+        const pct=totalIncidents>0?(count/totalIncidents*100).toFixed(1):'0';
+        const barW=totalIncidents>0?(count/totalIncidents*200):0;
+        return `<tr class="ns-row" onclick="jumpToReason('${esc(reason)}')"><td><strong>${esc(reason)}</strong></td><td style="font-weight:600">${count}</td><td>${pct}%</td>
+          <td><div style="width:${barW}px;height:12px;background:var(--red);border-radius:3px;opacity:.7"></div></td></tr>`;
       }).join('');
       h+='</table>';
     }
-
-    // Issue type breakdown
-    const reasonTotals={};
-    (evts||[]).filter(e=>e.type==='incident').forEach(e=>{reasonTotals[e.reason]=(reasonTotals[e.reason]||0)+1;});
-    const reasonList=Object.entries(reasonTotals).sort((a,b)=>b[1]-a[1]);
-    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:11px;text-transform:uppercase">Issue Type Breakdown</h4>`;
-    h+=`<table><tr><th>Issue Type</th><th>Count</th><th>% of Total</th><th></th></tr>`;
-    h+=reasonList.map(([reason,count])=>{
-      const pct=totalIncidents>0?(count/totalIncidents*100).toFixed(1):'0';
-      const barW=totalIncidents>0?(count/totalIncidents*200):0;
-      return `<tr><td><strong>${esc(reason)}</strong></td><td style="font-weight:600">${count}</td><td>${pct}%</td>
-        <td><div style="width:${barW}px;height:12px;background:var(--red);border-radius:3px;opacity:.7"></div></td></tr>`;
-    }).join('');
-    h+='</table>';
 
     rv.innerHTML=h;
   }catch(e){rv.innerHTML='<div class="empty">Failed to load report</div>';}
