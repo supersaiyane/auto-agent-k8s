@@ -66,6 +66,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	mux.HandleFunc("/api/cluster", s.handleCluster)
 	mux.HandleFunc("/api/namespace/", s.handleNamespace)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/k8s-events", s.handleK8sEvents)
 
 	// Embedded UI
 	uiSub, err := fs.Sub(uiFS, "ui")
@@ -455,6 +456,71 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
+
+type k8sEvent struct {
+	Timestamp string `json:"timestamp"`
+	Namespace string `json:"namespace"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Reason    string `json:"reason"`
+	Message   string `json:"message"`
+	Count     int32  `json:"count"`
+	Source     string `json:"source"`
+	Age       string `json:"age"`
+}
+
+// handleK8sEvents returns real Kubernetes events from the cluster.
+func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
+	if s.kc == nil {
+		writeJSON(w, []k8sEvent{})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	ns := r.URL.Query().Get("namespace")
+	var eventList *corev1.EventList
+	var err error
+	if ns != "" {
+		eventList, err = s.kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+	} else {
+		eventList, err = s.kc.CoreV1().Events("").List(ctx, metav1.ListOptions{})
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Sort by last timestamp descending, take most recent 200
+	items := eventList.Items
+	// Simple sort: reverse order (API returns chronological)
+	result := make([]k8sEvent, 0, 200)
+	start := 0
+	if len(items) > 200 {
+		start = len(items) - 200
+	}
+	for i := len(items) - 1; i >= start; i-- {
+		e := items[i]
+		ts := e.LastTimestamp.Time
+		if ts.IsZero() {
+			ts = e.CreationTimestamp.Time
+		}
+		result = append(result, k8sEvent{
+			Timestamp: ts.UTC().Format(time.RFC3339),
+			Namespace: e.Namespace,
+			Kind:      e.InvolvedObject.Kind,
+			Name:      e.InvolvedObject.Name,
+			Type:      e.Type,
+			Reason:    e.Reason,
+			Message:   e.Message,
+			Count:     e.Count,
+			Source:     e.Source.Component,
+			Age:       age(ts),
+		})
+	}
+	writeJSON(w, result)
+}
 
 func summarizePods(pods []corev1.Pod) podSummary {
 	var s podSummary
