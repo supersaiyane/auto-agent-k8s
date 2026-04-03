@@ -52,18 +52,12 @@ data:
   # Structured JSON logging (set to "json" for ELK/Loki)
   LOG_FORMAT: ""
 
-  # Cost estimation — pick ONE provider (leave others empty)
-  # "kubecost" — installs and uses Kubecost (most accurate, free tier)
-  # "opencost" — installs and uses OpenCost (fully open-source)
-  # "manual"   — uses COST_CPU_PER_HOUR / COST_MEM_PER_GIB_HOUR below
-  # ""         — uses built-in instance-type lookup + default rates
+  # Cost estimation — pick ONE:
+  #   "kubecost" — auto-installs Kubecost (most accurate, free tier)
+  #   "opencost" — auto-installs OpenCost (fully open-source)
+  #   "manual"   — set COST_CPU_PER_HOUR and COST_MEM_PER_GIB_HOUR below
+  #   ""         — uses built-in instance-type lookup (40+ AWS/GCP/Azure types)
   COST_PROVIDER: ""
-  COST_CPU_PER_HOUR: "0.05"
-  COST_MEM_PER_GIB_HOUR: "0.005"
-  COST_CURRENCY: "USD"
-  COST_INSTANCE_PRICES: ""
-  KUBECOST_URL: ""
-  OPENCOST_URL: ""
 ---
 apiVersion: v1
 kind: Secret

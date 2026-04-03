@@ -103,10 +103,17 @@ case "$COST_PROVIDER" in
         install_opencost
         ;;
     manual)
-        echo "  Using manual pricing from config (COST_CPU_PER_HOUR / COST_MEM_PER_GIB_HOUR)"
+        echo "  Using manual pricing"
+        read -p "  CPU price ($/vCPU/hour) [0.05]: " CPU_PRICE
+        read -p "  Memory price ($/GiB/hour) [0.005]: " MEM_PRICE
+        read -p "  Currency [USD]: " CURRENCY
+        CPU_PRICE=${CPU_PRICE:-0.05}
+        MEM_PRICE=${MEM_PRICE:-0.005}
+        CURRENCY=${CURRENCY:-USD}
+        # Will patch after applying config
         ;;
     *)
-        echo "  Using built-in instance-type pricing (default)"
+        echo "  Using built-in instance-type pricing (40+ AWS/GCP/Azure types)"
         echo "  Set COST_PROVIDER in 03-config.yaml to 'kubecost' or 'opencost' for real costs"
         ;;
 esac
@@ -120,7 +127,7 @@ kubectl apply -f "$SCRIPT_DIR/02-rbac.yaml"
 kubectl apply -f "$SCRIPT_DIR/03-config.yaml"
 kubectl apply -f "$SCRIPT_DIR/04-daemonset.yaml"
 
-# If cost provider was set, patch the config after apply
+# Patch config with cost provider settings
 case "$COST_PROVIDER" in
     kubecost)
         kubectl patch cm auto-agent-config -n auto-agent --type merge \
@@ -129,6 +136,10 @@ case "$COST_PROVIDER" in
     opencost)
         kubectl patch cm auto-agent-config -n auto-agent --type merge \
             -p '{"data":{"OPENCOST_URL":"http://opencost.opencost:9003"}}' > /dev/null 2>&1
+        ;;
+    manual)
+        kubectl patch cm auto-agent-config -n auto-agent --type merge \
+            -p "{\"data\":{\"COST_CPU_PER_HOUR\":\"$CPU_PRICE\",\"COST_MEM_PER_GIB_HOUR\":\"$MEM_PRICE\",\"COST_CURRENCY\":\"$CURRENCY\"}}" > /dev/null 2>&1
         ;;
 esac
 
