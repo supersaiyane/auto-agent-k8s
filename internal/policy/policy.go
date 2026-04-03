@@ -110,6 +110,33 @@ func (p *Policy) AllowedNamespace(ns string) bool {
 	return ok
 }
 
+func parseNamespaceList(s string) map[string]struct{} {
+	ns := map[string]struct{}{}
+	for _, n := range strings.Split(s, ",") {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			ns[n] = struct{}{}
+		}
+	}
+	return ns
+}
+
+func envIntVal(s string, fallback int) int {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return i
+}
+
+func envFloatVal(s string, fallback float64) float64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

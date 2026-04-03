@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: auto-agent-test
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "auto-agent.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-healthz
+    image: curlimages/curl:8.5.0
+    command: ['sh', '-c']
+    args:
+      - |
+        echo "Testing /healthz..."
+        curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/healthz || exit 1
+        echo " OK"
+
+        echo "Testing /readyz..."
+        curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/readyz || exit 1
+        echo " OK"
+
+        echo "Testing /api/status..."
+        STATUS=$(curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/api/status)
+        echo "$STATUS" | grep -q '"version"' || exit 1
+        echo " OK"
+
+        echo "Testing /api/events..."
+        curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/api/events > /dev/null || exit 1
+        echo " OK"
+
+        echo "Testing /metrics..."
+        METRICS=$(curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/metrics)
+        echo "$METRICS" | grep -q 'auto_agent_info' || exit 1
+        echo " OK"
+
+        echo "Testing dashboard UI..."
+        curl -sf http://auto-agent.{{ .Values.namespace }}.svc.cluster.local:8080/ | grep -q 'auto-agent' || exit 1
+        echo " OK"
+
+        echo "All tests passed."

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
+	"github.com/yourorg/auto-agent/internal/alertmanager"
 	"github.com/yourorg/auto-agent/internal/crd"
 	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/httpapi"
@@ -25,6 +27,7 @@ import (
 	"github.com/yourorg/auto-agent/internal/ratelimit"
 	"github.com/yourorg/auto-agent/internal/slack"
 	"github.com/yourorg/auto-agent/internal/storage"
+	"github.com/yourorg/auto-agent/internal/webhook"
 )
 
 const version = "1.0.0"
@@ -35,8 +38,32 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// --- Load policy ---
+	// --- Kubernetes clients ---
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		klog.Fatalf("in-cluster config: %v", err)
+	}
+	cfg.QPS = 50
+	cfg.Burst = 100
+
+	kc, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("kube client: %v", err)
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("dynamic client: %v", err)
+	}
+
+	// --- Load policy (with ConfigMap hot-reload) ---
+	podNS := os.Getenv("POD_NAMESPACE")
+	if podNS == "" {
+		podNS = "kube-system"
+	}
 	pol := policy.LoadFromEnv()
+	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
+	go hotReloader.Start(ctx, kc)
+
 	klog.Infof("auto-agent %s starting (mode=%s, namespaces=%v)", version, pol.Mode, namespaceList(pol))
 
 	// --- Publish info metric ---
@@ -54,22 +81,19 @@ func main() {
 	})
 	go httpSrv.Start()
 
-	// --- Kubernetes clients ---
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		klog.Fatalf("in-cluster config: %v", err)
-	}
-	// Increase QPS for high-throughput remediation
-	cfg.QPS = 50
-	cfg.Burst = 100
-
-	kc, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		klog.Fatalf("kube client: %v", err)
-	}
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		klog.Fatalf("dynamic client: %v", err)
+	// --- Admission webhook (optional, requires TLS certs) ---
+	webhookCert := os.Getenv("WEBHOOK_CERT_FILE")
+	webhookKey := os.Getenv("WEBHOOK_KEY_FILE")
+	if webhookCert != "" && webhookKey != "" {
+		blockedImages := strings.Split(os.Getenv("WEBHOOK_BLOCKED_IMAGES"), ",")
+		wh := webhook.NewValidator(webhook.Config{
+			Port:             8443,
+			RequireLimits:    os.Getenv("WEBHOOK_REQUIRE_LIMITS") != "false",
+			RequireReadiness: os.Getenv("WEBHOOK_REQUIRE_READINESS") != "false",
+			BlockedImages:    blockedImages,
+		})
+		go wh.Start(webhookCert, webhookKey)
+		klog.Infof("webhook: admission validator enabled on :8443")
 	}
 
 	// --- Initialize dependencies ---
@@ -90,6 +114,10 @@ func main() {
 	sink := storage.GlobalSink()
 	dedup := ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second)
 	limiter := ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute)
+	breaker := ratelimit.NewCircuitBreaker(5, 1*time.Hour)
+
+	// Alertmanager client (optional)
+	am := alertmanager.New(os.Getenv("ALERTMANAGER_URL"))
 
 	// CRD store + controller
 	crdStore := crd.NewStore()
@@ -132,18 +160,20 @@ func main() {
 
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
-		Client:   kc,
-		Metrics:  mp,
-		Policy:   pol,
-		Slack:    sl,
-		LLM:     ll,
-		Dedup:    dedup,
-		Limiter:  limiter,
-		Sink:     sink,
-		CRDStore: crdStore,
-		GitOps:   gitOps,
-		Ticketer: ticketer,
-		Recorder: recorder,
+		Client:       kc,
+		Metrics:      mp,
+		Policy:       pol,
+		Slack:        sl,
+		LLM:          ll,
+		Dedup:        dedup,
+		Limiter:      limiter,
+		Sink:         sink,
+		CRDStore:     crdStore,
+		GitOps:       gitOps,
+		Ticketer:     ticketer,
+		Recorder:     recorder,
+		Breaker:      breaker,
+		AlertManager: am,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
@@ -153,12 +183,12 @@ func main() {
 	// --- Start watchers (pod + node informers) ---
 	kube.StartWatchers(ctx, deps)
 
+	// --- Log retention cleanup (filesystem only) ---
+	go kube.StartLogRetention(ctx)
+
 	// --- Mark ready ---
 	httpSrv.SetReady()
 	sl.Postf("auto-agent %s started on node `%s` (mode=%s)", version, hostname(), pol.Mode)
-
-	// --- Log retention cleanup (filesystem only) ---
-	go kube.StartLogRetention(ctx)
 
 	// --- Leader-only periodic loops ---
 	go func() {
@@ -177,6 +207,8 @@ func main() {
 				if !le.IsLeader() {
 					continue
 				}
+				// Use hot-reloaded policy
+				deps.Policy = hotReloader.Get()
 				kube.EvaluateAndScale(ctx, deps)
 				kube.CheckAnomalies(ctx, deps)
 			case <-jobTicker.C:
@@ -197,7 +229,6 @@ func main() {
 	<-ctx.Done()
 	klog.Infof("shutting down...")
 
-	// Graceful shutdown with 10s deadline
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 

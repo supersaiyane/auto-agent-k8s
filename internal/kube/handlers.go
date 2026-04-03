@@ -32,7 +32,17 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	msg := fmt.Sprintf("*CrashLoopBackOff* on `%s/%s` (container: `%s`)\nLogs+events saved: `%s`\n", ns, name, cname, url)
 
 	if deps.Policy.Mode == policy.Fix {
-		if !deps.Limiter.Allow() {
+		// Check CRD per-policy approval requirement
+		crdPol := effectivePolicy(deps, ns, pod.Labels)
+		if !policyAllowsAction(crdPol) {
+			msg += "_Blocked_: CRD policy requires manual approval for this workload.\n"
+		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
+			msg += "_Circuit breaker tripped_: too many actions on this workload in the last hour. Escalating.\n"
+			obs.HandlerErrorsTotal.WithLabelValues("crashloop", "circuit_breaker").Inc()
+			if deps.AlertManager != nil {
+				deps.AlertManager.FireCircuitBreaker(ctx, ns, wl)
+			}
+		} else if !deps.Limiter.Allow() {
 			obs.RateLimitedTotal.Inc()
 			msg += "_Action_: rate limited, skipping pod deletion.\n"
 		} else {
@@ -75,7 +85,12 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	msg += "_Check_: image name, tag, registry credentials (ImagePullSecret), and network access to registry.\n"
 
 	if deps.Policy.Mode == policy.Fix {
-		if !deps.Limiter.Allow() {
+		crdPol := effectivePolicy(deps, ns, pod.Labels)
+		if !policyAllowsAction(crdPol) {
+			msg += "_Blocked_: CRD policy requires manual approval.\n"
+		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
+			msg += "_Circuit breaker tripped_: too many actions on this workload. Escalating.\n"
+		} else if !deps.Limiter.Allow() {
 			obs.RateLimitedTotal.Inc()
 		} else {
 			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
@@ -181,7 +196,12 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 	msg += "_Check_: readiness probe endpoint, application startup, and dependencies.\n"
 
 	if deps.Policy.Mode == policy.Fix {
-		if !deps.Limiter.Allow() {
+		crdPol := effectivePolicy(deps, ns, pod.Labels)
+		if !policyAllowsAction(crdPol) {
+			msg += "_Blocked_: CRD policy requires manual approval.\n"
+		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
+			msg += "_Circuit breaker tripped_: too many actions on this workload. Escalating.\n"
+		} else if !deps.Limiter.Allow() {
 			obs.RateLimitedTotal.Inc()
 		} else {
 			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
