@@ -86,18 +86,43 @@ echo ""
 echo "Agent pods:"
 kubectl get pods -n kube-system -l app=auto-agent -o wide
 
+# Start port-forward for dashboard in background
+echo ""
+echo "Starting dashboard port-forward (background)..."
+# Kill any existing port-forward on 8080
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+kubectl port-forward -n kube-system svc/auto-agent 8080:8080 > /dev/null 2>&1 &
+PF_PID=$!
+sleep 2
+
+# Verify dashboard is accessible
+if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+    echo "  Dashboard running at http://localhost:8080"
+    echo "  Port-forward PID: $PF_PID"
+else
+    echo "  WARNING: Dashboard not reachable on localhost:8080"
+    echo "  Try manually: kubectl port-forward -n kube-system svc/auto-agent 8080:8080"
+fi
+
+# Open dashboard in browser (macOS)
+if command -v open &> /dev/null; then
+    echo "  Opening dashboard in browser..."
+    open http://localhost:8080
+fi
+
 echo ""
 echo "=========================================="
 echo " Setup Complete!"
 echo "=========================================="
 echo ""
-echo "Dashboard:"
-echo "  kubectl port-forward -n kube-system svc/auto-agent 8080:8080"
-echo "  Then open http://localhost:8080"
+echo "Dashboard: http://localhost:8080  (port-forward running in background)"
 echo ""
-echo "Agent logs:"
+echo "Agent logs (open in a separate terminal):"
 echo "  kubectl logs -n kube-system -l app=auto-agent -f"
 echo ""
 echo "Run tests:"
 echo "  ./test/scripts/run-tests.sh"
+echo ""
+echo "Stop port-forward later:"
+echo "  kill $PF_PID"
 echo ""

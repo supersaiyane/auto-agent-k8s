@@ -307,6 +307,47 @@ else
 fi
 
 # ------------------------------------------
+# TEST 16: Dashboard UI via port-forward
+# ------------------------------------------
+echo ""
+log "TEST 16: Dashboard UI (live browser check)"
+if curl -sf http://localhost:8080/ 2>/dev/null | grep -q "auto-agent"; then
+    ok "Dashboard UI accessible at http://localhost:8080"
+    if curl -sf http://localhost:8080/api/status 2>/dev/null | grep -q "version"; then
+        ok "GET /api/status — agent info"
+    else
+        warn "/api/status not reachable via port-forward"
+    fi
+    if curl -sf http://localhost:8080/api/events 2>/dev/null | grep -q "\["; then
+        ok "GET /api/events — event list"
+    else
+        warn "/api/events not reachable"
+    fi
+    if curl -sf http://localhost:8080/api/stats 2>/dev/null | grep -q "total"; then
+        ok "GET /api/stats — event counts"
+    else
+        warn "/api/stats not reachable"
+    fi
+    if curl -sf http://localhost:8080/metrics 2>/dev/null | grep -q "auto_agent_info"; then
+        ok "GET /metrics — Prometheus metrics present"
+    else
+        warn "/metrics not serving auto_agent metrics"
+    fi
+    echo ""
+    echo -e "  ${BOLD}>>> Open http://localhost:8080 in your browser <<<${NC}"
+    echo "  You should see:"
+    echo "    - Header: version, mode (fix), leader/follower, node name"
+    echo "    - Stat cards: incident, action, scaling counts from tests above"
+    echo "    - Event feed: CrashLoopBackOff, OOMKilled, ImagePullBackOff, etc."
+    echo "    - Tab filters: All / Incidents / Actions / Scaling / Anomalies"
+    echo "    - Auto-refresh every 5 seconds"
+else
+    warn "Dashboard not reachable at localhost:8080"
+    echo "  Port-forward may not be running. Start it:"
+    echo "  kubectl port-forward -n kube-system svc/auto-agent 8080:8080 &"
+fi
+
+# ------------------------------------------
 # Summary
 # ------------------------------------------
 echo ""
