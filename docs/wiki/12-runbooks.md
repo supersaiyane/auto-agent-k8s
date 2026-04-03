@@ -82,3 +82,54 @@ For each issue type, what the agent does automatically and what requires manual 
 - Manual cert: renew and update the Secret
 - `kubectl get cert -A` (if cert-manager)
 - Check if the cert is for the right domain
+
+## CordonedForgotten
+
+**Agent does**: Alerts when a node is Ready but cordoned (unschedulable) and wasn't cordoned by the agent itself.
+**Manual**:
+- Was this intentional maintenance? If done, uncordon: `kubectl uncordon <node>`
+- Check if a drain operation was interrupted
+- The agent uses `auto-agent.io/cordoned` annotation to track nodes it cordoned — it won't alert on those
+
+## ClockSkew
+
+**Agent does**: Alerts when a node's last heartbeat is >5 minutes old but the node claims Ready status.
+**Manual**:
+- SSH to the node and check NTP: `timedatectl status`
+- Restart chrony/ntpd: `systemctl restart chronyd`
+- TLS certificates may fail with clock drift — check HTTPS services on the node
+- If kubelet restarts, heartbeat resets
+
+## DNS Down/Degraded
+
+**Agent does**: Checks CoreDNS pods in kube-system. Alerts if all pods down (critical) or partially down (warning).
+**Manual**:
+- `kubectl get pods -n kube-system -l k8s-app=kube-dns`
+- Check CoreDNS logs: `kubectl logs -n kube-system -l k8s-app=kube-dns`
+- Verify DNS resolves: `kubectl run test --rm -i --image=busybox -- nslookup kubernetes.default`
+- Check if CoreDNS ConfigMap has a loop (resolv.conf pointing to itself)
+
+## Ephemeral Storage Full
+
+**Agent does**: Detects pods evicted for ephemeral-storage usage.
+**Manual**:
+- Check which container filled the volume: `kubectl describe pod <name>` → Last State
+- Reduce log output or redirect to external logging
+- Increase `ephemeral-storage` limit in pod spec
+- Clean up temp files in the container
+
+## Automated Runbook Execution
+
+If a CRD policy has `runbookURL`, the agent fetches and executes it:
+```yaml
+spec:
+  escalation:
+    runbookURL: "https://wiki.internal/runbooks/api.json"
+```
+
+The agent:
+1. Fetches the JSON runbook from the URL
+2. Executes each step via the kubectl API (read-only commands only)
+3. Checks `expect` field against output (substring match)
+4. Reports pass/fail per step in the Slack message
+5. Records as `RunbookExecuted` event in the dashboard

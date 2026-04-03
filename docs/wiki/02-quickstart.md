@@ -80,6 +80,53 @@ kubectl apply -f deployment/03-config.yaml
 kubectl rollout restart ds/auto-agent -n auto-agent
 ```
 
+## Connect Integrations
+
+### Slack (recommended first)
+```bash
+kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
+  -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://hooks.slack.com/services/YOUR/WEBHOOK/URL"}}'
+kubectl rollout restart ds/auto-agent -n auto-agent
+```
+
+### Jira
+```bash
+kubectl patch cm auto-agent-config -n auto-agent --type merge \
+  -p '{"data":{"TICKETS_ENABLED":"true","TICKETS_PROVIDER":"jira","JIRA_BASE_URL":"https://yourorg.atlassian.net","JIRA_PROJECT_KEY":"OPS"}}'
+kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
+  -p '{"stringData":{"JIRA_TOKEN":"your-api-token","JIRA_EMAIL":"you@company.com"}}'
+kubectl rollout restart ds/auto-agent -n auto-agent
+```
+
+### Prometheus + Alertmanager (for scaling + alerts)
+```bash
+# Install via Helm
+helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
+
+# Point agent to it
+kubectl patch cm auto-agent-config -n auto-agent --type merge \
+  -p '{"data":{"METRICS_PROVIDER":"prometheus","PROMETHEUS_URL":"http://prometheus-kube-prometheus-prometheus.monitoring:9090","ALERTMANAGER_URL":"http://prometheus-kube-prometheus-alertmanager.monitoring:9093"}}'
+kubectl rollout restart ds/auto-agent -n auto-agent
+```
+
+See [Feature Status](23-feature-status.md) for all integration activation guides.
+
+## Verify Everything Works
+
+```bash
+# Check agent status
+curl -s http://localhost:8080/api/status | python3 -m json.tool
+
+# Check event counts
+curl -s http://localhost:8080/api/stats
+
+# Check fixes
+curl -s http://localhost:8080/api/fixes | python3 -m json.tool
+
+# Check cost
+curl -s http://localhost:8080/api/cost | python3 -c "import sys,json;d=json.load(sys.stdin);print(f'Total: \${d[\"totalMonthly\"]:.0f}/mo')"
+```
+
 ## Clean Up
 
 ```bash
@@ -95,3 +142,5 @@ kubectl rollout restart ds/auto-agent -n auto-agent
 - [Configuration Reference](03-configuration.md) — all settings explained
 - [Dashboard Guide](06-dashboard.md) — what each tab shows
 - [Safety Model](05-safety.md) — how guardrails protect your cluster
+- [Feature Status](23-feature-status.md) — what's running vs what needs config
+- [Troubleshooting](11-troubleshooting.md) — when things don't work

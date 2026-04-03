@@ -113,11 +113,30 @@ handleCrashLoop() / handleOOM() / etc.
 | | Deploy tracker (2min) |
 | | Self-monitoring (3min) |
 
+## Internal Components
+
+### Safety Components
+
+| Component | File | What it does |
+|-----------|------|-------------|
+| **BlastRadiusTracker** | `auditlog.go` | Limits actions to max 5 namespaces per hour. Resets on window expiry. Prevents cluster-wide cascading remediation. |
+| **QuietHours** | `auditlog.go` | Parses `QUIET_HOURS` env (e.g., `"02:00-06:00"`) and blocks fix actions during maintenance windows. Supports overnight windows (`"22:00-06:00"`). |
+| **CircuitBreaker** | `ratelimit/circuit.go` | Per-workload action counter. Trips after threshold (default 5) within window (default 1hr). Fires Alertmanager critical alert on trip. Auto-resets after window. |
+
+### Intelligence Components
+
+| Component | File | What it does |
+|-----------|------|-------------|
+| **DeployTracker** | `correlation.go` | Records deployment changes (image, revision, replicas). `CorrelateIncident()` links incidents to deploys within 10min window. `ScanDeployments()` runs every 2min. |
+| **ComplianceTracker** | `compliance.go` | Collects incidents and actions. `GenerateReport()` produces: total incidents, auto-remediated, MTTR, remediation rate, incidents by reason/namespace. Available via `GET /api/compliance`. |
+| **LearningMode** | `learning.go` | Samples CPU per workload from Prometheus. Computes avg, stddev, auto-tunes thresholds (avg + 2*stddev). Persists to `baselines.json`. `GetThreshold()` returns learned or global default. |
+| **FixTracker** | `fixtracker.go` | Tracks every remediation action. Verifies recovery by checking Deployment ReadyReplicas. Resolves RS name → Deployment name. States: pending → fixed or not-fixed (15min timeout). |
+
 ## Data Persistence
 
 | File | Contents | Survives restart |
 |------|----------|-----------------|
-| `/var/log/auto-agent/events.jsonl` | Dashboard events | Yes (hostPath volume) |
-| `/var/log/auto-agent/audit.jsonl` | Action audit log | Yes |
-| `/var/log/auto-agent/baselines.json` | Learning mode baselines | Yes |
-| `/var/log/auto-agent/<ns>/<workload>/...` | Incident log bundles | Yes |
+| `/var/log/auto-agent/events.jsonl` | Dashboard events (JSONL, loaded on startup) | Yes (hostPath volume) |
+| `/var/log/auto-agent/audit.jsonl` | Action audit log (action, result, mode) | Yes |
+| `/var/log/auto-agent/baselines.json` | Learning mode CPU baselines per workload | Yes |
+| `/var/log/auto-agent/<ns>/<workload>/...` | Incident log bundles (logs + events) | Yes |

@@ -10,12 +10,54 @@
 - Block Kit interactive buttons (Approve / Rollback / Silence)
 - Callback endpoint: `POST /api/slack/actions`
 
-**Per-policy channels**:
+**Per-policy Slack channels**:
+
+Each CRD policy can route alerts to a different Slack channel. The agent uses `RegisterChannel()` to map channel names to webhook URLs, and `PostToChannel()` to route messages:
+
+```yaml
+# CRD policy routes this workload's alerts to a specific channel
+spec:
+  escalation:
+    slackChannel: "#prod-incidents"
+```
+
+To register channel webhooks, set env vars:
+```bash
+kubectl patch cm auto-agent-config -n auto-agent --type merge \
+  -p '{"data":{"SLACK_CHANNEL_prod-incidents":"https://hooks.slack.com/services/T.../B.../xxx"}}'
+```
+
+**Interactive buttons (Block Kit)**:
+
+When the agent sends an incident alert, it includes interactive buttons built via `BuildIncidentBlocks()`:
+- **Approve Fix** — allows the pending action to execute
+- **Rollback** — triggers a deployment rollback
+- **Silence 1h** — suppresses alerts for this workload for 1 hour
+
+Button clicks are received at `POST /api/slack/actions` and processed by `SlackActionHandler`.
+
+**Runbook automation**:
+
+If a CRD policy has `runbookURL` set, the agent fetches the runbook (JSON format) and executes its steps:
 ```yaml
 spec:
   escalation:
-    slackChannel: "#prod-incidents"   # routes to this channel's webhook
+    runbookURL: "https://wiki.internal/runbooks/api.json"
 ```
+
+Runbook JSON format:
+```json
+{
+  "name": "API troubleshooting",
+  "steps": [
+    {"name": "Check pods", "type": "check", "command": "get pods -n prod -l app=api"},
+    {"name": "Check logs", "type": "check", "command": "logs -n prod -l app=api --tail 20"},
+    {"name": "Check endpoints", "type": "check", "command": "get endpoints api -n prod", "expect": "10."}
+  ]
+}
+```
+
+Only read-only kubectl commands are allowed (get, describe, logs). Results are formatted in the Slack message with pass/fail per step.
 
 ## LLM Diagnosis
 
