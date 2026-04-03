@@ -84,6 +84,7 @@
       <div class="tab" data-tab="fixed">Fixed</div>
       <div class="tab" data-tab="cluster">Cluster</div>
       <div class="tab" data-tab="nodes">Nodes</div>
+      <div class="tab" data-tab="cost">Cost</div>
       <div class="tab" data-tab="terminal">Terminal</div>
     </div>
     <div id="panel-events" class="panel active"><div id="event-list" class="event-list"><div class="empty">Connecting...</div></div></div>
@@ -99,6 +100,7 @@
     <div id="panel-fixed" class="panel"><div id="fixed-list" class="event-list"><div class="empty">Loading...</div></div></div>
     <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
     <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
+    <div id="panel-cost" class="panel"><div id="cost-view"><div class="empty">Loading cost data...</div></div></div>
     <div id="panel-terminal" class="panel">
       <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Courier New',monospace;font-size:13px;height:70vh;display:flex;flex-direction:column">
         <div id="term-output" style="flex:1;overflow-y:auto;white-space:pre-wrap;color:#c9d1d9;padding-bottom:8px"></div>
@@ -326,6 +328,81 @@ async function fetchNodes(){
   }catch(e){nv.innerHTML='<div class="empty">Failed</div>';}
 }
 
+// --- Cost ---
+async function fetchCost(){
+  const cv=document.getElementById('cost-view');
+  try{
+    const d=await(await fetch('/api/cost')).json();
+    let h='';
+
+    // Summary cards
+    h+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="stat-card"><div class="label">Total Monthly</div><div class="value green">$${d.totalMonthly?.toFixed(0)||0}</div></div>
+      <div class="stat-card"><div class="label">Workload Cost</div><div class="value accent">$${d.workloadCost?.toFixed(0)||0}</div></div>
+      <div class="stat-card"><div class="label">Wasted (idle)</div><div class="value red">$${d.wastedCost?.toFixed(0)||0}</div></div>
+      <div class="stat-card"><div class="label">Efficiency</div><div class="value yellow">${d.totalMonthly>0?((d.workloadCost/d.totalMonthly)*100).toFixed(0):'0'}%</div></div>
+    </div>`;
+
+    // Resource utilization
+    const s=d.summary||{};
+    h+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="stat-card"><div class="label">Nodes</div><div style="font-size:22px;font-weight:700;margin-top:4px">${s.totalNodes||0}</div></div>
+      <div class="stat-card"><div class="label">Total Pods</div><div style="font-size:22px;font-weight:700;margin-top:4px">${s.totalPods||0}</div></div>
+      <div class="stat-card"><div class="label">CPU Allocated</div><div style="font-size:18px;font-weight:600;margin-top:4px">${s.allocatedCpu||0} / ${s.totalCpuCores||0} cores <span class="pill ${s.cpuUtilization>80?'pill-red':s.cpuUtilization>50?'pill-yellow':'pill-green'}">${s.cpuUtilization||0}%</span></div></div>
+      <div class="stat-card"><div class="label">Memory Allocated</div><div style="font-size:18px;font-weight:600;margin-top:4px">${s.allocatedMemGiB||0} / ${s.totalMemoryGiB||0} GiB <span class="pill ${s.memUtilization>80?'pill-red':s.memUtilization>50?'pill-yellow':'pill-green'}">${s.memUtilization||0}%</span></div></div>
+    </div>`;
+
+    // Node costs
+    h+=`<h4 style="margin:16px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Cost by Node</h4>`;
+    if(d.nodes&&d.nodes.length){
+      h+=`<table><tr><th>Node</th><th>CPU</th><th>Memory</th><th>Pods</th><th>CPU Used</th><th>Mem Used</th><th>Monthly</th></tr>`;
+      h+=d.nodes.map(n=>`<tr>
+        <td><strong>${esc(n.name)}</strong></td>
+        <td>${n.cpuCores} cores</td><td>${n.memoryGiB} GiB</td><td>${n.pods}</td>
+        <td><span class="pill ${n.cpuUsedPct>80?'pill-red':n.cpuUsedPct>50?'pill-yellow':'pill-green'}">${n.cpuUsedPct}%</span></td>
+        <td><span class="pill ${n.memUsedPct>80?'pill-red':n.memUsedPct>50?'pill-yellow':'pill-green'}">${n.memUsedPct}%</span></td>
+        <td style="font-weight:600">$${n.monthly.toFixed(0)}</td>
+      </tr>`).join('');
+      h+='</table>';
+    }
+
+    // Namespace costs
+    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Cost by Namespace</h4>`;
+    if(d.namespaces&&d.namespaces.length){
+      const sorted=[...d.namespaces].sort((a,b)=>b.monthly-a.monthly);
+      h+=`<table><tr><th>Namespace</th><th>Pods</th><th>CPU Requests</th><th>Memory Requests</th><th>Monthly</th></tr>`;
+      h+=sorted.map(ns=>{
+        if(ns.monthly<0.01&&ns.pods===0)return '';
+        return `<tr>
+          <td><strong>${esc(ns.name)}</strong></td><td>${ns.pods}</td>
+          <td>${ns.cpuRequests.toFixed(2)} cores</td><td>${ns.memRequestsMiB.toFixed(0)} MiB</td>
+          <td style="font-weight:600;color:var(--green)">$${ns.monthly.toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+      h+='</table>';
+    }
+
+    // Top workloads
+    h+=`<h4 style="margin:20px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Top 20 Workloads by Cost</h4>`;
+    if(d.topWorkloads&&d.topWorkloads.length){
+      h+=`<table><tr><th>Namespace</th><th>Name</th><th>Kind</th><th>Replicas</th><th>CPU</th><th>Memory</th><th>Monthly</th></tr>`;
+      h+=d.topWorkloads.map(w=>`<tr>
+        <td><span class="ns">${esc(w.namespace)}</span></td>
+        <td><strong>${esc(w.name)}</strong></td>
+        <td><span class="pill pill-blue">${w.kind}</span></td>
+        <td>${w.replicas}</td>
+        <td>${w.cpuRequests} cores</td><td>${w.memRequestsMiB} MiB</td>
+        <td style="font-weight:600;color:var(--green)">$${w.monthly.toFixed(2)}</td>
+      </tr>`).join('');
+      h+='</table>';
+    }
+
+    h+=`<div style="margin-top:16px;font-size:11px;color:var(--muted)">Pricing: $${cpuPricePerHour}/vCPU/hr + $${memPricePerGiBHour}/GiB/hr (730 hrs/month). Based on resource requests, not actual usage.</div>`;
+    cv.innerHTML=h;
+  }catch(e){cv.innerHTML='<div class="empty">Failed to load cost data</div>';}
+}
+const cpuPricePerHour=0.05,memPricePerGiBHour=0.005;
+
 // --- Terminal ---
 const termHistory=[];
 let histIdx=-1;
@@ -382,6 +459,7 @@ function refresh(){
   else if(currentTab==='fixed')fetchFixed();
   else if(currentTab==='cluster')fetchCluster();
   else if(currentTab==='nodes')fetchNodes();
+  else if(currentTab==='cost')fetchCost();
 }
 refresh();
 setInterval(refresh,5000);
