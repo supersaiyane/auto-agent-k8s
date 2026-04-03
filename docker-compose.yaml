@@ -1,0 +1,37 @@
+# docker-compose.yaml
+# Builds the agent image and deploys to the current kubectl cluster in one command.
+#
+# Usage:
+#   docker compose up --build    # build image + deploy to cluster
+#   docker compose down          # tear down from cluster
+#
+# This does NOT run the agent in Docker — it builds the image and
+# runs the deploy.sh script which deploys to your K8s cluster.
+
+services:
+  build-and-deploy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: auto-agent:latest
+    entrypoint: ["echo", "Image built. Run ./deployment/deploy.sh to deploy to your cluster."]
+
+  deploy:
+    image: bitnami/kubectl:latest
+    volumes:
+      - ~/.kube:/root/.kube:ro
+      - ./deployment:/deployment:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Deploying auto-agent to cluster..."
+        kubectl apply -f /deployment/00-namespace.yaml
+        kubectl apply -f /deployment/01-crds.yaml
+        kubectl apply -f /deployment/02-rbac.yaml
+        kubectl apply -f /deployment/03-config.yaml
+        kubectl apply -f /deployment/04-daemonset.yaml
+        echo "Waiting for rollout..."
+        kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
+        echo ""
+        echo "Deployed! Run: kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
+    profiles: ["deploy"]

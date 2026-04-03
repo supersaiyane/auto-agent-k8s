@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auto-agent-config
+  namespace: auto-agent
+data:
+  # Agent mode: observe (alert only), suggest (alert + recommend), fix (auto-remediate), dry-run (simulate)
+  AUTO_MODE: "fix"
+
+  # Namespaces to watch (comma-separated)
+  NAMESPACE_ALLOWLIST: "default"
+
+  # Scaling
+  HPA_COEXISTENCE: "true"
+  SCALE_CPU_THRESHOLD: "0.8"
+  SCALE_WINDOW: "5m"
+  MAX_SCALE_STEP: "2"
+  MAX_REPLICAS: "50"
+  MIN_REPLICAS: "1"
+  COOLDOWN_UP: "2m"
+  COOLDOWN_DOWN: "10m"
+
+  # Rate limiting and safety
+  MAX_ACTIONS_PER_10M: "10"
+  DEDUP_TTL_SECONDS: "300"
+  EXCLUDED_ANNOTATION: "auto-agent.io/disable"
+
+  # Metrics
+  METRICS_PROVIDER: "metrics-server"
+  PROMETHEUS_URL: ""
+
+  # LLM diagnosis (disabled by default)
+  LLM_ENABLED: "false"
+  LLM_API_URL: ""
+  LLM_MODEL: ""
+  LLM_TIMEOUT_SEC: "10"
+
+  # Logging
+  LOG_LEVEL: "info"
+  LOG_STORE: "efs"
+  LOG_EFS_PATH: "/var/log/auto-agent"
+  LOG_S3_BUCKET: ""
+  LOG_S3_PREFIX: ""
+  SLACK_TIMEOUT_SEC: "5"
+
+  # Quiet hours (UTC, empty = disabled). Example: "02:00-06:00"
+  QUIET_HOURS: ""
+
+  # Audit log path
+  AUDIT_LOG_PATH: "/var/log/auto-agent/audit.jsonl"
+
+  # Structured JSON logging (set to "json" for ELK/Loki)
+  LOG_FORMAT: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auto-agent-secrets
+  namespace: auto-agent
+type: Opaque
+stringData:
+  SLACK_WEBHOOK_URL: ""
+  LLM_API_KEY: ""
+  GIT_TOKEN: ""
+  GITHUB_TOKEN: ""
+  JIRA_TOKEN: ""
+  JIRA_EMAIL: ""
+  PAGERDUTY_ROUTING_KEY: ""
+  OPSGENIE_API_KEY: ""
