@@ -352,16 +352,27 @@ async function fetchCost(){
       <div class="stat-card"><div class="label">Memory Allocated</div><div style="font-size:18px;font-weight:600;margin-top:4px">${s.allocatedMemGiB||0} / ${s.totalMemoryGiB||0} GiB <span class="pill ${s.memUtilization>80?'pill-red':s.memUtilization>50?'pill-yellow':'pill-green'}">${s.memUtilization||0}%</span></div></div>
     </div>`;
 
+    // Pricing source badge
+    const cfg=d.config||{};
+    h+=`<div style="margin-bottom:16px;font-size:12px;color:var(--muted)">
+      Pricing source: <span class="pill pill-blue">${cfg.source||'default'}</span>
+      ${cfg.source==='kubecost'?' (live from Kubecost API)':cfg.source==='opencost'?' (live from OpenCost API)':cfg.source==='instance-type'?' (per instance-type pricing)':cfg.source==='manual'?' (custom env vars)':' (built-in estimates)'}
+      &middot; ${cfg.currency||'USD'} &middot; $${cfg.cpuPerHour||0.05}/vCPU/hr &middot; $${cfg.memPerGiBHour||0.005}/GiB/hr
+    </div>`;
+
     // Node costs
     h+=`<h4 style="margin:16px 0 8px;color:var(--muted);font-size:12px;text-transform:uppercase">Cost by Node</h4>`;
     if(d.nodes&&d.nodes.length){
-      h+=`<table><tr><th>Node</th><th>CPU</th><th>Memory</th><th>Pods</th><th>CPU Used</th><th>Mem Used</th><th>Monthly</th></tr>`;
+      h+=`<table><tr><th>Node</th><th>Instance</th><th>CPU</th><th>Memory</th><th>Pods</th><th>CPU Used</th><th>Mem Used</th><th>$/hr</th><th>Monthly</th><th>Source</th></tr>`;
       h+=d.nodes.map(n=>`<tr>
         <td><strong>${esc(n.name)}</strong></td>
+        <td style="font-family:monospace;font-size:11px">${esc(n.instanceType)||'<span style="color:var(--muted)">-</span>'}</td>
         <td>${n.cpuCores} cores</td><td>${n.memoryGiB} GiB</td><td>${n.pods}</td>
         <td><span class="pill ${n.cpuUsedPct>80?'pill-red':n.cpuUsedPct>50?'pill-yellow':'pill-green'}">${n.cpuUsedPct}%</span></td>
         <td><span class="pill ${n.memUsedPct>80?'pill-red':n.memUsedPct>50?'pill-yellow':'pill-green'}">${n.memUsedPct}%</span></td>
+        <td style="font-family:monospace;font-size:12px">$${n.hourlyRate?.toFixed(4)||'?'}</td>
         <td style="font-weight:600">$${n.monthly.toFixed(0)}</td>
+        <td style="font-size:11px;color:var(--muted)">${esc(n.priceSource)}</td>
       </tr>`).join('');
       h+='</table>';
     }
@@ -397,11 +408,18 @@ async function fetchCost(){
       h+='</table>';
     }
 
-    h+=`<div style="margin-top:16px;font-size:11px;color:var(--muted)">Pricing: $${cpuPricePerHour}/vCPU/hr + $${memPricePerGiBHour}/GiB/hr (730 hrs/month). Based on resource requests, not actual usage.</div>`;
+    h+=`<div style="margin-top:16px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--muted)">
+      <strong>How to configure pricing:</strong><br>
+      <code>COST_CPU_PER_HOUR=0.05</code> — price per vCPU per hour<br>
+      <code>COST_MEM_PER_GIB_HOUR=0.005</code> — price per GiB memory per hour<br>
+      <code>COST_INSTANCE_PRICES="t3.medium=0.0416,m5.xlarge=0.192"</code> — per instance-type pricing<br>
+      <code>KUBECOST_URL=http://kubecost:9090</code> — use Kubecost for real costs<br>
+      <code>OPENCOST_URL=http://opencost:9003</code> — use OpenCost for real costs<br>
+      Built-in prices for 40+ AWS/GCP/Azure instance types (us-east-1 on-demand).
+    </div>`;
     cv.innerHTML=h;
   }catch(e){cv.innerHTML='<div class="empty">Failed to load cost data</div>';}
 }
-const cpuPricePerHour=0.05,memPricePerGiBHour=0.005;
 
 // --- Terminal ---
 const termHistory=[];

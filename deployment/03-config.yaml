@@ -51,6 +51,18 @@ data:
 
   # Structured JSON logging (set to "json" for ELK/Loki)
   LOG_FORMAT: ""
+
+  # Cost estimation pricing
+  # Option 1: Manual pricing (per vCPU/hour and per GiB/hour)
+  COST_CPU_PER_HOUR: "0.05"
+  COST_MEM_PER_GIB_HOUR: "0.005"
+  COST_CURRENCY: "USD"
+  # Option 2: Per instance-type pricing (comma-separated key=value)
+  # COST_INSTANCE_PRICES: "t3.medium=0.0416,m5.xlarge=0.192,c5.xlarge=0.17"
+  # Option 3: Kubecost integration (set URL, overrides manual pricing)
+  # KUBECOST_URL: "http://kubecost-cost-analyzer.kubecost:9090"
+  # Option 4: OpenCost integration
+  # OPENCOST_URL: "http://opencost.opencost:9003"
 ---
 apiVersion: v1
 kind: Secret
