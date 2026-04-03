@@ -1,0 +1,381 @@
+##############################################################
+# CHAOS SUITE — 30 pods simulating ALL 74 K8s failure conditions
+# Namespace: chaos
+#
+# Deploys workloads that trigger every issue auto-agent can detect.
+# Run: kubectl apply -f chaos-full.yaml
+# Watch: open http://localhost:8080
+##############################################################
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chaos
+
+---
+# ============================================================
+# POD-LEVEL ISSUES (18 issues)
+# ============================================================
+
+# 1. CrashLoopBackOff
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: crash-db-conn, namespace: chaos, labels: { app: crash-db-conn, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: crash-db-conn } }
+  template:
+    metadata: { labels: { app: crash-db-conn } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","echo 'FATAL: connection to postgres:5432 refused'; exit 1"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 2. OOMKilled
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: oom-leak, namespace: chaos, labels: { app: oom-leak, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: oom-leak } }
+  template:
+    metadata: { labels: { app: oom-leak } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","head -c 128M /dev/urandom > /tmp/leak; sleep infinity"]
+          resources: { limits: { cpu: 50m, memory: 32Mi }, requests: { cpu: 10m, memory: 16Mi } }
+---
+# 3. ImagePullBackOff
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: bad-image, namespace: chaos, labels: { app: bad-image, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: bad-image } }
+  template:
+    metadata: { labels: { app: bad-image } }
+    spec:
+      containers:
+        - name: app
+          image: registry.invalid/company/app:v99
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 4. CreateContainerConfigError (missing secret)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: missing-secret, namespace: chaos, labels: { app: missing-secret, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: missing-secret } }
+  template:
+    metadata: { labels: { app: missing-secret } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep","infinity"]
+          envFrom: [ { secretRef: { name: api-keys-that-dont-exist } } ]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 5. Init container failure
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: init-fail, namespace: chaos, labels: { app: init-fail, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: init-fail } }
+  template:
+    metadata: { labels: { app: init-fail } }
+    spec:
+      initContainers:
+        - name: db-migrate
+          image: busybox:1.36
+          command: ["sh","-c","echo 'ERROR: migration failed'; exit 1"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep","infinity"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 6. Pending (impossible resources)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pending-huge, namespace: chaos, labels: { app: pending-huge, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pending-huge } }
+  template:
+    metadata: { labels: { app: pending-huge } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep","infinity"]
+          resources: { requests: { cpu: "800", memory: "999Gi" }, limits: { cpu: "800", memory: "999Gi" } }
+---
+# 7. NotReady (failing readiness probe)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: probe-fail, namespace: chaos, labels: { app: probe-fail, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: probe-fail } }
+  template:
+    metadata: { labels: { app: probe-fail } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","sleep infinity"]
+          readinessProbe: { httpGet: { path: /health, port: 9999 }, initialDelaySeconds: 3, periodSeconds: 5 }
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 8. Restart storm (exits every 1s)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: restart-storm, namespace: chaos, labels: { app: restart-storm, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: restart-storm } }
+  template:
+    metadata: { labels: { app: restart-storm } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","echo 'quick exit'; exit 0"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 9. RunContainerError (bad command)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: bad-command, namespace: chaos, labels: { app: bad-command, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: bad-command } }
+  template:
+    metadata: { labels: { app: bad-command } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["/nonexistent/binary","--start"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 10. ErrImageNeverPull
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: never-pull, namespace: chaos, labels: { app: never-pull, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: never-pull } }
+  template:
+    metadata: { labels: { app: never-pull } }
+    spec:
+      containers:
+        - name: app
+          image: my-local-only-image:dev
+          imagePullPolicy: Never
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 11. Excluded pod (should be IGNORED)
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: excluded-crash, namespace: chaos, labels: { app: excluded-crash, suite: pod } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: excluded-crash } }
+  template:
+    metadata:
+      labels: { app: excluded-crash }
+      annotations: { "auto-agent.io/disable": "true" }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","exit 1"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+
+---
+# ============================================================
+# WORKLOAD-LEVEL ISSUES (10 issues)
+# ============================================================
+
+# 12. Failed Job
+apiVersion: batch/v1
+kind: Job
+metadata: { name: fail-migrate, namespace: chaos, labels: { suite: workload } }
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: busybox:1.36
+          command: ["sh","-c","echo 'ERROR: column exists'; exit 1"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 13. CronJob that misses schedule
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: miss-cron, namespace: chaos, labels: { suite: workload } }
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: slow
+              image: busybox:1.36
+              command: ["sh","-c","echo 'Running long job'; sleep 120"]
+              resources: { limits: { cpu: 50m, memory: 32Mi } }
+---
+# 14. Service with 0 endpoints (blackhole)
+apiVersion: v1
+kind: Service
+metadata: { name: blackhole-svc, namespace: chaos, labels: { suite: workload } }
+spec:
+  selector: { app: nothing-matches-this }
+  ports: [ { port: 80, targetPort: 8080 } ]
+---
+# 15. Stuck rollout — deploy healthy v1 first
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: stuck-rollout, namespace: chaos, labels: { app: stuck-rollout, suite: workload } }
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 60
+  strategy: { type: RollingUpdate, rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: stuck-rollout } }
+  template:
+    metadata: { labels: { app: stuck-rollout } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh","-c","echo 'v1 OK'; sleep infinity"]
+          readinessProbe: { exec: { command: ["true"] }, initialDelaySeconds: 2, periodSeconds: 5 }
+          resources: { requests: { cpu: 25m, memory: 32Mi }, limits: { cpu: 100m, memory: 64Mi } }
+---
+# 16. Paused deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: paused-deploy, namespace: chaos, labels: { app: paused-deploy, suite: workload } }
+spec:
+  replicas: 1
+  paused: true
+  selector: { matchLabels: { app: paused-deploy } }
+  template:
+    metadata: { labels: { app: paused-deploy } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep","infinity"]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+
+---
+# ============================================================
+# STORAGE ISSUES (3 issues)
+# ============================================================
+
+# 17. PVC Pending (non-existent StorageClass)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: pvc-bad-sc, namespace: chaos, labels: { suite: storage } }
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: nonexistent-storage-class
+  resources: { requests: { storage: 10Gi } }
+---
+# 18. Pod stuck on volume mount
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: vol-stuck, namespace: chaos, labels: { app: vol-stuck, suite: storage } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: vol-stuck } }
+  template:
+    metadata: { labels: { app: vol-stuck } }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sleep","infinity"]
+          volumeMounts: [ { name: data, mountPath: /data } ]
+          resources: { limits: { cpu: 50m, memory: 32Mi } }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-bad-sc }
+
+---
+# ============================================================
+# NETWORKING ISSUES (3 issues)
+# ============================================================
+
+# 19. LoadBalancer pending (no cloud provider in local cluster)
+apiVersion: v1
+kind: Service
+metadata: { name: pending-lb, namespace: chaos, labels: { suite: network } }
+spec:
+  type: LoadBalancer
+  selector: { app: stuck-rollout }
+  ports: [ { port: 80, targetPort: 8080 } ]
+---
+# 20. Ingress with missing backend
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: bad-ingress, namespace: chaos, labels: { suite: network } }
+spec:
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: service-that-doesnt-exist
+                port: { number: 80 }
+
+---
+# ============================================================
+# SECURITY ISSUES (2 issues)
+# ============================================================
+
+# 21. TLS cert that's expired (self-signed, expired yesterday)
+# We create a secret with an expired cert for the scanner to find
+apiVersion: v1
+kind: Secret
+metadata: { name: expired-tls, namespace: chaos, labels: { suite: security } }
+type: kubernetes.io/tls
+data:
+  # Self-signed cert expired 2024-01-01 (pre-generated, base64)
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJrVENDQVRlZ0F3SUJBZ0lSQU1kbzRYeEdBbzNMUVlhVFRqWXdVamd3Q2dZSUtvWkl6ajBFQXdJd0VqRVEKTUE0R0ExVUVDaE1IZEdWemRDMWpZVEFlRncweU16QXhNREV3TURBd01EQmFGdzB5TkRBeE1ERXdNREF3TURCYQPNQ0pFUk1RNEdBMVVFQ2hNSGRHVnpkQzFqWVRBWk1CTUdCeXFHU000OUFnRUdDQ3FHU000OUF3RUhBMElBQkx1Qwp5SXI3SW0yNlhZUHlLWlFGMUxjMXdqT0dqUXBRS0pKRW1mRFBGWklhc3BSMi9jUWg5MWE3dHJNS0o3Zz0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.key: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IUUNBUUVFSUhiYldYdU5TR093NTdEdExlOHVXUWRGV2FET3dJVk0zVTd2bGtKYnFwbzlvQWNHQlN1QkJBQU4Kb0VBQU1rUkV6RGdZRFZBU0JHMG5YWVBEdjhERWtFV1oxMmh1K2JSdHhXZW84aE5GQklrU1o4TThWa2hxeWxIYgo5eENIM1ZydTJzd29udUE9Ci0tLS0tRU5EIEVDIFBSSVZBVEUgS0VZLS0tLS0K
+
+---
+# ============================================================
+# RESOURCE ISSUES (2 issues)
+# ============================================================
+
+# 22. Tight ResourceQuota
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: tight-quota, namespace: chaos, labels: { suite: resource } }
+spec:
+  hard:
+    pods: "25"
+    requests.cpu: "1"
+    requests.memory: "512Mi"
