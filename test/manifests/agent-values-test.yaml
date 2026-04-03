@@ -1,8 +1,8 @@
-# Helm values override for KIND testing
+# Helm values override for local testing
 image:
   repository: auto-agent
   tag: "test"
-  pullPolicy: Never  # use locally built image loaded into KIND
+  pullPolicy: IfNotPresent
 
 namespace: kube-system
 priorityClassName: system-node-critical

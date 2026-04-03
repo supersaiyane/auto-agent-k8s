@@ -30,26 +30,52 @@ docker build -t auto-agent:test .
 # 3. Load image into cluster
 echo ""
 echo "[3/5] Loading image into cluster..."
-# Detect cluster type and load accordingly
-if command -v kind &> /dev/null && kind get clusters 2>/dev/null | grep -q .; then
+
+IMAGE_LOADED=false
+
+# KIND
+if ! $IMAGE_LOADED && command -v kind &> /dev/null && kind get clusters 2>/dev/null | grep -q .; then
     CLUSTER_NAME=$(kind get clusters 2>/dev/null | head -1)
     echo "  Detected KIND cluster: $CLUSTER_NAME"
     kind load docker-image auto-agent:test --name "$CLUSTER_NAME"
-elif command -v minikube &> /dev/null && minikube status 2>/dev/null | grep -q "Running"; then
+    IMAGE_LOADED=true
+fi
+
+# Minikube
+if ! $IMAGE_LOADED && command -v minikube &> /dev/null && minikube status 2>/dev/null | grep -q "Running"; then
     echo "  Detected Minikube — loading via minikube image load"
     minikube image load auto-agent:test
-elif command -v k3d &> /dev/null && k3d cluster list 2>/dev/null | grep -q .; then
+    IMAGE_LOADED=true
+fi
+
+# k3d
+if ! $IMAGE_LOADED && command -v k3d &> /dev/null && k3d cluster list 2>/dev/null | grep -q .; then
     CLUSTER_NAME=$(k3d cluster list -o json 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
     echo "  Detected k3d cluster: $CLUSTER_NAME"
     k3d image import auto-agent:test -c "$CLUSTER_NAME"
-else
-    echo "  WARNING: Could not detect cluster type (KIND/Minikube/k3d)"
-    echo "  If using a remote cluster, push auto-agent:test to a registry"
-    echo "  and update test/manifests/agent-values-test.yaml with:"
-    echo "    image.repository: <your-registry>/auto-agent"
-    echo "    image.pullPolicy: Always"
-    echo ""
-    echo "  For Docker Desktop Kubernetes, the image is already available."
+    IMAGE_LOADED=true
+fi
+
+# Docker Desktop Kubernetes (containerd) — load via docker save | kubectl node import
+if ! $IMAGE_LOADED; then
+    # Check if nodes use containerd (Docker Desktop K8s)
+    RUNTIME=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.containerRuntimeVersion}' 2>/dev/null || echo "")
+    if echo "$RUNTIME" | grep -q "containerd"; then
+        echo "  Detected Docker Desktop K8s with containerd"
+        echo "  Loading image into cluster nodes..."
+        while IFS= read -r NODE; do
+            [ -z "$NODE" ] && continue
+            echo "    Loading into node: $NODE"
+            docker save auto-agent:test | docker exec -i "$NODE" ctr -n k8s.io images import - 2>/dev/null || \
+                echo "    WARNING: Failed to load into $NODE"
+        done < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+        IMAGE_LOADED=true
+    fi
+fi
+
+if ! $IMAGE_LOADED; then
+    echo "  WARNING: Could not auto-load image into cluster"
+    echo "  Push auto-agent:test to a registry and update agent-values-test.yaml"
 fi
 
 # 4. Install CRDs
