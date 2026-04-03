@@ -1,8 +1,14 @@
 package events
 
 import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 )
 
 // EventType categorizes recorded events.
@@ -43,15 +49,20 @@ type Event struct {
 	TicketURL string    `json:"ticketUrl,omitempty"`
 }
 
-// Recorder is a thread-safe in-memory ring buffer for events.
+// Recorder is a thread-safe in-memory ring buffer backed by a JSONL file on disk.
+// Events survive pod restarts when written to a persistent volume.
 type Recorder struct {
-	mu     sync.RWMutex
-	events []Event
-	maxLen int
-	nextID int
+	mu       sync.RWMutex
+	events   []Event
+	maxLen   int
+	nextID   int
+	filePath string
+	file     *os.File
+	encoder  *json.Encoder
 }
 
-// NewRecorder creates a recorder with the given max capacity.
+// NewRecorder creates a recorder. If persistPath is non-empty, events are
+// written to disk and reloaded on startup.
 func NewRecorder(maxLen int) *Recorder {
 	if maxLen <= 0 {
 		maxLen = 500
@@ -63,7 +74,64 @@ func NewRecorder(maxLen int) *Recorder {
 	}
 }
 
-// Record adds an event. If the buffer is full, the oldest event is dropped.
+// EnablePersistence enables writing events to a JSONL file and loads existing events.
+func (r *Recorder) EnablePersistence(path string) {
+	if path == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.filePath = path
+
+	// Load existing events from file
+	r.loadFromFile()
+
+	// Open file for appending
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		klog.Warningf("events: cannot create dir for %s: %v", path, err)
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		klog.Warningf("events: cannot open %s: %v", path, err)
+		return
+	}
+	r.file = f
+	r.encoder = json.NewEncoder(f)
+	klog.Infof("events: persistence enabled at %s (%d events loaded)", path, len(r.events))
+}
+
+func (r *Recorder) loadFromFile() {
+	f, err := os.Open(r.filePath)
+	if err != nil {
+		return // file doesn't exist yet
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	count := 0
+	for scanner.Scan() {
+		var e Event
+		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+			continue
+		}
+		if e.ID >= r.nextID {
+			r.nextID = e.ID + 1
+		}
+		if len(r.events) >= r.maxLen {
+			r.events = r.events[1:]
+		}
+		r.events = append(r.events, e)
+		count++
+	}
+	if count > 0 {
+		klog.Infof("events: loaded %d events from %s", count, r.filePath)
+	}
+}
+
+// Record adds an event. If persistence is enabled, also writes to disk.
 func (r *Recorder) Record(e Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -73,11 +141,17 @@ func (r *Recorder) Record(e Event) {
 		e.Timestamp = time.Now().UTC()
 	}
 	if len(r.events) >= r.maxLen {
-		// Shift left: drop oldest
 		copy(r.events, r.events[1:])
 		r.events[len(r.events)-1] = e
 	} else {
 		r.events = append(r.events, e)
+	}
+
+	// Persist to file
+	if r.encoder != nil {
+		if err := r.encoder.Encode(e); err != nil {
+			klog.V(3).Infof("events: write failed: %v", err)
+		}
 	}
 }
 
@@ -105,7 +179,7 @@ func (r *Recorder) Since(t time.Time) []Event {
 		if r.events[i].Timestamp.After(t) {
 			result = append(result, r.events[i])
 		} else {
-			break // events are ordered, so we can stop early
+			break
 		}
 	}
 	return result
@@ -127,4 +201,15 @@ func (r *Recorder) Stats() map[EventType]int {
 		m[e.Type]++
 	}
 	return m
+}
+
+// Close closes the persistence file.
+func (r *Recorder) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file != nil {
+		r.file.Close()
+		r.file = nil
+		r.encoder = nil
+	}
 }

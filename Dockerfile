@@ -4,11 +4,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /out/auto-agent ./cmd/auto-agent
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/auto-agent ./cmd/auto-agent
 
-# Runtime stage — distroless for minimal attack surface
-FROM gcr.io/distroless/static-debian12:nonroot
-USER 65532:65532
+# Runtime stage
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates && mkdir -p /var/log/auto-agent
 COPY --from=build /out/auto-agent /auto-agent
 EXPOSE 8080
 ENTRYPOINT ["/auto-agent"]

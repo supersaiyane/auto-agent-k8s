@@ -75,6 +75,7 @@ func main() {
 
 	// --- Event recorder for UI dashboard ---
 	recorder := events.NewRecorder(500)
+	recorder.EnablePersistence("/var/log/auto-agent/events.jsonl")
 
 	// --- HTTP server (health + metrics + dashboard UI) ---
 	httpSrv := httpapi.NewServer(":8080", recorder, &httpapi.AgentMeta{
@@ -309,6 +310,7 @@ func main() {
 	defer shutdownCancel()
 
 	dedup.Stop()
+	recorder.Close()
 	auditLog.Close()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		klog.Warningf("http shutdown: %v", err)
