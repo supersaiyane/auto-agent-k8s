@@ -158,6 +158,15 @@ func main() {
 		}
 	}
 
+	// --- Audit log (persistent, survives restarts) ---
+	auditLog := kube.NewAuditLog(os.Getenv("AUDIT_LOG_PATH"))
+
+	// --- Blast radius tracker (max namespaces affected per hour) ---
+	blastRadius := kube.NewBlastRadiusTracker(5, 1*time.Hour) // max 5 namespaces per hour
+
+	// --- Quiet hours / maintenance windows ---
+	quietHours := kube.NewQuietHours(os.Getenv("QUIET_HOURS")) // e.g. "02:00-06:00"
+
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
 		Client:       kc,
@@ -174,6 +183,9 @@ func main() {
 		Recorder:     recorder,
 		Breaker:      breaker,
 		AlertManager: am,
+		AuditLog:     auditLog,
+		BlastRadius:  blastRadius,
+		QuietHours:   quietHours,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
@@ -195,9 +207,11 @@ func main() {
 		scaleTicker := time.NewTicker(30 * time.Second)
 		jobTicker := time.NewTicker(2 * time.Minute)
 		quotaTicker := time.NewTicker(5 * time.Minute)
+		healthTicker := time.NewTicker(3 * time.Minute)
 		defer scaleTicker.Stop()
 		defer jobTicker.Stop()
 		defer quotaTicker.Stop()
+		defer healthTicker.Stop()
 
 		for {
 			select {
@@ -207,7 +221,6 @@ func main() {
 				if !le.IsLeader() {
 					continue
 				}
-				// Use hot-reloaded policy
 				deps.Policy = hotReloader.Get()
 				kube.EvaluateAndScale(ctx, deps)
 				kube.CheckAnomalies(ctx, deps)
@@ -216,11 +229,16 @@ func main() {
 					continue
 				}
 				kube.CheckFailedJobs(ctx, deps)
+				kube.CheckStuckRollouts(ctx, deps)
+				kube.CleanupEvictedPods(ctx, deps)
+				kube.CheckServiceEndpoints(ctx, deps)
 			case <-quotaTicker.C:
 				if !le.IsLeader() {
 					continue
 				}
 				kube.CheckResourceQuotas(ctx, deps)
+			case <-healthTicker.C:
+				kube.SelfCheck(ctx, deps)
 			}
 		}
 	}()
@@ -233,6 +251,7 @@ func main() {
 	defer shutdownCancel()
 
 	dedup.Stop()
+	auditLog.Close()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		klog.Warningf("http shutdown: %v", err)
 	}

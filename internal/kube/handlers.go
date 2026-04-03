@@ -30,38 +30,16 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	}
 
 	msg := fmt.Sprintf("*CrashLoopBackOff* on `%s/%s` (container: `%s`)\nLogs+events saved: `%s`\n", ns, name, cname, url)
-
-	if deps.Policy.Mode == policy.Fix {
-		// Check CRD per-policy approval requirement
-		crdPol := effectivePolicy(deps, ns, pod.Labels)
-		if !policyAllowsAction(crdPol) {
-			msg += "_Blocked_: CRD policy requires manual approval for this workload.\n"
-		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
-			msg += "_Circuit breaker tripped_: too many actions on this workload in the last hour. Escalating.\n"
-			obs.HandlerErrorsTotal.WithLabelValues("crashloop", "circuit_breaker").Inc()
-			if deps.AlertManager != nil {
-				deps.AlertManager.FireCircuitBreaker(ctx, ns, wl)
-			}
-		} else if !deps.Limiter.Allow() {
-			obs.RateLimitedTotal.Inc()
-			msg += "_Action_: rate limited, skipping pod deletion.\n"
-		} else {
-			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-				klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
-				obs.HandlerErrorsTotal.WithLabelValues("crashloop", "delete").Inc()
-			} else {
-				msg += "_Action_: deleted pod to clear backoff (controller will recreate).\n"
-				obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
-			}
-		}
-	} else if deps.Policy.Mode == policy.Suggest {
-		msg += "_Suggest_: delete pod to clear backoff.\n"
-	}
+	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "CrashLoopBackOff", "delete_pod",
+		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+		"deleted pod to clear backoff (controller will recreate)",
+		"delete pod to clear backoff",
+	)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod CrashLoopBackOff", logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
-	createTicket(ctx, deps, fmt.Sprintf("crashloop-%s-%s", ns, wl),
-		fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
+	fireAlert(ctx, deps, "CrashLoopBackOff", ns, wl, name, msg, "critical")
+	createTicket(ctx, deps, fmt.Sprintf("crashloop-%s-%s", ns, wl), fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "CrashLoopBackOff", Message: fmt.Sprintf("Container %s crash-looping", cname), LogURL: url})
@@ -83,30 +61,16 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	image := imageOf(pod, cname)
 	msg := fmt.Sprintf("*ImagePullBackOff* on `%s/%s` (container: `%s`, image: `%s`)\nSaved: `%s`\n", ns, name, cname, image, url)
 	msg += "_Check_: image name, tag, registry credentials (ImagePullSecret), and network access to registry.\n"
-
-	if deps.Policy.Mode == policy.Fix {
-		crdPol := effectivePolicy(deps, ns, pod.Labels)
-		if !policyAllowsAction(crdPol) {
-			msg += "_Blocked_: CRD policy requires manual approval.\n"
-		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
-			msg += "_Circuit breaker tripped_: too many actions on this workload. Escalating.\n"
-		} else if !deps.Limiter.Allow() {
-			obs.RateLimitedTotal.Inc()
-		} else {
-			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-				klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
-				obs.HandlerErrorsTotal.WithLabelValues("imagepull", "delete").Inc()
-			} else {
-				msg += "_Action_: deleted pod to retry image pull.\n"
-				obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
-			}
-		}
-	}
+	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "ImagePullBackOff", "delete_pod",
+		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+		"deleted pod to retry image pull",
+		"delete pod to retry image pull",
+	)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "ImagePullBackOff", strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
-	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl),
-		fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
+	fireAlert(ctx, deps, "ImagePullBackOff", ns, wl, name, msg, "critical")
+	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl), fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ImagePullBackOff",
 		Message: fmt.Sprintf("Cannot pull image %s", image), LogURL: url})
@@ -139,7 +103,7 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 	msg := fmt.Sprintf("*OOMKilled* on `%s/%s` (container: `%s`, current limit: `%s`)\nSaved: `%s`\n",
 		ns, name, cname, memLimit, url)
 
-	// Open GitOps PR to bump memory if available
+	// GitOps PR for memory bump
 	if deps.GitOps != nil && deps.Policy.Mode == policy.Fix {
 		bumpPct := 20
 		crdPolicies := deps.CRDStore.Match(ns, pod.Labels)
@@ -163,6 +127,7 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 			msg += fmt.Sprintf("_GitOps_: failed to open PR: %v\n", err)
 		} else {
 			msg += fmt.Sprintf("_GitOps_: opened PR to bump memory: %s\n", prURL)
+			auditAction(deps, "open_pr", ns, wl, name, "OOMKilled", "success", prURL)
 		}
 	} else {
 		msg += "_Recommend_: increase memory limit by 20-50%% via GitOps PR.\n"
@@ -170,8 +135,8 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Container OOMKilled", logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
-	createTicket(ctx, deps, fmt.Sprintf("oom-%s-%s", ns, wl),
-		fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
+	fireAlert(ctx, deps, "OOMKilled", ns, wl, name, msg, "critical")
+	createTicket(ctx, deps, fmt.Sprintf("oom-%s-%s", ns, wl), fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "OOMKilled", Message: fmt.Sprintf("Container %s killed (limit: %s)", cname, memLimit), LogURL: url})
@@ -194,28 +159,15 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 	msg := fmt.Sprintf("*NotReady* on `%s/%s` (container: `%s`) — running but failing readiness probe\nSaved: `%s`\n",
 		ns, name, cname, url)
 	msg += "_Check_: readiness probe endpoint, application startup, and dependencies.\n"
-
-	if deps.Policy.Mode == policy.Fix {
-		crdPol := effectivePolicy(deps, ns, pod.Labels)
-		if !policyAllowsAction(crdPol) {
-			msg += "_Blocked_: CRD policy requires manual approval.\n"
-		} else if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
-			msg += "_Circuit breaker tripped_: too many actions on this workload. Escalating.\n"
-		} else if !deps.Limiter.Allow() {
-			obs.RateLimitedTotal.Inc()
-		} else {
-			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-				klog.Warningf("handler: failed to delete not-ready pod %s/%s: %v", ns, name, err)
-				obs.HandlerErrorsTotal.WithLabelValues("notready", "delete").Inc()
-			} else {
-				msg += "_Action_: deleted pod to restart (readiness probe failing >3m).\n"
-				obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
-			}
-		}
-	}
+	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "NotReady", "delete_pod",
+		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+		"deleted pod to restart (readiness probe failing >3m)",
+		"delete pod to restart",
+	)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod NotReady", logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
+	fireAlert(ctx, deps, "NotReady", ns, wl, name, msg, "warning")
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "NotReady",
 		Message: fmt.Sprintf("Container %s failing readiness probe", cname), LogURL: url})
@@ -243,7 +195,6 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	}
 
 	msg := fmt.Sprintf("*Pending* pod `%s/%s` (>5 minutes)\nReason: %s\nSaved: `%s`\n", ns, name, reason, url)
-
 	if strings.Contains(reason, "Insufficient") {
 		msg += "_Diagnosis_: cluster lacks resources. Consider scaling node pool or adjusting resource requests.\n"
 	} else if strings.Contains(reason, "node(s) didn't match") {
@@ -254,19 +205,46 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod stuck Pending", strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
-	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl),
-		fmt.Sprintf("Pending: %s/%s — %s", ns, wl, reason), msg)
+	fireAlert(ctx, deps, "Pending", ns, wl, name, msg, "warning")
+	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s — %s", ns, wl, reason), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending",
-		Message: reason, LogURL: url})
+		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending", Message: reason, LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
 }
 
-// recordEvent records an event to the in-memory ring buffer for the UI dashboard.
-func recordEvent(deps *Deps, evt eventsvc.Event) {
-	if deps.Recorder != nil {
-		deps.Recorder.Record(evt)
+// tryFixAction runs a fix action through all guardrails.
+// Returns a message string describing what happened.
+func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels map[string]string,
+	reason, actionType string, action func() error, successMsg, suggestMsg string) string {
+
+	if deps.Policy.Mode == policy.Suggest {
+		return fmt.Sprintf("_Suggest_: %s.\n", suggestMsg)
 	}
+	if deps.Policy.Mode != policy.Fix {
+		return ""
+	}
+
+	blocked, blockReason := checkGuardrails(ctx, deps, ns, wl, labels)
+	if blocked {
+		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", blockReason)
+		return fmt.Sprintf("_Blocked_: %s.\n", blockReason)
+	}
+	if !deps.Limiter.Allow() {
+		obs.RateLimitedTotal.Inc()
+		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", "rate limited")
+		return "_Action_: rate limited, skipping.\n"
+	}
+
+	if err := action(); err != nil {
+		klog.Warningf("handler: %s failed for %s/%s: %v", actionType, ns, pod, err)
+		obs.HandlerErrorsTotal.WithLabelValues(reason, actionType).Inc()
+		auditAction(deps, actionType, ns, wl, pod, reason, "failed", err.Error())
+		return fmt.Sprintf("_Action_: failed — %v\n", err)
+	}
+
+	obs.ActionsTotal.WithLabelValues(actionType, ns, wl).Inc()
+	auditAction(deps, actionType, ns, wl, pod, reason, "success", "")
+	return fmt.Sprintf("_Action_: %s.\n", successMsg)
 }
 
 // createTicket creates or updates a ticket if ticketing is configured.
@@ -282,6 +260,13 @@ func createTicket(ctx context.Context, deps *Deps, key, title, body string) {
 	if err != nil {
 		klog.Warningf("handler: ticket creation failed for %s: %v", key, err)
 		obs.HandlerErrorsTotal.WithLabelValues("ticket", "create").Inc()
+	}
+}
+
+// recordEvent records an event to the in-memory ring buffer for the UI dashboard.
+func recordEvent(deps *Deps, evt eventsvc.Event) {
+	if deps.Recorder != nil {
+		deps.Recorder.Record(evt)
 	}
 }
 

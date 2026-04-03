@@ -105,6 +105,24 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 
 	wl := ownerName(newPod) // workload-level dedup key
 
+	// Init container failures
+	for _, ics := range newPod.Status.InitContainerStatuses {
+		if ics.State.Waiting != nil {
+			r := ics.State.Waiting.Reason
+			if r == "CrashLoopBackOff" || r == "Error" || r == "ImagePullBackOff" {
+				key := dedupKey(newPod.Namespace, wl, "InitFailed-"+ics.Name)
+				if !deps.Dedup.Check(key) {
+					obs.DedupSkippedTotal.WithLabelValues("InitContainerFailed").Inc()
+					return
+				}
+				runHandler(ctx, func(hCtx context.Context) {
+					handleInitContainerFailure(hCtx, deps, newPod, ics.Name, r)
+				})
+				return
+			}
+		}
+	}
+
 	for _, cs := range newPod.Status.ContainerStatuses {
 		// CrashLoopBackOff
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
@@ -143,6 +161,32 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 			}
 			runHandler(ctx, func(hCtx context.Context) {
 				handleOOM(hCtx, deps, newPod, cs.Name)
+			})
+			return
+		}
+
+		// CreateContainerConfigError
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CreateContainerConfigError" {
+			key := dedupKey(newPod.Namespace, wl, "ConfigError")
+			if !deps.Dedup.Check(key) {
+				obs.DedupSkippedTotal.WithLabelValues("ConfigError").Inc()
+				return
+			}
+			runHandler(ctx, func(hCtx context.Context) {
+				handleConfigError(hCtx, deps, newPod, cs.Name, cs.State.Waiting.Message)
+			})
+			return
+		}
+
+		// Restart storm (>5 restarts but not yet in CrashLoopBackOff)
+		if cs.RestartCount >= 5 && (cs.State.Waiting == nil || cs.State.Waiting.Reason != "CrashLoopBackOff") {
+			key := dedupKey(newPod.Namespace, wl, "RestartStorm")
+			if !deps.Dedup.Check(key) {
+				obs.DedupSkippedTotal.WithLabelValues("RestartStorm").Inc()
+				return
+			}
+			runHandler(ctx, func(hCtx context.Context) {
+				handleRestartStorm(hCtx, deps, newPod, cs.Name, cs.RestartCount)
 			})
 			return
 		}

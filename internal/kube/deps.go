@@ -44,4 +44,7 @@ type Deps struct {
 	Recorder     *events.Recorder
 	Breaker      *ratelimit.CircuitBreaker
 	AlertManager *alertmanager.Client
+	AuditLog     *AuditLog
+	BlastRadius  *BlastRadiusTracker
+	QuietHours   *QuietHours
 }
