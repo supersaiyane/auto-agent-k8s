@@ -6,6 +6,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/metrics"
 	"github.com/yourorg/auto-agent/internal/policy"
@@ -39,4 +40,5 @@ type Deps struct {
 	CRDStore *crd.Store
 	GitOps   integrations.GitOps
 	Ticketer integrations.Ticketer
+	Recorder *events.Recorder
 }

@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	eventsvc "github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/obs"
 )
 
@@ -104,6 +105,9 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				msg := fmt.Sprintf("*ScaleUp*: `%s/%s` %d -> %d (cpu=%.2f, gate=%t)", ns, d.Name, rep, newRep, cpu, gateActive)
 				klog.Infof("scaler: %s", msg)
 				deps.Slack.Post(msg)
+				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
+					Namespace: ns, Workload: d.Name, Reason: "ScaleUp",
+					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
 				obs.ActionsTotal.WithLabelValues("scale_up", ns, d.Name).Inc()
 				obs.ScalingDecisionsTotal.WithLabelValues("up", ns, d.Name).Inc()
 				continue
@@ -141,6 +145,9 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				msg := fmt.Sprintf("*ScaleDown*: `%s/%s` %d -> %d (cpu=%.2f)", ns, d.Name, rep, newRep, cpu)
 				klog.Infof("scaler: %s", msg)
 				deps.Slack.Post(msg)
+				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
+					Namespace: ns, Workload: d.Name, Reason: "ScaleDown",
+					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
 				obs.ActionsTotal.WithLabelValues("scale_down", ns, d.Name).Inc()
 				obs.ScalingDecisionsTotal.WithLabelValues("down", ns, d.Name).Inc()
 			}

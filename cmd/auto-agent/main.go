@@ -13,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/httpapi"
 	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/kube"
@@ -41,8 +42,16 @@ func main() {
 	// --- Publish info metric ---
 	obs.InfoGauge.WithLabelValues(version, string(pol.Mode)).Set(1)
 
-	// --- HTTP server (health + metrics) ---
-	httpSrv := httpapi.NewServer(":8080")
+	// --- Event recorder for UI dashboard ---
+	recorder := events.NewRecorder(500)
+
+	// --- HTTP server (health + metrics + dashboard UI) ---
+	httpSrv := httpapi.NewServer(":8080", recorder, &httpapi.AgentMeta{
+		Version:  version,
+		Mode:     string(pol.Mode),
+		NodeName: os.Getenv("NODE_NAME"),
+		PodName:  os.Getenv("POD_NAME"),
+	})
 	go httpSrv.Start()
 
 	// --- Kubernetes clients ---
@@ -134,10 +143,12 @@ func main() {
 		CRDStore: crdStore,
 		GitOps:   gitOps,
 		Ticketer: ticketer,
+		Recorder: recorder,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
 	le := leader.Start(ctx, kc, "auto-agent-leader")
+	httpSrv.SetLeaderFunc(le.IsLeader)
 
 	// --- Start watchers (pod + node informers) ---
 	kube.StartWatchers(ctx, deps)

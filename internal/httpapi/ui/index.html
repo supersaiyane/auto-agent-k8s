@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Agent Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155;
+      --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+      --green: #22c55e; --yellow: #eab308; --red: #ef4444; --orange: #f97316;
+      --purple: #a78bfa;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--text); }
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header h1 span { color: var(--accent); }
+    .status-bar { display: flex; gap: 16px; align-items: center; font-size: 13px; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .badge-fix { background: rgba(239,68,68,0.2); color: var(--red); }
+    .badge-suggest { background: rgba(234,179,8,0.2); color: var(--yellow); }
+    .badge-observe { background: rgba(56,189,248,0.2); color: var(--accent); }
+    .badge-leader { background: rgba(34,197,94,0.2); color: var(--green); }
+    .badge-follower { background: rgba(148,163,184,0.2); color: var(--muted); }
+
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 20px 24px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .stat-card .value.red { color: var(--red); }
+    .stat-card .value.yellow { color: var(--yellow); }
+    .stat-card .value.green { color: var(--green); }
+    .stat-card .value.accent { color: var(--accent); }
+
+    .main { padding: 0 24px 24px; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .event-list { display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; }
+    .event { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; display: grid; grid-template-columns: 100px 80px 1fr auto; gap: 12px; align-items: center; font-size: 13px; }
+    .event:hover { border-color: var(--accent); }
+    .event .time { color: var(--muted); font-size: 12px; font-family: monospace; }
+    .event .type { font-weight: 600; font-size: 11px; text-transform: uppercase; }
+    .event .type.incident { color: var(--red); }
+    .event .type.action { color: var(--green); }
+    .event .type.scaling { color: var(--accent); }
+    .event .type.anomaly { color: var(--orange); }
+    .event .type.info { color: var(--purple); }
+    .event .reason { font-weight: 600; color: var(--yellow); margin-right: 8px; }
+    .event .msg { color: var(--text); }
+    .event .ns { background: rgba(56,189,248,0.15); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; }
+    .event .links a { color: var(--accent); text-decoration: none; font-size: 12px; margin-left: 8px; }
+    .event .links a:hover { text-decoration: underline; }
+
+    .severity-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .severity-dot.critical { background: var(--red); }
+    .severity-dot.warning { background: var(--yellow); }
+    .severity-dot.info { background: var(--accent); }
+
+    .empty { text-align: center; color: var(--muted); padding: 60px; font-size: 14px; }
+    .refresh-info { font-size: 11px; color: var(--muted); }
+
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .event { grid-template-columns: 1fr; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>auto-agent</span> dashboard</h1>
+    <div class="status-bar">
+      <span id="version"></span>
+      <span id="mode-badge" class="badge"></span>
+      <span id="leader-badge" class="badge"></span>
+      <span id="node-name" style="color: var(--muted); font-family: monospace;"></span>
+      <span class="refresh-info">auto-refresh 5s</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="stat-card">
+      <div class="label">Incidents</div>
+      <div class="value red" id="stat-incidents">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Actions Taken</div>
+      <div class="value green" id="stat-actions">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Scaling Decisions</div>
+      <div class="value accent" id="stat-scaling">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Uptime</div>
+      <div class="value yellow" id="stat-uptime">-</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active" data-filter="">All Events</div>
+      <div class="tab" data-filter="incident">Incidents</div>
+      <div class="tab" data-filter="action">Actions</div>
+      <div class="tab" data-filter="scaling">Scaling</div>
+      <div class="tab" data-filter="anomaly">Anomalies</div>
+    </div>
+    <div id="event-list" class="event-list">
+      <div class="empty">Connecting to agent...</div>
+    </div>
+  </div>
+
+  <script>
+    let currentFilter = '';
+    let refreshTimer;
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentFilter = tab.dataset.filter;
+        fetchEvents();
+      });
+    });
+
+    async function fetchStatus() {
+      try {
+        const r = await fetch('/api/status');
+        const d = await r.json();
+        document.getElementById('version').textContent = 'v' + d.version;
+        document.getElementById('node-name').textContent = d.nodeName || '';
+
+        const mb = document.getElementById('mode-badge');
+        mb.textContent = d.mode;
+        mb.className = 'badge badge-' + d.mode;
+
+        const lb = document.getElementById('leader-badge');
+        lb.textContent = d.isLeader ? 'leader' : 'follower';
+        lb.className = 'badge ' + (d.isLeader ? 'badge-leader' : 'badge-follower');
+
+        document.getElementById('stat-uptime').textContent = formatUptime(d.uptime);
+      } catch(e) {
+        console.error('status fetch failed:', e);
+      }
+    }
+
+    async function fetchStats() {
+      try {
+        const r = await fetch('/api/stats');
+        const d = await r.json();
+        document.getElementById('stat-incidents').textContent = d.byType?.incident || 0;
+        document.getElementById('stat-actions').textContent = d.byType?.action || 0;
+        document.getElementById('stat-scaling').textContent = d.byType?.scaling || 0;
+      } catch(e) {
+        console.error('stats fetch failed:', e);
+      }
+    }
+
+    async function fetchEvents() {
+      try {
+        let url = '/api/events?limit=100';
+        if (currentFilter) url += '&type=' + currentFilter;
+        const r = await fetch(url);
+        const events = await r.json();
+        renderEvents(events);
+      } catch(e) {
+        document.getElementById('event-list').innerHTML = '<div class="empty">Failed to connect</div>';
+      }
+    }
+
+    function renderEvents(events) {
+      const el = document.getElementById('event-list');
+      if (!events || events.length === 0) {
+        el.innerHTML = '<div class="empty">No events yet. The agent is watching your cluster.</div>';
+        return;
+      }
+      el.innerHTML = events.map(e => {
+        const time = new Date(e.timestamp).toLocaleTimeString();
+        const date = new Date(e.timestamp).toLocaleDateString();
+        let links = '';
+        if (e.logUrl) links += '<a href="' + esc(e.logUrl) + '" target="_blank">logs</a>';
+        if (e.prUrl) links += '<a href="' + esc(e.prUrl) + '" target="_blank">PR</a>';
+        if (e.ticketUrl) links += '<a href="' + esc(e.ticketUrl) + '" target="_blank">ticket</a>';
+
+        return '<div class="event">' +
+          '<div class="time">' + date + '<br>' + time + '</div>' +
+          '<div>' +
+            '<span class="severity-dot ' + (e.severity || 'info') + '"></span>' +
+            '<span class="type ' + e.type + '">' + e.type + '</span>' +
+          '</div>' +
+          '<div>' +
+            (e.namespace ? '<span class="ns">' + esc(e.namespace) + '</span> ' : '') +
+            '<span class="reason">' + esc(e.reason) + '</span>' +
+            '<span class="msg">' + esc(truncate(e.message, 120)) + '</span>' +
+          '</div>' +
+          '<div class="links">' + links + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function esc(s) {
+      if (!s) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+    function truncate(s, n) { return s && s.length > n ? s.substr(0, n) + '...' : (s || ''); }
+    function formatUptime(s) {
+      if (!s) return '-';
+      // Go duration format: "1h30m15.123s"
+      const m = s.match(/(?:(\d+)h)?(?:(\d+)m)?/);
+      if (!m) return s;
+      const h = m[1] || '0', min = m[2] || '0';
+      return h + 'h ' + min + 'm';
+    }
+
+    function refresh() {
+      fetchStatus();
+      fetchStats();
+      fetchEvents();
+    }
+
+    refresh();
+    refreshTimer = setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

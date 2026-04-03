@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	eventsvc "github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/obs"
 	"github.com/yourorg/auto-agent/internal/policy"
@@ -51,6 +52,9 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	deps.Slack.Post(msg)
 	createTicket(ctx, deps, fmt.Sprintf("crashloop-%s-%s", ns, wl),
 		fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
+		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
+		Reason: "CrashLoopBackOff", Message: fmt.Sprintf("Container %s crash-looping", cname), LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("CrashLoopBackOff", ns, wl).Inc()
 }
 
@@ -88,6 +92,9 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	deps.Slack.Post(msg)
 	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl),
 		fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
+		Namespace: ns, Workload: wl, Pod: name, Reason: "ImagePullBackOff",
+		Message: fmt.Sprintf("Cannot pull image %s", image), LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("ImagePullBackOff", ns, wl).Inc()
 }
 
@@ -150,6 +157,9 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 	deps.Slack.Post(msg)
 	createTicket(ctx, deps, fmt.Sprintf("oom-%s-%s", ns, wl),
 		fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
+		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
+		Reason: "OOMKilled", Message: fmt.Sprintf("Container %s killed (limit: %s)", cname, memLimit), LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("OOMKilled", ns, wl).Inc()
 }
 
@@ -186,6 +196,9 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod NotReady", logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
+		Namespace: ns, Workload: wl, Pod: name, Reason: "NotReady",
+		Message: fmt.Sprintf("Container %s failing readiness probe", cname), LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("NotReady", ns, wl).Inc()
 }
 
@@ -223,7 +236,17 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	deps.Slack.Post(msg)
 	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl),
 		fmt.Sprintf("Pending: %s/%s — %s", ns, wl, reason), msg)
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
+		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending",
+		Message: reason, LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
+}
+
+// recordEvent records an event to the in-memory ring buffer for the UI dashboard.
+func recordEvent(deps *Deps, evt eventsvc.Event) {
+	if deps.Recorder != nil {
+		deps.Recorder.Record(evt)
+	}
 }
 
 // createTicket creates or updates a ticket if ticketing is configured.
