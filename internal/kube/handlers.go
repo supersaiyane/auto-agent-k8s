@@ -233,10 +233,12 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 
 	blocked, blockReason := checkGuardrails(ctx, deps, ns, wl, labels)
 	if blocked {
+		klog.Infof("tryFixAction: BLOCKED %s/%s reason=%s by=%s", ns, wl, reason, blockReason)
 		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", blockReason)
 		return fmt.Sprintf("_Blocked_: %s.\n", blockReason)
 	}
 	if !deps.Limiter.Allow() {
+		klog.Infof("tryFixAction: RATE LIMITED %s/%s reason=%s", ns, wl, reason)
 		obs.RateLimitedTotal.Inc()
 		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", "rate limited")
 		return "_Action_: rate limited, skipping.\n"
@@ -249,6 +251,7 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 		return fmt.Sprintf("_Action_: failed — %v\n", err)
 	}
 
+	klog.Infof("tryFixAction: SUCCESS %s %s/%s reason=%s", actionType, ns, wl, reason)
 	obs.ActionsTotal.WithLabelValues(actionType, ns, wl).Inc()
 	auditAction(deps, actionType, ns, wl, pod, reason, "success", "")
 

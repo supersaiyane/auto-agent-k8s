@@ -70,19 +70,42 @@ func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
 
 // handleFixes returns verified fixes, pending verifications, and failed fixes.
 func (s *Server) handleFixes(w http.ResponseWriter, r *http.Request) {
-	if fixTracker == nil {
-		writeJSON(w, map[string]interface{}{
-			"fixed": []interface{}{}, "pending": []interface{}{}, "failed": []interface{}{},
-		})
-		return
+	// Pull verified fixes from the event recorder (file-backed, survives restarts)
+	allEvents := s.recorder.Recent(0)
+	var fixedList, pendingList, failedList []map[string]interface{}
+
+	for _, e := range allEvents {
+		if e.Action == "verified-fix" {
+			fixedList = append(fixedList, map[string]interface{}{
+				"timestamp": e.Timestamp, "namespace": e.Namespace, "workload": e.Workload,
+				"reason": e.Reason, "action": "fix", "status": "fixed",
+				"detail": e.Message, "verifiedAt": e.Timestamp,
+			})
+		}
 	}
-	pending, fixed, failed := fixTracker.Stats()
+
+	// Pull pending/failed from fix tracker (in-memory, leader only)
+	if fixTracker != nil {
+		for _, p := range fixTracker.Pending() {
+			pendingList = append(pendingList, map[string]interface{}{
+				"timestamp": p.Timestamp, "namespace": p.Namespace, "workload": p.Workload,
+				"reason": p.Reason, "action": p.Action, "status": "pending",
+			})
+		}
+		for _, f := range fixTracker.Failed() {
+			failedList = append(failedList, map[string]interface{}{
+				"timestamp": f.Timestamp, "namespace": f.Namespace, "workload": f.Workload,
+				"reason": f.Reason, "action": f.Action, "status": "not-fixed", "detail": f.Detail,
+			})
+		}
+	}
+
 	writeJSON(w, map[string]interface{}{
-		"fixed":        fixTracker.Fixed(),
-		"pending":      fixTracker.Pending(),
-		"failed":       fixTracker.Failed(),
-		"fixedCount":   fixed,
-		"pendingCount": pending,
-		"failedCount":  failed,
+		"fixed":        fixedList,
+		"pending":      pendingList,
+		"failed":       failedList,
+		"fixedCount":   len(fixedList),
+		"pendingCount": len(pendingList),
+		"failedCount":  len(failedList),
 	})
 }
