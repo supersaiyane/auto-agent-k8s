@@ -1,14 +1,14 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: autoremidiationpolicies.autoagent.io
+  name: autoremediationpolicies.autoagent.io
 spec:
   group: autoagent.io
   scope: Namespaced
   names:
     kind: AutoRemediationPolicy
-    plural: autoremidiationpolicies
-    singular: autoremidiationpolicy
+    plural: autoremediationpolicies
+    singular: autoremediationpolicy
     shortNames: [arp]
   versions:
   - name: v1alpha1

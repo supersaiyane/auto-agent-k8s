@@ -64,7 +64,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			}
 
 			// Evaluate gate signals
-			gateActive := evaluateGates(ctx, deps)
+			gatesConfigured, gateActive := evaluateGates(ctx, deps)
 
 			// --- Scale Up ---
 			if cpu > pol.CPUThreshold && gateActive {
@@ -110,7 +110,9 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			}
 
 			// --- Scale Down ---
-			if cpu < 0.3 && !gateActive && rep > pol.MinReplicas {
+			// Scale down if CPU is low AND either no gates configured (CPU-only) or gates show no load
+			canScaleDown := !gatesConfigured || !gateActive
+			if cpu < 0.3 && canScaleDown && rep > pol.MinReplicas {
 				// Check scale-down cooldown (longer than scale-up)
 				if inCooldown(d.Annotations, annoLastScaleDown, cooldownDown) {
 					continue
@@ -146,34 +148,36 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 	}
 }
 
-// evaluateGates checks optional PromQL gate signals. Returns true if any gate
-// is active (indicating real load), or if no gates are configured (CPU-only mode).
-func evaluateGates(ctx context.Context, deps *Deps) bool {
+// evaluateGates checks optional PromQL gate signals.
+// Returns (gatesConfigured, gateActive).
+// - gatesConfigured: true if any PROM_* env vars are set
+// - gateActive: true if any gate signal indicates real load, OR if no gates configured (CPU-only mode)
+func evaluateGates(ctx context.Context, deps *Deps) (bool, bool) {
 	qDepthQ := os.Getenv("PROM_QUEUE_DEPTH")
 	errRateQ := os.Getenv("PROM_ERROR_RATE")
 	p95Q := os.Getenv("PROM_P95_LATENCY")
 
-	// No gates configured: fall back to CPU-only mode
+	// No gates configured: CPU-only mode
 	if qDepthQ == "" && errRateQ == "" && p95Q == "" {
-		return true
+		return false, true // not configured, active (allow scale-up on CPU alone)
 	}
 
 	if qDepthQ != "" {
 		if v, err := deps.Metrics.QueryInstant(ctx, qDepthQ); err == nil && v > 0 {
-			return true
+			return true, true
 		}
 	}
 	if errRateQ != "" {
 		if v, err := deps.Metrics.QueryInstant(ctx, errRateQ); err == nil && v > 0 {
-			return true
+			return true, true
 		}
 	}
 	if p95Q != "" {
 		if v, err := deps.Metrics.QueryInstant(ctx, p95Q); err == nil && v > 0 {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return true, false // configured but inactive (no load signals)
 }
 
 // deploymentHasHPA checks if a HorizontalPodAutoscaler targets this deployment.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/yourorg/auto-agent/internal/crd"
 	"github.com/yourorg/auto-agent/internal/httpapi"
+	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/kube"
 	"github.com/yourorg/auto-agent/internal/leader"
 	"github.com/yourorg/auto-agent/internal/llm"
@@ -85,6 +86,41 @@ func main() {
 	crdStore := crd.NewStore()
 	crd.StartController(ctx, dyn, crdStore)
 
+	// --- GitOps client ---
+	var gitOps integrations.GitOps
+	gitToken := os.Getenv("GIT_TOKEN")
+	gitRepo := os.Getenv("GITOPS_REPO")
+	gitBranch := os.Getenv("GITOPS_BRANCH")
+	if gitToken != "" && gitRepo != "" {
+		switch os.Getenv("GITOPS_PROVIDER") {
+		case "gitlab":
+			gitOps = integrations.NewGitLab(gitToken, gitRepo, gitBranch)
+		default:
+			gitOps = integrations.NewGitHub(gitToken, gitRepo, gitBranch)
+		}
+		klog.Infof("gitops: configured (%s)", os.Getenv("GITOPS_PROVIDER"))
+	}
+
+	// --- Ticketing client ---
+	var ticketer integrations.Ticketer
+	if os.Getenv("TICKETS_ENABLED") == "true" {
+		switch os.Getenv("TICKETS_PROVIDER") {
+		case "jira":
+			ticketer = integrations.NewJira(
+				os.Getenv("JIRA_TOKEN"),
+				os.Getenv("JIRA_BASE_URL"),
+				os.Getenv("JIRA_PROJECT_KEY"),
+				os.Getenv("JIRA_EMAIL"),
+			)
+			klog.Infof("tickets: configured (jira)")
+		case "github":
+			ticketer = integrations.NewGitHubIssues(os.Getenv("GITHUB_TOKEN"), os.Getenv("GITHUB_REPO"))
+			klog.Infof("tickets: configured (github)")
+		default:
+			ticketer = integrations.NewNopTicketer()
+		}
+	}
+
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
 		Client:   kc,
@@ -96,6 +132,8 @@ func main() {
 		Limiter:  limiter,
 		Sink:     sink,
 		CRDStore: crdStore,
+		GitOps:   gitOps,
+		Ticketer: ticketer,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---

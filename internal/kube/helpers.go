@@ -16,9 +16,10 @@ import (
 	"github.com/yourorg/auto-agent/internal/storage"
 )
 
-// dedupKey builds a deduplication key for a pod event.
-func dedupKey(ns, pod, reason string) string {
-	return fmt.Sprintf("%s/%s/%s", ns, pod, reason)
+// dedupKey builds a deduplication key at the WORKLOAD level (not pod level).
+// This prevents delete-recreate-delete storms when a controller recreates pods.
+func dedupKey(ns, workloadOrName, reason string) string {
+	return fmt.Sprintf("%s/%s/%s", ns, workloadOrName, reason)
 }
 
 // ownerName returns "kind/name" of the controlling owner, or "pod/name".
@@ -68,13 +69,14 @@ func getLastLogs(ctx context.Context, kc kubernetes.Interface, ns, pod, containe
 	return string(b)
 }
 
-// collectEvents fetches Kubernetes events for a specific pod.
-func collectEvents(ctx context.Context, kc kubernetes.Interface, ns, pod string) []string {
+// collectEvents fetches Kubernetes events for a specific object, limited to 100.
+func collectEvents(ctx context.Context, kc kubernetes.Interface, ns, name string) []string {
 	evs, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", pod).String(),
+		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", name).String(),
+		Limit:         100,
 	})
 	if err != nil {
-		klog.V(3).Infof("events: failed to list for %s/%s: %v", ns, pod, err)
+		klog.V(3).Infof("events: failed to list for %s/%s: %v", ns, name, err)
 		return nil
 	}
 	out := make([]string, 0, len(evs.Items))
@@ -125,7 +127,6 @@ func isCriticalPod(p *corev1.Pod) bool {
 	if strings.Contains(strings.ToLower(pc), "critical") {
 		return true
 	}
-	// Also protect kube-system pods
 	if p.Namespace == "kube-system" {
 		return true
 	}

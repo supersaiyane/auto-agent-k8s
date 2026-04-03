@@ -6,6 +6,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/metrics"
 	"github.com/yourorg/auto-agent/internal/policy"
 	"github.com/yourorg/auto-agent/internal/ratelimit"
@@ -36,4 +37,6 @@ type Deps struct {
 	Limiter  *ratelimit.ActionLimiter
 	Sink     storage.Sink
 	CRDStore *crd.Store
+	GitOps   integrations.GitOps
+	Ticketer integrations.Ticketer
 }

@@ -15,7 +15,7 @@ import (
 )
 
 var gvr = schema.GroupVersionResource{
-	Group: "autoagent.io", Version: "v1alpha1", Resource: "autoremidiationpolicies",
+	Group: "autoagent.io", Version: "v1alpha1", Resource: "autoremediationpolicies",
 }
 
 // StartController watches AutoRemediationPolicy CRs and keeps Store in sync.

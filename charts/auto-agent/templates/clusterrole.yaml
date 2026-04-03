@@ -38,5 +38,5 @@ rules:
   verbs: ["get", "list", "watch", "create", "update"]
 # CRD
 - apiGroups: ["autoagent.io"]
-  resources: ["autoremidiationpolicies", "autoremidiationpolicies/status"]
+  resources: ["autoremediationpolicies", "autoremediationpolicies/status"]
   verbs: ["get", "list", "watch", "update", "patch"]

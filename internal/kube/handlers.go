@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/obs"
 	"github.com/yourorg/auto-agent/internal/policy"
 )
@@ -36,7 +38,6 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
 				obs.HandlerErrorsTotal.WithLabelValues("crashloop", "delete").Inc()
-				msg += fmt.Sprintf("_Action_: failed to delete pod: %v\n", err)
 			} else {
 				msg += "_Action_: deleted pod to clear backoff (controller will recreate).\n"
 				obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
@@ -47,10 +48,9 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod CrashLoopBackOff", logs+"\n"+strings.Join(events, "\n"))
-
-	if err := deps.Slack.Post(msg); err != nil {
-		obs.HandlerErrorsTotal.WithLabelValues("crashloop", "slack").Inc()
-	}
+	deps.Slack.Post(msg)
+	createTicket(ctx, deps, fmt.Sprintf("crashloop-%s-%s", ns, wl),
+		fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
 	obs.IncidentsTotal.WithLabelValues("CrashLoopBackOff", ns, wl).Inc()
 }
 
@@ -74,7 +74,6 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 		if !deps.Limiter.Allow() {
 			obs.RateLimitedTotal.Inc()
 		} else {
-			// Delete pod to retry — for transient registry issues
 			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
 				obs.HandlerErrorsTotal.WithLabelValues("imagepull", "delete").Inc()
@@ -86,10 +85,9 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "ImagePullBackOff", strings.Join(events, "\n"))
-
-	if err := deps.Slack.Post(msg); err != nil {
-		obs.HandlerErrorsTotal.WithLabelValues("imagepull", "slack").Inc()
-	}
+	deps.Slack.Post(msg)
+	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl),
+		fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
 	obs.IncidentsTotal.WithLabelValues("ImagePullBackOff", ns, wl).Inc()
 }
 
@@ -106,7 +104,6 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 		obs.HandlerErrorsTotal.WithLabelValues("oom", "storage").Inc()
 	}
 
-	// Find current memory limit for context
 	var memLimit string
 	for _, c := range pod.Spec.Containers {
 		if c.Name == cname {
@@ -119,13 +116,40 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 
 	msg := fmt.Sprintf("*OOMKilled* on `%s/%s` (container: `%s`, current limit: `%s`)\nSaved: `%s`\n",
 		ns, name, cname, memLimit, url)
-	msg += "_Recommend_: increase memory limit by 20-50%% via GitOps PR. Investigate memory usage patterns.\n"
+
+	// Open GitOps PR to bump memory if available
+	if deps.GitOps != nil && deps.Policy.Mode == policy.Fix {
+		bumpPct := 20
+		crdPolicies := deps.CRDStore.Match(ns, pod.Labels)
+		for _, cp := range crdPolicies {
+			if cp.BumpMemoryPercent > 0 {
+				bumpPct = cp.BumpMemoryPercent
+				break
+			}
+		}
+		prTitle := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
+		prBody := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nRecommend increasing by %d%%.\n\nIncident log: `%s`",
+			cname, memLimit, bumpPct, url)
+		prURL, err := deps.GitOps.OpenPR(ctx, integrations.GitOpsChange{
+			Title:  prTitle,
+			Body:   prBody,
+			Branch: fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), time.Now().Unix()),
+		})
+		if err != nil {
+			klog.Warningf("handler: failed to open OOM PR: %v", err)
+			obs.HandlerErrorsTotal.WithLabelValues("oom", "gitops").Inc()
+			msg += fmt.Sprintf("_GitOps_: failed to open PR: %v\n", err)
+		} else {
+			msg += fmt.Sprintf("_GitOps_: opened PR to bump memory: %s\n", prURL)
+		}
+	} else {
+		msg += "_Recommend_: increase memory limit by 20-50%% via GitOps PR.\n"
+	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Container OOMKilled", logs+"\n"+strings.Join(events, "\n"))
-
-	if err := deps.Slack.Post(msg); err != nil {
-		obs.HandlerErrorsTotal.WithLabelValues("oom", "slack").Inc()
-	}
+	deps.Slack.Post(msg)
+	createTicket(ctx, deps, fmt.Sprintf("oom-%s-%s", ns, wl),
+		fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
 	obs.IncidentsTotal.WithLabelValues("OOMKilled", ns, wl).Inc()
 }
 
@@ -150,7 +174,6 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 		if !deps.Limiter.Allow() {
 			obs.RateLimitedTotal.Inc()
 		} else {
-			// Delete the pod to force a fresh start
 			if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				klog.Warningf("handler: failed to delete not-ready pod %s/%s: %v", ns, name, err)
 				obs.HandlerErrorsTotal.WithLabelValues("notready", "delete").Inc()
@@ -162,10 +185,7 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod NotReady", logs+"\n"+strings.Join(events, "\n"))
-
-	if err := deps.Slack.Post(msg); err != nil {
-		obs.HandlerErrorsTotal.WithLabelValues("notready", "slack").Inc()
-	}
+	deps.Slack.Post(msg)
 	obs.IncidentsTotal.WithLabelValues("NotReady", ns, wl).Inc()
 }
 
@@ -181,7 +201,6 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 		obs.HandlerErrorsTotal.WithLabelValues("pending", "storage").Inc()
 	}
 
-	// Diagnose the reason for pending
 	reason := "unknown"
 	for _, cond := range pod.Status.Conditions {
 		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
@@ -192,7 +211,6 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 
 	msg := fmt.Sprintf("*Pending* pod `%s/%s` (>5 minutes)\nReason: %s\nSaved: `%s`\n", ns, name, reason, url)
 
-	// Check if it's a resource issue
 	if strings.Contains(reason, "Insufficient") {
 		msg += "_Diagnosis_: cluster lacks resources. Consider scaling node pool or adjusting resource requests.\n"
 	} else if strings.Contains(reason, "node(s) didn't match") {
@@ -202,9 +220,30 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod stuck Pending", strings.Join(events, "\n"))
-
-	if err := deps.Slack.Post(msg); err != nil {
-		obs.HandlerErrorsTotal.WithLabelValues("pending", "slack").Inc()
-	}
+	deps.Slack.Post(msg)
+	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl),
+		fmt.Sprintf("Pending: %s/%s — %s", ns, wl, reason), msg)
 	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
+}
+
+// createTicket creates or updates a ticket if ticketing is configured.
+func createTicket(ctx context.Context, deps *Deps, key, title, body string) {
+	if deps.Ticketer == nil {
+		return
+	}
+	_, err := deps.Ticketer.CreateOrUpdate(ctx, key, integrations.Ticket{
+		Title:  title,
+		Body:   body,
+		Labels: []string{"auto-agent", "kubernetes"},
+	})
+	if err != nil {
+		klog.Warningf("handler: ticket creation failed for %s: %v", key, err)
+		obs.HandlerErrorsTotal.WithLabelValues("ticket", "create").Inc()
+	}
+}
+
+// sanitizeBranch makes a string safe for git branch names.
+func sanitizeBranch(s string) string {
+	r := strings.NewReplacer("/", "-", " ", "-", ":", "-")
+	return r.Replace(s)
 }
