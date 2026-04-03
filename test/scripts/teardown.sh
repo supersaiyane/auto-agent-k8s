@@ -7,7 +7,7 @@ echo "=========================================="
 
 echo ""
 echo "Cleaning up test workloads..."
-kubectl delete ns test-apps test-apps-2 --ignore-not-found --timeout=60s
+kubectl delete ns test-apps test-apps-2 --ignore-not-found --timeout=60s 2>/dev/null || true
 
 echo ""
 echo "Uninstalling auto-agent..."
@@ -15,11 +15,7 @@ helm uninstall auto-agent -n kube-system 2>/dev/null || true
 
 echo ""
 echo "Deleting CRDs..."
-kubectl delete crd autoremediationpolicies.autoagent.io --ignore-not-found
+kubectl delete crd autoremediationpolicies.autoagent.io --ignore-not-found 2>/dev/null || true
 
 echo ""
-echo "Deleting KIND cluster..."
-kind delete cluster --name auto-agent-test
-
-echo ""
-echo "Teardown complete."
+echo "Teardown complete. Cluster is untouched."
