@@ -1,0 +1,154 @@
+##############################################################
+# APP 1: payment-service (namespace: default)
+# 3 pods — each fails in a different way
+#
+# Pod 1 (crash): CrashLoopBackOff — DB connection refused
+# Pod 2 (oom):   OOMKilled — memory leak
+# Pod 3 (config): CreateContainerConfigError — missing secret
+##############################################################
+
+# ConfigMap that the app needs
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-config
+  namespace: default
+data:
+  APP_NAME: "payment-service"
+  LOG_LEVEL: "info"
+---
+# Deployment 1: CrashLoopBackOff — the main process crashes on startup
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: default
+  labels:
+    app: payment-api
+    team: payments
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+        team: payments
+    spec:
+      containers:
+        - name: api
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "[payment-api] Starting..."
+              echo "[payment-api] Connecting to postgres://db.payments.svc:5432/payments"
+              sleep 3
+              echo "[payment-api] FATAL: connection to database refused"
+              echo "[payment-api] ERROR: cannot initialize payment gateway"
+              exit 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: payment-config
+---
+# Deployment 2: OOMKilled — worker that leaks memory
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-worker
+  namespace: default
+  labels:
+    app: payment-worker
+    team: payments
+    tier: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-worker
+  template:
+    metadata:
+      labels:
+        app: payment-worker
+        team: payments
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "[payment-worker] Processing transactions..."
+              echo "[payment-worker] Loading batch data into memory..."
+              # Allocate more memory than the 32Mi limit allows
+              dd if=/dev/urandom bs=1M count=64 of=/dev/null 2>/dev/null
+              head -c 50M /dev/urandom > /tmp/leak
+              sleep infinity
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+---
+# Deployment 3: CreateContainerConfigError — references a Secret that doesn't exist
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-gateway
+  namespace: default
+  labels:
+    app: payment-gateway
+    team: payments
+    tier: integration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-gateway
+  template:
+    metadata:
+      labels:
+        app: payment-gateway
+        team: payments
+    spec:
+      containers:
+        - name: gateway
+          image: busybox:1.36
+          command: ["sleep", "infinity"]
+          envFrom:
+            - secretRef:
+                name: stripe-api-keys-that-dont-exist
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+# Service for the API
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: default
+spec:
+  selector:
+    app: payment-api
+  ports:
+    - port: 80
+      targetPort: 8080

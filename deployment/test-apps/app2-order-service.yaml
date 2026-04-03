@@ -1,0 +1,176 @@
+##############################################################
+# APP 2: order-service (namespace: test1)
+# 3 pods — each fails in a different way
+#
+# Pod 1 (init):   Init container failure — can't reach Redis
+# Pod 2 (image):  ImagePullBackOff — wrong registry
+# Pod 3 (probe):  NotReady — failing readiness probe
+##############################################################
+
+# Deployment 1: Init container failure — init can't reach a dependency
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-api
+  namespace: test1
+  labels:
+    app: order-api
+    team: orders
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-api
+  template:
+    metadata:
+      labels:
+        app: order-api
+        team: orders
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "[init] Waiting for Redis at redis.test1.svc:6379..."
+              sleep 3
+              echo "[init] ERROR: Connection refused — Redis is not running"
+              echo "[init] Cannot proceed without cache layer"
+              exit 1
+          resources:
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      containers:
+        - name: api
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'order-api ready'; sleep infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+# Deployment 2: ImagePullBackOff — internal registry that doesn't exist
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-worker
+  namespace: test1
+  labels:
+    app: order-worker
+    team: orders
+    tier: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-worker
+  template:
+    metadata:
+      labels:
+        app: order-worker
+        team: orders
+    spec:
+      containers:
+        - name: worker
+          image: internal-registry.company.io/orders/worker:v3.2.1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# Deployment 3: NotReady — app runs but health endpoint fails
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-notifier
+  namespace: test1
+  labels:
+    app: order-notifier
+    team: orders
+    tier: notification
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-notifier
+  template:
+    metadata:
+      labels:
+        app: order-notifier
+        team: orders
+    spec:
+      containers:
+        - name: notifier
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "[order-notifier] Started but Kafka connection failing"
+              echo "[order-notifier] Health check will fail — cannot produce messages"
+              sleep infinity
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+# Service with NO matching pods — zero endpoints blackhole
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-cache
+  namespace: test1
+spec:
+  selector:
+    app: redis-that-does-not-exist
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# A job that always fails
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: order-migration
+  namespace: test1
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "[migration] Running database migration v42..."
+              sleep 5
+              echo "[migration] ERROR: column 'status' already exists"
+              echo "[migration] FATAL: migration failed, rolling back"
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
