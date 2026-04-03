@@ -5,7 +5,7 @@ metadata:
   namespace: auto-agent
 data:
   # Agent mode: observe (alert only), suggest (alert + recommend), fix (auto-remediate), dry-run (simulate)
-  AUTO_MODE: "observe"
+  AUTO_MODE: "dryrun"
 
   # Namespaces to watch (comma-separated)
   NAMESPACE_ALLOWLIST: "default,test1,test2"

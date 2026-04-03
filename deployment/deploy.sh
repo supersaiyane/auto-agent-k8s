@@ -151,22 +151,39 @@ kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
 echo ""
 kubectl get pods -n auto-agent -o wide
 
-# Port-forward
+# Dashboard access — NodePort 30080 (no port-forward needed)
 echo ""
-echo "Starting dashboard port-forward..."
+echo "Dashboard access..."
+
+# Determine dashboard URL
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+NODEPORT_URL="http://${NODE_IP}:30080"
+
+# Also start port-forward as fallback on localhost:8080
 lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 sleep 1
 kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
 sleep 2
 
-if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
-    echo "  Dashboard: http://localhost:8080"
-else
-    echo "  Port-forward may need a moment. Try: kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
+# Test which URL works
+DASHBOARD_URL=""
+if curl -sf http://localhost:30080/healthz > /dev/null 2>&1; then
+    DASHBOARD_URL="http://localhost:30080"
+elif curl -sf "$NODEPORT_URL/healthz" > /dev/null 2>&1; then
+    DASHBOARD_URL="$NODEPORT_URL"
+elif curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+    DASHBOARD_URL="http://localhost:8080"
 fi
 
-if command -v open &> /dev/null; then
-    open http://localhost:8080
+if [ -n "$DASHBOARD_URL" ]; then
+    echo "  Dashboard: $DASHBOARD_URL"
+    if command -v open &> /dev/null; then
+        open "$DASHBOARD_URL"
+    fi
+else
+    echo "  Dashboard not reachable yet. Try:"
+    echo "    http://localhost:30080  (NodePort)"
+    echo "    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
 fi
 
 echo ""
@@ -174,7 +191,8 @@ echo "=========================================="
 echo " Deployment Complete!"
 echo "=========================================="
 echo ""
-echo "  Dashboard:     http://localhost:8080"
+echo "  Dashboard:     http://localhost:30080 (NodePort — survives pod restarts)"
+echo "  Fallback:      http://localhost:8080  (port-forward)"
 echo "  Agent logs:    kubectl logs -n auto-agent -l app=auto-agent -f"
 echo "  Agent mode:    $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.AUTO_MODE}')"
 echo "  Watching:      $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')"

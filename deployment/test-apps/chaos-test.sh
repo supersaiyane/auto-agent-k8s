@@ -47,7 +47,21 @@ if ! echo "$ALLOWLIST" | grep -q "chaos"; then
     kubectl patch cm auto-agent-config -n auto-agent --type merge -p "{\"data\":{\"NAMESPACE_ALLOWLIST\":\"$NEW_LIST\"}}" > /dev/null
     kubectl rollout restart ds/auto-agent -n auto-agent > /dev/null 2>&1
     kubectl rollout status ds/auto-agent -n auto-agent --timeout=120s > /dev/null 2>&1
+    # Restart port-forward (rollout kills it)
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    sleep 2
+    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
+    sleep 2
     ok "Agent restarted with chaos namespace"
+fi
+
+# Ensure port-forward is running
+if ! curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+    echo -e "  ${YELLOW}Restarting port-forward...${NC}"
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    sleep 1
+    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
+    sleep 2
 fi
 
 # Deploy chaos suite
@@ -177,25 +191,49 @@ COUNT=$(echo "$EVENTS" | grep -o '"id"' | wc -l | tr -d ' ')
 echo -e "${CYAN}[22]${NC} Dashboard events"
 if [ "$COUNT" -gt 0 ]; then ok "Dashboard has $COUNT events"; else warn "No events yet"; fi
 
+# Find dashboard URL (NodePort 30080 or port-forward 8080)
+DASH_URL=""
+if curl -sf http://localhost:30080/healthz > /dev/null 2>&1; then
+    DASH_URL="http://localhost:30080"
+elif curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+    DASH_URL="http://localhost:8080"
+fi
+
 echo -e "${CYAN}[23]${NC} Dashboard UI"
-if curl -sf http://localhost:8080/ 2>/dev/null | grep -q "auto-agent"; then
-    ok "Dashboard at http://localhost:8080"
+if [ -n "$DASH_URL" ]; then
+    ok "Dashboard at $DASH_URL"
 else
-    warn "Port-forward not active"
+    # Try to start port-forward
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
+    sleep 2
+    if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+        DASH_URL="http://localhost:8080"
+        ok "Dashboard at $DASH_URL (port-forward restarted)"
+    else
+        warn "Dashboard not reachable"
+    fi
 fi
 
 echo -e "${CYAN}[24]${NC} Cost API"
-if curl -sf http://localhost:8080/api/cost 2>/dev/null | grep -q "totalMonthly"; then
+if [ -n "$DASH_URL" ] && curl -sf "$DASH_URL/api/cost" 2>/dev/null | grep -q "totalMonthly"; then
     ok "Cost API working"
 else
     warn "Cost API not reachable"
 fi
 
 echo -e "${CYAN}[25]${NC} Cluster API"
-if curl -sf http://localhost:8080/api/cluster 2>/dev/null | grep -q "chaos"; then
+if [ -n "$DASH_URL" ] && curl -sf "$DASH_URL/api/cluster" 2>/dev/null | grep -q "chaos"; then
     ok "Cluster API shows chaos namespace"
 else
     warn "Cluster API not reachable"
+fi
+
+echo -e "${CYAN}[26]${NC} Resources API"
+if [ -n "$DASH_URL" ] && curl -sf "$DASH_URL/api/resources" 2>/dev/null | grep -q "overuse"; then
+    ok "Resources API with overuse/underuse detection"
+else
+    warn "Resources API not reachable"
 fi
 
 # ============================================================

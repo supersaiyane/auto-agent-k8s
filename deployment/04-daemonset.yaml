@@ -84,9 +84,11 @@ metadata:
   name: auto-agent
   namespace: auto-agent
 spec:
+  type: NodePort
   selector:
     app: auto-agent
   ports:
     - name: http
       port: 8080
       targetPort: 8080
+      nodePort: 30080
