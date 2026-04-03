@@ -76,6 +76,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	mux.HandleFunc("/api/cost", s.handleCost)
 	mux.HandleFunc("/api/resources", s.handleResources)
 	mux.HandleFunc("/api/resources/", s.handleResourcesNs)
+	mux.HandleFunc("/api/fixes", s.handleFixes)
 
 	// Slack interactive actions callback
 	slackHandler := NewSlackActionHandler(os.Getenv("SLACK_SIGNING_SECRET"))

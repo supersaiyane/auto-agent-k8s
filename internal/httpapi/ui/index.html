@@ -229,24 +229,76 @@ document.getElementById('k8s-type-filter').addEventListener('change',fetchK8sEve
 // --- Fixed (successful remediations) ---
 async function fetchFixed(){
   try{
-    const evts=await(await fetch('/api/events?limit=200&type=action')).json();
+    const d=await(await fetch('/api/fixes')).json();
     const el=document.getElementById('fixed-list');
-    if(!evts||!evts.length){el.innerHTML='<div class="empty">No remediations yet. Agent will show fixed issues here after taking action.</div>';return;}
-    el.innerHTML=`<div style="margin-bottom:12px;font-size:13px;color:var(--green)">
-      ${evts.length} successful remediation${evts.length>1?'s':''}</div>` +
-    evts.map(e=>{const t=new Date(e.timestamp);
-      return `<div class="event" style="border-left:3px solid var(--green)">
-        <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
-        <div><span class="pill pill-green">${esc(e.action||'fix')}</span></div>
-        <div>
-          ${e.namespace?`<span class="ns">${esc(e.namespace)}</span> `:''}
-          <span class="reason">${esc(e.reason)}</span>
-          <span style="color:var(--green)">${esc(e.message)}</span>
-        </div>
-        <div style="font-size:12px;color:var(--muted)">${esc(e.workload||'')}</div>
-      </div>`;
-    }).join('');
-  }catch(e){document.getElementById('fixed-list').innerHTML='<div class="empty">Error</div>';}
+    let h='';
+
+    // Summary cards
+    h+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="stat-card"><div class="label">Verified Fixed</div><div class="value green">${d.fixedCount||0}</div></div>
+      <div class="stat-card"><div class="label">Pending Verification</div><div class="value yellow">${d.pendingCount||0}</div></div>
+      <div class="stat-card"><div class="label">Not Fixed</div><div class="value red">${d.failedCount||0}</div></div>
+    </div>`;
+
+    // Verified fixes
+    const fixed=d.fixed||[];
+    if(fixed.length){
+      h+=`<h4 style="margin:12px 0 8px;color:var(--green);font-size:12px;text-transform:uppercase">Verified Fixes (${fixed.length})</h4>`;
+      h+=fixed.map(f=>{const t=new Date(f.timestamp);const v=new Date(f.verifiedAt);
+        return `<div class="event" style="border-left:3px solid var(--green)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-green">FIXED</span></div>
+          <div>
+            <span class="ns">${esc(f.namespace)}</span>
+            <span class="reason">${esc(f.reason)}</span>
+            <span style="color:var(--green)">Action: ${esc(f.action)} &rarr; ${esc(f.detail)}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)} &middot; verified ${v.toLocaleTimeString()}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Pending verification
+    const pending=d.pending||[];
+    if(pending.length){
+      h+=`<h4 style="margin:20px 0 8px;color:var(--yellow);font-size:12px;text-transform:uppercase">Pending Verification (${pending.length})</h4>`;
+      h+=pending.map(f=>{const t=new Date(f.timestamp);
+        return `<div class="event" style="border-left:3px solid var(--yellow)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-yellow">VERIFYING</span></div>
+          <div>
+            <span class="ns">${esc(f.namespace)}</span>
+            <span class="reason">${esc(f.reason)}</span>
+            Action: ${esc(f.action)} &mdash; waiting for pods to recover...
+          </div>
+          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Failed fixes
+    const failed=d.failed||[];
+    if(failed.length){
+      h+=`<h4 style="margin:20px 0 8px;color:var(--red);font-size:12px;text-transform:uppercase">Not Fixed (${failed.length})</h4>`;
+      h+=failed.map(f=>{const t=new Date(f.timestamp);
+        return `<div class="event" style="border-left:3px solid var(--red)">
+          <div class="time">${t.toLocaleDateString()}<br>${t.toLocaleTimeString()}</div>
+          <div><span class="pill pill-red">NOT FIXED</span></div>
+          <div>
+            <span class="ns">${esc(f.namespace)}</span>
+            <span class="reason">${esc(f.reason)}</span>
+            Action: ${esc(f.action)} &mdash; <span style="color:var(--red)">${esc(f.detail)}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">${esc(f.workload)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    if(!fixed.length&&!pending.length&&!failed.length){
+      h+='<div class="empty">No remediation actions yet. Deploy failing workloads and set agent to fix mode.</div>';
+    }
+    el.innerHTML=h;
+  }catch(e){document.getElementById('fixed-list').innerHTML='<div class="empty">Error loading fixes</div>';}
 }
 
 // --- Cluster ---

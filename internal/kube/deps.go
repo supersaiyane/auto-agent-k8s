@@ -49,6 +49,7 @@ type Deps struct {
 	BlastRadius  *BlastRadiusTracker
 	QuietHours   *QuietHours
 	DryRunLog    *DryRunLog
+	FixTracker   *FixTracker
 	Escalation   *escalation.Chain
 	DeployTracker *DeployTracker
 	LearningMode *LearningMode

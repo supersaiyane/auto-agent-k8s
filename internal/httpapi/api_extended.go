@@ -14,22 +14,23 @@ var (
 	learningMode      *kube.LearningMode
 	deployTracker     *kube.DeployTracker
 	dryRunLog         *kube.DryRunLog
+	fixTracker        *kube.FixTracker
 )
 
 // SetExtendedDeps wires optional dependencies for extended API endpoints.
-func SetExtendedDeps(ct *kube.ComplianceTracker, lm *kube.LearningMode, dt *kube.DeployTracker, dr *kube.DryRunLog) {
+func SetExtendedDeps(ct *kube.ComplianceTracker, lm *kube.LearningMode, dt *kube.DeployTracker, dr *kube.DryRunLog, ft *kube.FixTracker) {
 	complianceTracker = ct
 	learningMode = lm
 	deployTracker = dt
 	dryRunLog = dr
+	fixTracker = ft
 }
 
 func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
 	if complianceTracker == nil {
-		writeJSON(w, map[string]string{"error": "compliance tracker not initialized"})
+		writeJSON(w, map[string]string{"error": "not initialized"})
 		return
 	}
-	// Default: last 30 days
 	since := time.Now().Add(-30 * 24 * time.Hour)
 	if v := r.URL.Query().Get("days"); v != "" {
 		var days int
@@ -37,8 +38,7 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
 			since = time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 		}
 	}
-	report := complianceTracker.GenerateReport(since)
-	writeJSON(w, report)
+	writeJSON(w, complianceTracker.GenerateReport(since))
 }
 
 func (s *Server) handleBaselines(w http.ResponseWriter, r *http.Request) {
@@ -47,8 +47,8 @@ func (s *Server) handleBaselines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"learning":   learningMode.IsLearning(),
-		"baselines":  learningMode.AllBaselines(),
+		"learning":  learningMode.IsLearning(),
+		"baselines": learningMode.AllBaselines(),
 	})
 }
 
@@ -66,4 +66,23 @@ func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, dryRunLog.Recent(100))
+}
+
+// handleFixes returns verified fixes, pending verifications, and failed fixes.
+func (s *Server) handleFixes(w http.ResponseWriter, r *http.Request) {
+	if fixTracker == nil {
+		writeJSON(w, map[string]interface{}{
+			"fixed": []interface{}{}, "pending": []interface{}{}, "failed": []interface{}{},
+		})
+		return
+	}
+	pending, fixed, failed := fixTracker.Stats()
+	writeJSON(w, map[string]interface{}{
+		"fixed":        fixTracker.Fixed(),
+		"pending":      fixTracker.Pending(),
+		"failed":       fixTracker.Failed(),
+		"fixedCount":   fixed,
+		"pendingCount": pending,
+		"failedCount":  failed,
+	})
 }

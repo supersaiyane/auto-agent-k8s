@@ -251,15 +251,20 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 
 	obs.ActionsTotal.WithLabelValues(actionType, ns, wl).Inc()
 	auditAction(deps, actionType, ns, wl, pod, reason, "success", "")
-	// Record as a "fixed" action event for the dashboard
+
+	// Record action taken — FixTracker will verify if workload actually recovered
+	if deps.FixTracker != nil {
+		deps.FixTracker.RecordAction(ns, wl, pod, reason, actionType)
+	}
+	// Record as "action-taken" (pending verification) — NOT as "fix" yet
 	recordEvent(deps, eventsvc.Event{
 		Type: eventsvc.Action, Severity: eventsvc.SevInfo,
 		Namespace: ns, Workload: wl, Pod: pod,
 		Reason:  reason,
-		Message: successMsg,
+		Message: fmt.Sprintf("Action taken: %s (verifying recovery...)", successMsg),
 		Action:  actionType,
 	})
-	return fmt.Sprintf("_Action_: %s.\n", successMsg)
+	return fmt.Sprintf("_Action_: %s (verifying recovery...).\n", successMsg)
 }
 
 // createTicket creates or updates a ticket if ticketing is configured.

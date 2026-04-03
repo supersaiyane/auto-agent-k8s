@@ -199,8 +199,11 @@ func main() {
 		klog.Infof("dry-run: mode enabled — no actions will be taken, simulations logged")
 	}
 
+	// --- Fix tracker (verifies actions actually fixed the problem) ---
+	fixTracker := kube.NewFixTracker(200)
+
 	// Wire extended API deps
-	httpapi.SetExtendedDeps(complianceTracker, learningMode, deployTracker, dryRunLog)
+	httpapi.SetExtendedDeps(complianceTracker, learningMode, deployTracker, dryRunLog, fixTracker)
 
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
@@ -226,6 +229,7 @@ func main() {
 		DeployTracker: deployTracker,
 		LearningMode:  learningMode,
 		Compliance:    complianceTracker,
+		FixTracker:    fixTracker,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
@@ -264,6 +268,7 @@ func main() {
 				deps.Policy = hotReloader.Get()
 				kube.EvaluateAndScale(ctx, deps)
 				kube.CheckAnomalies(ctx, deps)
+				kube.VerifyFixes(ctx, deps)
 			case <-jobTicker.C:
 				if !le.IsLeader() {
 					continue
