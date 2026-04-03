@@ -1,0 +1,210 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Agent Info",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "auto_agent_info",
+          "legendFormat": "v{{version}} mode={{mode}}"
+        }
+      ]
+    },
+    {
+      "title": "Total Incidents (rate/5m)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 30 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_incidents_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "title": "Total Actions (rate/5m)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 30 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_actions_total[5m])) by (type)",
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "title": "Incidents by Namespace",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(auto_agent_incidents_total) by (namespace)",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "title": "Scaling Decisions",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_scaling_decisions_total[5m])) by (direction, deployment)",
+          "legendFormat": "{{direction}} {{deployment}}"
+        }
+      ]
+    },
+    {
+      "title": "Rate Limited Actions",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(auto_agent_rate_limited_total)",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Dedup Skipped Events (rate/5m)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_dedup_skipped_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "title": "Handler Errors",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 50 },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_handler_errors_total[5m])) by (handler, error_type)",
+          "legendFormat": "{{handler}}/{{error_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Anomalies Detected",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(rate(auto_agent_anomalies_detected_total[5m])) by (policy, rule)",
+          "legendFormat": "{{policy}}/{{rule}}"
+        }
+      ]
+    },
+    {
+      "title": "Top Workloads by Incidents",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "topk(10, sum(auto_agent_incidents_total) by (namespace, workload, reason))",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": { "Value": "Count" }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Top Workloads by Actions",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        {
+          "expr": "topk(10, sum(auto_agent_actions_total) by (namespace, workload, type))",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": { "Value": "Count" }
+          }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["auto-agent", "kubernetes", "sre"],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(auto_agent_incidents_total, namespace)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "Auto-Agent K8s Remediation",
+  "uid": "auto-agent-k8s",
+  "version": 1
+}

@@ -108,12 +108,17 @@ func main() {
 	httpSrv.SetReady()
 	sl.Postf("auto-agent %s started on node `%s` (mode=%s)", version, hostname(), pol.Mode)
 
+	// --- Log retention cleanup (filesystem only) ---
+	go kube.StartLogRetention(ctx)
+
 	// --- Leader-only periodic loops ---
 	go func() {
 		scaleTicker := time.NewTicker(30 * time.Second)
 		jobTicker := time.NewTicker(2 * time.Minute)
+		quotaTicker := time.NewTicker(5 * time.Minute)
 		defer scaleTicker.Stop()
 		defer jobTicker.Stop()
+		defer quotaTicker.Stop()
 
 		for {
 			select {
@@ -130,6 +135,11 @@ func main() {
 					continue
 				}
 				kube.CheckFailedJobs(ctx, deps)
+			case <-quotaTicker.C:
+				if !le.IsLeader() {
+					continue
+				}
+				kube.CheckResourceQuotas(ctx, deps)
 			}
 		}
 	}()

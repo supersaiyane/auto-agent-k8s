@@ -51,7 +51,7 @@ func hasAnnotation(p *corev1.Pod, key string) bool {
 }
 
 // getLastLogs fetches the tail N lines of logs for a container.
-func getLastLogs(ctx context.Context, kc *kubernetes.Clientset, ns, pod, container string, lines int64) string {
+func getLastLogs(ctx context.Context, kc kubernetes.Interface, ns, pod, container string, lines int64) string {
 	opts := &corev1.PodLogOptions{Container: container, TailLines: &lines}
 	req := kc.CoreV1().Pods(ns).GetLogs(pod, opts)
 	r, err := req.Stream(ctx)
@@ -69,7 +69,7 @@ func getLastLogs(ctx context.Context, kc *kubernetes.Clientset, ns, pod, contain
 }
 
 // collectEvents fetches Kubernetes events for a specific pod.
-func collectEvents(ctx context.Context, kc *kubernetes.Clientset, ns, pod string) []string {
+func collectEvents(ctx context.Context, kc kubernetes.Interface, ns, pod string) []string {
 	evs, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", pod).String(),
 	})
