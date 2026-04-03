@@ -17,9 +17,9 @@ pass=0; fail=0; skip=0
 
 log()    { echo -e "\n${BOLD}${CYAN}[$1]${NC} $2"; }
 step()   { echo -e "  ${DIM}=>  $1${NC}"; }
-ok()     { echo -e "  ${GREEN}PASS${NC} $1"; ((pass++)); }
-warn()   { echo -e "  ${YELLOW}SKIP${NC} $1"; ((skip++)); }
-err()    { echo -e "  ${RED}FAIL${NC} $1"; ((fail++)); }
+ok()     { echo -e "  ${GREEN}PASS${NC} $1"; pass=$((pass+1)); }
+warn()   { echo -e "  ${YELLOW}SKIP${NC} $1"; skip=$((skip+1)); }
+err()    { echo -e "  ${RED}FAIL${NC} $1"; fail=$((fail+1)); }
 waiting(){ echo -ne "  ${DIM}    Waiting $1...${NC}\r"; }
 
 check_agent_log() {
