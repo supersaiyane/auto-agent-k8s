@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,9 +126,28 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 	deps.FixTracker.mu.Unlock()
 }
 
-// isWorkloadHealthy checks if all pods for a workload are Running+Ready.
+// isWorkloadHealthy checks if the workload's parent Deployment/StatefulSet is healthy.
+// The workload name is "replicaset/name-hash" — we resolve to the parent Deployment
+// because after a fix, a NEW ReplicaSet is created with a different hash.
 func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bool, string) {
-	// workload format: "replicaset/name-hash" or "deployment/name" or "pod/name"
+	// Extract deployment name from "replicaset/api-server-8446f784fd"
+	deployName := resolveDeploymentName(workload)
+
+	// Try to find the Deployment
+	deploy, err := deps.Client.AppsV1().Deployments(ns).Get(ctx, deployName, metav1.GetOptions{})
+	if err == nil {
+		// Check Deployment health: all replicas ready
+		desired := int32(1)
+		if deploy.Spec.Replicas != nil {
+			desired = *deploy.Spec.Replicas
+		}
+		if deploy.Status.ReadyReplicas >= desired && deploy.Status.UnavailableReplicas == 0 {
+			return true, fmt.Sprintf("deployment %s: %d/%d ready", deployName, deploy.Status.ReadyReplicas, desired)
+		}
+		return false, fmt.Sprintf("deployment %s: %d/%d ready", deployName, deploy.Status.ReadyReplicas, desired)
+	}
+
+	// Fallback: check pods directly by owner name match
 	pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return false, ""
@@ -140,12 +160,7 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 			matching++
 			allReady := true
 			for _, cs := range p.Status.ContainerStatuses {
-				if !cs.Ready {
-					allReady = false
-					break
-				}
-				// Still in a bad state
-				if cs.State.Waiting != nil {
+				if !cs.Ready || cs.State.Waiting != nil {
 					allReady = false
 					break
 				}
@@ -155,14 +170,36 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 			}
 		}
 	}
-
 	if matching == 0 {
-		return false, "no matching pods found"
+		return false, "no matching pods"
 	}
 	if ready == matching {
 		return true, fmt.Sprintf("%d/%d pods Running+Ready", ready, matching)
 	}
 	return false, fmt.Sprintf("%d/%d pods ready", ready, matching)
+}
+
+// resolveDeploymentName extracts the Deployment name from a workload string.
+// "replicaset/api-server-8446f784fd" → "api-server"
+// "deployment/api-server" → "api-server"
+// "pod/my-pod" → "my-pod"
+func resolveDeploymentName(workload string) string {
+	parts := strings.SplitN(workload, "/", 2)
+	if len(parts) != 2 {
+		return workload
+	}
+	name := parts[1]
+	if parts[0] == "replicaset" {
+		// Strip the ReplicaSet hash suffix: "api-server-8446f784fd" → "api-server"
+		// RS names are deploy-name + "-" + hash (10 chars)
+		if idx := strings.LastIndex(name, "-"); idx > 0 {
+			suffix := name[idx+1:]
+			if len(suffix) >= 5 && len(suffix) <= 15 {
+				return name[:idx]
+			}
+		}
+	}
+	return name
 }
 
 func (ft *FixTracker) addFixed(rec FixRecord) {
