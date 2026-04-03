@@ -114,12 +114,16 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 			}
 		}
 		prTitle := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
-		prBody := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nRecommend increasing by %d%%.\n\nIncident log: `%s`",
-			cname, memLimit, bumpPct, url)
+		// Generate actual patch content
+		patchContent, changeDesc := GenerateMemoryBumpContent("", ns, wl, cname, memLimit, bumpPct)
+		prBody := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nChange: %s\n\nIncident log: `%s`",
+			cname, memLimit, changeDesc, url)
 		prURL, err := deps.GitOps.OpenPR(ctx, integrations.GitOpsChange{
-			Title:  prTitle,
-			Body:   prBody,
-			Branch: fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), time.Now().Unix()),
+			Title:    prTitle,
+			Body:     prBody,
+			Branch:   fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), time.Now().Unix()),
+			FilePath: fmt.Sprintf("patches/%s/%s-memory-bump.yaml", ns, deploymentName(wl)),
+			Content:  []byte(patchContent),
 		})
 		if err != nil {
 			klog.Warningf("handler: failed to open OOM PR: %v", err)

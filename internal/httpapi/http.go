@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -72,6 +73,10 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	mux.HandleFunc("/api/baselines", s.handleBaselines)
 	mux.HandleFunc("/api/deploys", s.handleDeploys)
 	mux.HandleFunc("/api/dry-run", s.handleDryRun)
+
+	// Slack interactive actions callback
+	slackHandler := NewSlackActionHandler(os.Getenv("SLACK_SIGNING_SECRET"))
+	RegisterSlackActions(mux, slackHandler)
 
 	// Embedded UI
 	uiSub, err := fs.Sub(uiFS, "ui")

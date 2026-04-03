@@ -68,6 +68,9 @@ logs:
     path: /var/log/auto-agent
   retentionDays: 7
 
+namespacedRBAC:
+  enabled: false                   # per-namespace Role/RoleBinding instead of ClusterRole
+
 webhook:
   enabled: false                   # enable admission webhook
   failurePolicy: Ignore            # Ignore or Fail
