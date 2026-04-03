@@ -39,3 +39,4 @@ Complete documentation for the Kubernetes auto-remediation agent.
 20. [Troubleshooting](11-troubleshooting.md) — Every error mapped to root cause + fix
 21. [FAQ](21-faq.md) — 30+ real questions answered
 22. [Comparison](22-comparison.md) — Auto-Agent vs Kubecost vs PagerDuty vs Datadog
+23. [Feature Status](23-feature-status.md) — What's actually running vs what needs configuration
