@@ -7,6 +7,7 @@ import (
 
 	"github.com/yourorg/auto-agent/internal/alertmanager"
 	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/escalation"
 	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/integrations"
 	"github.com/yourorg/auto-agent/internal/metrics"
@@ -30,21 +31,26 @@ type LLMDiagnoser interface {
 
 // Deps holds shared dependencies injected into all kube handlers.
 type Deps struct {
-	Client   kubernetes.Interface
-	Metrics  metrics.Provider
-	Policy   *policy.Policy
-	Slack    SlackPoster
-	LLM      LLMDiagnoser
-	Dedup    *ratelimit.Deduplicator
-	Limiter  *ratelimit.ActionLimiter
-	Sink     storage.Sink
-	CRDStore *crd.Store
-	GitOps   integrations.GitOps
-	Ticketer integrations.Ticketer
+	Client       kubernetes.Interface
+	Metrics      metrics.Provider
+	Policy       *policy.Policy
+	Slack        SlackPoster
+	LLM          LLMDiagnoser
+	Dedup        *ratelimit.Deduplicator
+	Limiter      *ratelimit.ActionLimiter
+	Sink         storage.Sink
+	CRDStore     *crd.Store
+	GitOps       integrations.GitOps
+	Ticketer     integrations.Ticketer
 	Recorder     *events.Recorder
 	Breaker      *ratelimit.CircuitBreaker
 	AlertManager *alertmanager.Client
 	AuditLog     *AuditLog
 	BlastRadius  *BlastRadiusTracker
 	QuietHours   *QuietHours
+	DryRunLog    *DryRunLog
+	Escalation   *escalation.Chain
+	DeployTracker *DeployTracker
+	LearningMode *LearningMode
+	Compliance   *ComplianceTracker
 }

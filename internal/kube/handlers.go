@@ -220,6 +220,9 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 	if deps.Policy.Mode == policy.Suggest {
 		return fmt.Sprintf("_Suggest_: %s.\n", suggestMsg)
 	}
+	if IsDryRun(deps.Policy) {
+		return SimulateAction(deps, ns, wl, pod, reason, actionType, successMsg)
+	}
 	if deps.Policy.Mode != policy.Fix {
 		return ""
 	}

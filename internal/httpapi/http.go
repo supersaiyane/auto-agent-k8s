@@ -68,6 +68,10 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	mux.HandleFunc("/api/nodes", s.handleNodes)
 	mux.HandleFunc("/api/k8s-events", s.handleK8sEvents)
 	mux.HandleFunc("/api/kubectl", s.handleKubectl)
+	mux.HandleFunc("/api/compliance", s.handleCompliance)
+	mux.HandleFunc("/api/baselines", s.handleBaselines)
+	mux.HandleFunc("/api/deploys", s.handleDeploys)
+	mux.HandleFunc("/api/dry-run", s.handleDryRun)
 
 	// Embedded UI
 	uiSub, err := fs.Sub(uiFS, "ui")

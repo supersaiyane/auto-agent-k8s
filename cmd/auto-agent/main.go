@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/yourorg/auto-agent/internal/alertmanager"
 	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/yourorg/auto-agent/internal/escalation"
 	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/httpapi"
 	"github.com/yourorg/auto-agent/internal/integrations"
+	"github.com/yourorg/auto-agent/internal/logging"
 	"github.com/yourorg/auto-agent/internal/kube"
 	"github.com/yourorg/auto-agent/internal/leader"
 	"github.com/yourorg/auto-agent/internal/llm"
@@ -34,6 +37,7 @@ const version = "1.0.0"
 
 func main() {
 	klog.InitFlags(nil)
+	logging.Init() // structured JSON if LOG_FORMAT=json
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -167,6 +171,36 @@ func main() {
 	// --- Quiet hours / maintenance windows ---
 	quietHours := kube.NewQuietHours(os.Getenv("QUIET_HOURS")) // e.g. "02:00-06:00"
 
+	// --- Escalation chain (PagerDuty, OpsGenie, email) ---
+	escChain := escalation.NewChain()
+
+	// --- Deploy tracker (incident correlation) ---
+	deployTracker := kube.NewDeployTracker(100)
+
+	// --- Compliance tracker ---
+	complianceTracker := kube.NewComplianceTracker()
+
+	// --- Learning mode (baseline collection) ---
+	var learningMode *kube.LearningMode
+	if os.Getenv("LEARNING_ENABLED") == "true" {
+		days := 14
+		if v := os.Getenv("LEARNING_PERIOD_DAYS"); v != "" {
+			fmt.Sscanf(v, "%d", &days)
+		}
+		learningMode = kube.NewLearningMode("", time.Duration(days)*24*time.Hour)
+		klog.Infof("learning: enabled (period=%d days)", days)
+	}
+
+	// --- Dry-run log ---
+	var dryRunLog *kube.DryRunLog
+	if pol.Mode == policy.DryRun {
+		dryRunLog = kube.NewDryRunLog(200)
+		klog.Infof("dry-run: mode enabled — no actions will be taken, simulations logged")
+	}
+
+	// Wire extended API deps
+	httpapi.SetExtendedDeps(complianceTracker, learningMode, deployTracker, dryRunLog)
+
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
 		Client:       kc,
@@ -183,9 +217,14 @@ func main() {
 		Recorder:     recorder,
 		Breaker:      breaker,
 		AlertManager: am,
-		AuditLog:     auditLog,
-		BlastRadius:  blastRadius,
-		QuietHours:   quietHours,
+		AuditLog:      auditLog,
+		BlastRadius:   blastRadius,
+		QuietHours:    quietHours,
+		DryRunLog:     dryRunLog,
+		Escalation:    escChain,
+		DeployTracker: deployTracker,
+		LearningMode:  learningMode,
+		Compliance:    complianceTracker,
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
@@ -232,11 +271,15 @@ func main() {
 				kube.CheckStuckRollouts(ctx, deps)
 				kube.CleanupEvictedPods(ctx, deps)
 				kube.CheckServiceEndpoints(ctx, deps)
+				kube.CheckPendingPVCs(ctx, deps)
+				kube.CheckNodeHealth(ctx, deps)
+				kube.ScanDeployments(ctx, deps)
 			case <-quotaTicker.C:
 				if !le.IsLeader() {
 					continue
 				}
 				kube.CheckResourceQuotas(ctx, deps)
+				kube.CollectBaselines(ctx, deps)
 			case <-healthTicker.C:
 				kube.SelfCheck(ctx, deps)
 			}

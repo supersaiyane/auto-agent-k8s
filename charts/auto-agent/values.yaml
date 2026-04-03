@@ -68,6 +68,27 @@ logs:
     path: /var/log/auto-agent
   retentionDays: 7
 
+webhook:
+  enabled: false                   # enable admission webhook
+  failurePolicy: Ignore            # Ignore or Fail
+  caBundle: ""                     # base64 CA bundle for TLS
+  requireLimits: true
+  requireReadiness: true
+  blockedImages: []
+
+escalation:
+  pagerdutyRoutingKey: ""
+  opsgenieApiKey: ""
+  smtpHost: ""
+  smtpPort: "587"
+  smtpUser: ""
+  smtpFrom: ""
+  emailTo: ""
+
+learning:
+  enabled: false
+  periodDays: 14
+
 images:
   mirror:
     enabled: false

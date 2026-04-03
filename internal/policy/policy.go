@@ -15,6 +15,7 @@ const (
 	Observe Mode = "observe"
 	Suggest Mode = "suggest"
 	Fix     Mode = "fix"
+	DryRun  Mode = "dry-run"
 )
 
 type Policy struct {
@@ -54,7 +55,7 @@ func LoadFromEnv() *Policy {
 
 	m := Mode(envOr("AUTO_MODE", "fix"))
 	switch m {
-	case Observe, Suggest, Fix:
+	case Observe, Suggest, Fix, DryRun:
 	default:
 		klog.Warningf("invalid AUTO_MODE %q, defaulting to observe", m)
 		m = Observe
