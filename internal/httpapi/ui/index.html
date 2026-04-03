@@ -85,6 +85,7 @@
       <div class="tab" data-tab="cluster">Cluster</div>
       <div class="tab" data-tab="nodes">Nodes</div>
       <div class="tab" data-tab="cost">Cost</div>
+      <div class="tab" data-tab="resources">Resources</div>
       <div class="tab" data-tab="terminal">Terminal</div>
     </div>
     <div id="panel-events" class="panel active"><div id="event-list" class="event-list"><div class="empty">Connecting...</div></div></div>
@@ -101,6 +102,7 @@
     <div id="panel-cluster" class="panel"><div id="cluster-view"></div></div>
     <div id="panel-nodes" class="panel"><div id="nodes-view"></div></div>
     <div id="panel-cost" class="panel"><div id="cost-view"><div class="empty">Loading cost data...</div></div></div>
+    <div id="panel-resources" class="panel"><div id="resources-view"><div class="empty">Loading...</div></div></div>
     <div id="panel-terminal" class="panel">
       <div style="background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Courier New',monospace;font-size:13px;height:70vh;display:flex;flex-direction:column">
         <div id="term-output" style="flex:1;overflow-y:auto;white-space:pre-wrap;color:#c9d1d9;padding-bottom:8px"></div>
@@ -328,6 +330,81 @@ async function fetchNodes(){
   }catch(e){nv.innerHTML='<div class="empty">Failed</div>';}
 }
 
+// --- Resources ---
+let selectedResNs=null;
+function selResNs(ns){selectedResNs=ns;fetchResources();}
+function backResNs(){selectedResNs=null;fetchResources();}
+
+async function fetchResources(){
+  const rv=document.getElementById('resources-view');
+  try{
+    if(selectedResNs){await fetchResourcesNs(selectedResNs);return;}
+    const data=await(await fetch('/api/resources')).json();
+    if(!data||!data.length){rv.innerHTML='<div class="empty">No namespaces</div>';return;}
+    // Summary
+    let totOver=0,totUnder=0,totNoLim=0,totOk=0;
+    data.forEach(ns=>{totOver+=ns.overuse;totUnder+=ns.underuse;totNoLim+=ns.noLimits;totOk+=ns.healthy;});
+    let h=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="stat-card"><div class="label">Right-sized</div><div class="value green">${totOk}</div></div>
+      <div class="stat-card"><div class="label">Overuse</div><div class="value red">${totOver}</div></div>
+      <div class="stat-card"><div class="label">Underuse</div><div class="value yellow">${totUnder}</div></div>
+      <div class="stat-card"><div class="label">No Limits</div><div class="value red">${totNoLim}</div></div>
+    </div>`;
+    h+=`<table><tr><th>Namespace</th><th>Pods</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>Right</th><th>Over</th><th>Under</th><th>No Lim</th><th>$/mo</th></tr>`;
+    h+=data.filter(ns=>ns.pods>0).sort((a,b)=>b.monthly-a.monthly).map(ns=>`<tr class="ns-row" onclick="selResNs('${esc(ns.name)}')">
+      <td><strong>${esc(ns.name)}</strong></td><td>${ns.pods}</td>
+      <td>${ns.cpuRequests}</td><td>${ns.cpuLimits}</td>
+      <td>${ns.memRequestsMi}Mi</td><td>${ns.memLimitsMi}Mi</td>
+      <td>${ns.healthy?`<span class="pill pill-green">${ns.healthy}</span>`:'0'}</td>
+      <td>${ns.overuse?`<span class="pill pill-red">${ns.overuse}</span>`:'0'}</td>
+      <td>${ns.underuse?`<span class="pill pill-yellow">${ns.underuse}</span>`:'0'}</td>
+      <td>${ns.noLimits?`<span class="pill pill-red">${ns.noLimits}</span>`:'0'}</td>
+      <td style="font-weight:600">$${ns.monthly.toFixed(0)}</td>
+    </tr>`).join('');
+    h+='</table>';
+    h+=`<div style="margin-top:12px;font-size:11px;color:var(--muted)">Click a namespace to see per-pod details with sizing recommendations.</div>`;
+    rv.innerHTML=h;
+  }catch(e){rv.innerHTML='<div class="empty">Failed to load</div>';}
+}
+
+async function fetchResourcesNs(ns){
+  const rv=document.getElementById('resources-view');
+  try{
+    const d=await(await fetch('/api/resources/'+ns)).json();
+    const s=d.summary||{};
+    let h=`<div class="back-btn" onclick="backResNs()">&#8592; All namespaces</div>`;
+    h+=`<h3 style="margin-bottom:12px;font-size:16px">Namespace: <span style="color:var(--accent)">${esc(ns)}</span>
+      <span style="font-size:13px;color:var(--muted);margin-left:12px">${s.pods||0} pods &middot; $${s.monthly?.toFixed(0)||0}/mo</span></h3>`;
+    // Summary pills
+    h+=`<div style="display:flex;gap:12px;margin-bottom:16px">
+      <span class="pill pill-green">Right-sized: ${s.healthy||0}</span>
+      <span class="pill pill-red">Overuse: ${s.overuse||0}</span>
+      <span class="pill pill-yellow">Underuse: ${s.underuse||0}</span>
+      <span class="pill pill-red">No Limits: ${s.noLimits||0}</span>
+    </div>`;
+    if(!d.pods||!d.pods.length){h+='<div class="empty">No pods</div>';rv.innerHTML=h;return;}
+    h+=`<table><tr><th>Pod</th><th>Status</th><th>Efficiency</th><th>CPU Req</th><th>CPU Lim</th><th>Mem Req</th><th>Mem Lim</th><th>Ratio</th><th>$/mo</th><th>Advice</th></tr>`;
+    h+=d.pods.map(p=>{
+      let ec='pill-green';
+      if(p.effColor==='red')ec='pill-red';
+      else if(p.effColor==='yellow')ec='pill-yellow';
+      else if(p.effColor==='muted')ec='pill-muted';
+      return `<tr>
+        <td style="font-family:monospace;font-size:11px">${esc(trunc(p.name,40))}</td>
+        <td><span class="pill ${p.status==='Running'?'pill-green':p.status==='Pending'?'pill-yellow':'pill-red'}">${esc(p.status)}</span></td>
+        <td><span class="pill ${ec}">${esc(p.efficiency)}</span></td>
+        <td>${esc(p.cpuRequest)}</td><td>${esc(p.cpuLimit)}</td>
+        <td>${esc(p.memRequest)}</td><td>${esc(p.memLimit)}</td>
+        <td>${p.limitReqRatio>0?p.limitReqRatio.toFixed(1)+'x':'-'}</td>
+        <td style="font-weight:600">$${p.monthly.toFixed(2)}</td>
+        <td style="font-size:11px;color:${p.effColor==='green'?'var(--green)':p.effColor==='red'?'var(--red)':'var(--yellow)'};max-width:200px">${esc(p.advice)}</td>
+      </tr>`;
+    }).join('');
+    h+='</table>';
+    rv.innerHTML=h;
+  }catch(e){rv.innerHTML='<div class="empty">Failed to load</div>';}
+}
+
 // --- Cost ---
 async function fetchCost(){
   const cv=document.getElementById('cost-view');
@@ -478,6 +555,7 @@ function refresh(){
   else if(currentTab==='cluster')fetchCluster();
   else if(currentTab==='nodes')fetchNodes();
   else if(currentTab==='cost')fetchCost();
+  else if(currentTab==='resources')fetchResources();
 }
 refresh();
 setInterval(refresh,5000);
