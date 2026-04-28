@@ -1,4 +1,4 @@
-# Auto-Agent for Kubernetes
+# Kubernetes That Heals Itself
 
 Autonomous Kubernetes remediation agent — detects 74 failure conditions, fixes them automatically, and verifies recovery.
 
