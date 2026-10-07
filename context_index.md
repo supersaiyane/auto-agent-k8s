@@ -17,6 +17,7 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `Deps.HTTPClient` | `internal/kube/deps.go` | Injected client for runbook fetches, runbook HTTP steps and self-check probes; nil means a default client (PLAN-002 9.1) |
 | `FetchRunbook(ctx, hc, url)` | `internal/kube/runbook.go` | Fetches a runbook with the injected client |
 | `CheckPodStates` | `internal/kube/podstate.go` | Leader pass over every allowlisted pod: stuck terminating, volume failures, probes, unschedulable, preemption, readiness gates (PLAN-002 10.1 to 10.12); replaced `CheckVolumeAttachments` |
+| `CheckStuckFinalizers`, `CheckDisruptionBudgets` | `internal/kube/lifecycle.go` | Leader checks: namespaces and claims held by finalizers (10.2), budgets blocking evictions (10.6) |
 | `Rung`, `RungAlert` to `RungAuto` | `internal/kube/findings.go` | Fix ladder rung carried by every phase 10 finding; reported through the unexported `report()` |
 | `Deps.Now` | `internal/kube/deps.go` | Injected clock for detector time windows; nil means time.Now |
 | `NewDryRunLog`, `SimulateAction` | `internal/kube/dryrun.go` | Dry-run record of what the gate would have done |

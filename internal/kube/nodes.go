@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -101,7 +102,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 		klog.Warningf("handler: failed to list pods on node %s: %v", newNode.Name, err)
 		obs.HandlerErrorsTotal.WithLabelValues("nodepressure", "list_pods").Inc()
 	} else {
-		evicted, simulated := 0, 0
+		evicted, simulated, refused := 0, 0, 0
 		for i := range pl.Items {
 			p := &pl.Items[i]
 			if !deps.Policy().AllowedNamespace(p.Namespace) || isCriticalPod(p) {
@@ -120,7 +121,14 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 				Namespace: p.Namespace, Workload: ownerName(p), Pod: p.Name, Labels: p.Labels,
 				Reason: "NodePressure", ActionType: "evict_pod",
 				SuccessMsg: "evicted pod", SuggestMsg: "evict pod",
-				Apply: func() error { return deps.Client.PolicyV1().Evictions(p.Namespace).Evict(ctx, ev) },
+				Apply: func() error {
+					err := deps.Client.PolicyV1().Evictions(p.Namespace).Evict(ctx, ev)
+					if apierrors.IsTooManyRequests(err) { // a PodDisruptionBudget said no (10.6)
+						obs.EvictionsBlockedTotal.WithLabelValues(p.Namespace).Inc()
+						refused++
+					}
+					return err
+				},
 			})
 			switch outcome {
 			case gateApplied:
@@ -132,6 +140,9 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 				msg += gmsg
 				break
 			}
+		}
+		if refused > 0 {
+			msg += fmt.Sprintf("_Blocked_: %d evictions refused by a PodDisruptionBudget; see PDBBlocksDisruption.\n", refused)
 		}
 		if simulated > 0 {
 			msg += fmt.Sprintf("_DryRun_: would evict %d non-critical pods.\n", simulated)

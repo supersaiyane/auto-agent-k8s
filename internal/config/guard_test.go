@@ -68,6 +68,8 @@ var allowedGlobals = map[string]string{
 	"internal/kube/pod_extended.go:additionalPodReasons": "read-only lookup",
 	"internal/kube/workloads.go:evictedReasons":          "read-only lookup",
 	"internal/kube/findings.go:rungNames":                "read-only lookup",
+	"internal/kube/lifecycle.go:finalizerOwners":         "read-only lookup",
+	"internal/kube/handlers.go:pullCauses":               "read-only lookup",
 	"internal/kube/scheduling.go:nodeCountPrefix":        "compiled regexp",
 	"internal/kube/scheduling.go:schedKinds":             "read-only lookup",
 	"internal/kube/podstate.go:volumeInMessage":          "compiled regexp",

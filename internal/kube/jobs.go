@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
@@ -60,7 +61,9 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("job-name=%s", name),
 	})
-	if err == nil && len(pods.Items) > 0 {
+	if err != nil {
+		countAPIError(err, "pods", ns) // ISS-045: no longer dropped
+	} else if len(pods.Items) > 0 {
 		lastPod := pods.Items[len(pods.Items)-1]
 		if len(lastPod.Spec.Containers) > 0 {
 			logs = getLastLogs(ctx, deps.Client, ns, lastPod.Name, lastPod.Spec.Containers[0].Name, 50)
@@ -73,11 +76,13 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 		obs.HandlerErrorsTotal.WithLabelValues("job", "storage").Inc()
 	}
 
-	// Determine failure reason
-	failReason := "unknown"
+	// Determine failure reason (PLAN-002 10.7): the condition reason, such
+	// as BackoffLimitExceeded, decides the guidance.
+	failReason, condReason := "unknown", ""
 	for _, cond := range job.Status.Conditions {
 		if cond.Type == batchv1.JobFailed {
-			failReason = cond.Message
+			condReason = cond.Reason
+			failReason = strings.TrimPrefix(cond.Reason+": "+cond.Message, ": ")
 			break
 		}
 	}
@@ -96,6 +101,9 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 		msg += fmt.Sprintf(" (CronJob: `%s`)", cronJobName)
 	}
 	msg += fmt.Sprintf("\nReason: %s\nFailed pods: %d\nSaved: `%s`\n", failReason, job.Status.Failed, url)
+	if fix := jobFailureFix(job, condReason); fix != "" {
+		msg += "_Fix_: " + fix + "\n"
+	}
 
 	// In fix mode, clean up old failed jobs (> 1 hour) to prevent accumulation
 	if cronJobName != "" {
@@ -107,7 +115,29 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	if err := deps.Slack.Post(msg); err != nil {
 		obs.HandlerErrorsTotal.WithLabelValues("job", "slack").Inc()
 	}
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
+		Namespace: ns, Workload: "job/" + name, Reason: "JobFailed", Message: failReason, LogURL: url, Rung: string(RungGuided)})
 	obs.IncidentsTotal.WithLabelValues("JobFailed", ns, name).Inc()
+}
+
+// jobFailureFix is the guidance for a Job's failure reason.
+func jobFailureFix(job *batchv1.Job, reason string) string {
+	switch reason {
+	case "BackoffLimitExceeded":
+		limit := int32(6) // the Kubernetes default
+		if job.Spec.BackoffLimit != nil {
+			limit = *job.Spec.BackoffLimit
+		}
+		return fmt.Sprintf("the pods failed more than backoffLimit (%d) times; the logs above are from the last attempt. Raise backoffLimit only if the failures are transient", limit)
+	case "DeadlineExceeded":
+		if d := job.Spec.ActiveDeadlineSeconds; d != nil {
+			return fmt.Sprintf("the job ran longer than activeDeadlineSeconds (%d); make it faster or raise the deadline", *d)
+		}
+		return "the job ran longer than its activeDeadlineSeconds"
+	case "PodFailurePolicy":
+		return "a podFailurePolicy rule failed the job on purpose; the message names the rule"
+	}
+	return ""
 }
 
 // cleanupOldFailedJobs removes failed jobs older than 1 hour for a given

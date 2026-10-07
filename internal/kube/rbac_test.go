@@ -46,7 +46,7 @@ var typedAccessors = map[string]perm{
 	"Jobs": {"batch", "jobs", ""}, "CronJobs": {"batch", "cronjobs", ""},
 	"HorizontalPodAutoscalers": {"autoscaling", "horizontalpodautoscalers", ""},
 	"Ingresses":                {"networking.k8s.io", "ingresses", ""}, "StorageClasses": {"storage.k8s.io", "storageclasses", ""},
-	"Evictions": {"", "pods/eviction", ""},
+	"Evictions": {"", "pods/eviction", ""}, "PodDisruptionBudgets": {"policy", "poddisruptionbudgets", ""},
 }
 
 var clientVerbs = map[string]string{

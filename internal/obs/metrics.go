@@ -57,6 +57,16 @@ var (
 		[]string{"handler", "error_type"},
 	)
 
+	// EvictionsBlockedTotal counts evictions a PodDisruptionBudget refused
+	// (PLAN-002 10.6).
+	EvictionsBlockedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "auto_agent_evictions_blocked_total",
+			Help: "Evictions refused by a PodDisruptionBudget",
+		},
+		[]string{"namespace"},
+	)
+
 	ScalingDecisionsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "auto_agent_scaling_decisions_total",
@@ -90,6 +100,7 @@ func init() {
 		RateLimitedTotal,
 		LLMRequestsTotal,
 		HandlerErrorsTotal,
+		EvictionsBlockedTotal,
 		APIErrorsTotal,
 		ScalingDecisionsTotal,
 		AnomaliesDetectedTotal,
