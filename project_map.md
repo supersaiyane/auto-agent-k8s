@@ -25,6 +25,7 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | dashboards/ | Grafana dashboards |
 | docs/CONFIGURATION.md | Every setting: env var, Helm value, allowed values, default, effect, reading file; checked by internal/policy/configref_test.go |
 | docs/plans/ | PLAN-001 (safety hardening, done, PR #1); PLAN-002 (config reload, weak features, fix ladder, coverage; owner decisions recorded 2026-10-07, phase 8 next) |
+| docs/adr/ | ADR-001 (node and controller roles), ADR-002 (watch scope and fix scope, Settings tab; accepted 2026-10-08, not built yet: PLAN-002 11.8) |
 | docs/GUIDE.md | Complete guide by reader level: concepts, local try-out, deploy, configuration, dashboard, API, operations, troubleshooting, architecture, security, developing |
 | README.md | Entry point: how it works, guarantees with their tests, install, develop, full feature table (kept in step with docs/wiki/23-feature-status.md) |
 | docs/wiki/ | Wiki docs (23-feature-status.md) |
