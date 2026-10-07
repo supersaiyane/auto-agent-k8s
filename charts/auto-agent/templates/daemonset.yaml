@@ -20,7 +20,7 @@ spec:
         {{- include "auto-agent.labels" . | nindent 8 }}
         app.kubernetes.io/component: node
     spec:
-      serviceAccountName: auto-agent
+      serviceAccountName: auto-agent-node
       priorityClassName: {{ .Values.priorityClassName }}
       terminationGracePeriodSeconds: 30
       securityContext:

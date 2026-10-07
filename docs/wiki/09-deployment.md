@@ -12,9 +12,13 @@
 |------|------|
 | `00-namespace.yaml` | `auto-agent` namespace |
 | `01-crds.yaml` | AutoRemediationPolicy CRD |
-| `02-rbac.yaml` | ServiceAccount + ClusterRole + ClusterRoleBinding |
-| `03-config.yaml` | ConfigMap (all settings) + Secret (tokens) |
-| `04-daemonset.yaml` | DaemonSet + NodePort Service (30080) |
+| `02-rbac.yaml` | One ServiceAccount, ClusterRole and write Roles per role (node, controller) |
+| `03-config.yaml` | ConfigMap (all settings) |
+| `04-agent.yaml` | Node agent DaemonSet, controller Deployment, ClusterIP Service, NetworkPolicies |
+| `ensure-secret.sh` | Creates the Secret once with generated tokens; never overwrites it |
+
+Files `01` to `04` are generated from the chart by `make manifests`; `make
+verify` fails if they drift.
 | `deploy.sh` | One-shot: build → load → apply → port-forward |
 | `teardown.sh` | Clean removal of everything |
 

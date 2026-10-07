@@ -389,8 +389,11 @@ then 11.1 (ADR-001 first), then 11.2 to 11.7.
 11.1 progress, 2026-10-08: ADR-001 written; event forwarding and ingest
 (d915b93); `AGENT_ROLE` (4a5f9aa); standby proxy (8901104); chart with a
 controller Deployment and node DaemonSet, e2e showing a node finding on
-every controller (b7ef047). Remaining: one ServiceAccount per role with
-the RBAC test checking each role against the code it reaches; ISS-059.
+every controller (b7ef047); one ServiceAccount per role, checked against a
+call graph from each role's entry points, and every raw manifest generated
+from the chart with a drift check and `make e2e-raw` (part of 11.3 pulled
+forward, because the split broke the hand-written raw files). 11.1 is done
+apart from ISS-059 (event history across a leader change).
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

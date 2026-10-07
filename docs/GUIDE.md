@@ -308,8 +308,8 @@ Open `http://localhost:8080`. The page asks for the dashboard token once per
 browser tab and keeps it in that tab's session storage only. A wrong token
 shows as empty panels; reload the tab to be asked again.
 
-With `deploy.sh` (local demo) the dashboard is on a NodePort:
-`http://localhost:30080`.
+With `deploy.sh` (local demo) the script starts that port-forward for you and
+prints the command to read the generated token.
 
 ### 6.2 Tabs
 

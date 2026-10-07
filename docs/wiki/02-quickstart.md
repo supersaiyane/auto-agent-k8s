@@ -65,19 +65,13 @@ bash deployment/test-apps/chaos-test.sh
 
 ## Choose Your Mode
 
-Edit `deployment/03-config.yaml`:
+The files in `deployment/` are generated from the Helm chart (`make
+manifests`), so change settings in the live ConfigMap. The mode reloads
+without a restart:
 
-```yaml
-AUTO_MODE: "observe"    # Alert only: start here
-AUTO_MODE: "suggest"    # Alert + recommend actions
-AUTO_MODE: "fix"        # Auto-remediate
-AUTO_MODE: "dry-run"    # Simulate fixes, show what would happen
-```
-
-Apply and restart:
 ```bash
-kubectl apply -f deployment/03-config.yaml
-kubectl rollout restart ds/auto-agent -n auto-agent
+# observe: alert only (start here) | suggest | dry-run | fix
+kubectl patch cm auto-agent-config -n auto-agent --type merge -p '{"data":{"AUTO_MODE":"observe"}}'
 ```
 
 ## Connect Integrations
@@ -86,7 +80,7 @@ kubectl rollout restart ds/auto-agent -n auto-agent
 ```bash
 kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
   -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://hooks.slack.com/services/YOUR/WEBHOOK/URL"}}'
-kubectl rollout restart ds/auto-agent -n auto-agent
+kubectl rollout restart ds/auto-agent deploy/auto-agent-controller -n auto-agent
 ```
 
 ### Jira
@@ -95,7 +89,7 @@ kubectl patch cm auto-agent-config -n auto-agent --type merge \
   -p '{"data":{"TICKETS_ENABLED":"true","TICKETS_PROVIDER":"jira","JIRA_BASE_URL":"https://yourorg.atlassian.net","JIRA_PROJECT_KEY":"OPS"}}'
 kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
   -p '{"stringData":{"JIRA_TOKEN":"your-api-token","JIRA_EMAIL":"you@company.com"}}'
-kubectl rollout restart ds/auto-agent -n auto-agent
+kubectl rollout restart ds/auto-agent deploy/auto-agent-controller -n auto-agent
 ```
 
 ### Prometheus + Alertmanager (for scaling + alerts)
@@ -106,7 +100,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring
 # Point agent to it
 kubectl patch cm auto-agent-config -n auto-agent --type merge \
   -p '{"data":{"METRICS_PROVIDER":"prometheus","PROMETHEUS_URL":"http://prometheus-kube-prometheus-prometheus.monitoring:9090","ALERTMANAGER_URL":"http://prometheus-kube-prometheus-alertmanager.monitoring:9093"}}'
-kubectl rollout restart ds/auto-agent -n auto-agent
+kubectl rollout restart ds/auto-agent deploy/auto-agent-controller -n auto-agent
 ```
 
 See [Feature Status](23-feature-status.md) for all integration activation guides.

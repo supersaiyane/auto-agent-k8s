@@ -29,9 +29,11 @@ services:
         kubectl apply -f /deployment/01-crds.yaml
         kubectl apply -f /deployment/02-rbac.yaml
         kubectl apply -f /deployment/03-config.yaml
-        kubectl apply -f /deployment/04-daemonset.yaml
+        sh /deployment/ensure-secret.sh auto-agent
+        kubectl apply -f /deployment/04-agent.yaml
         echo "Waiting for rollout..."
         kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
+        kubectl rollout status deployment/auto-agent-controller -n auto-agent --timeout=120s
         echo ""
         echo "Deployed! Run: kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
     profiles: ["deploy"]

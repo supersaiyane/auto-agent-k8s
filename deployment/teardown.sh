@@ -7,8 +7,8 @@ echo "=========================================="
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "Removing DaemonSet..."
-kubectl delete -f "$SCRIPT_DIR/04-daemonset.yaml" --ignore-not-found 2>/dev/null || true
+echo "Removing node agents and controller..."
+kubectl delete -f "$SCRIPT_DIR/04-agent.yaml" --ignore-not-found 2>/dev/null || true
 
 echo "Removing config..."
 kubectl delete -f "$SCRIPT_DIR/03-config.yaml" --ignore-not-found 2>/dev/null || true

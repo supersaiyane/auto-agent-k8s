@@ -43,7 +43,8 @@ fi
 # 4. Install cost provider (Kubecost or OpenCost) if configured
 echo ""
 echo "[4/6] Checking cost provider..."
-COST_PROVIDER=$(grep 'COST_PROVIDER:' "$SCRIPT_DIR/03-config.yaml" | head -1 | awk -F'"' '{print $2}')
+# Optional: COST_PROVIDER=kubecost|opencost|manual ./deployment/deploy.sh
+COST_PROVIDER="${COST_PROVIDER:-}"
 
 install_kubecost() {
     echo "  Installing Kubecost (free tier)..."
@@ -114,7 +115,7 @@ case "$COST_PROVIDER" in
         ;;
     *)
         echo "  Using built-in instance-type pricing (40+ AWS/GCP/Azure types)"
-        echo "  Set COST_PROVIDER in 03-config.yaml to 'kubecost' or 'opencost' for real costs"
+        echo "  Run with COST_PROVIDER=kubecost or COST_PROVIDER=opencost for real costs"
         ;;
 esac
 
@@ -130,7 +131,10 @@ for ns in default test1 test2; do
 done
 kubectl apply -f "$SCRIPT_DIR/02-rbac.yaml"
 kubectl apply -f "$SCRIPT_DIR/03-config.yaml"
-kubectl apply -f "$SCRIPT_DIR/04-daemonset.yaml"
+# The Secret is created once and never applied over (ISS-048).
+sh "$SCRIPT_DIR/ensure-secret.sh" auto-agent
+# Node agents (DaemonSet) and the controller (Deployment), ADR-001.
+kubectl apply -f "$SCRIPT_DIR/04-agent.yaml"
 
 # Patch config with cost provider settings
 case "$COST_PROVIDER" in
@@ -152,42 +156,26 @@ esac
 echo ""
 echo "[6/6] Waiting for agent pods..."
 kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
+kubectl rollout status deployment/auto-agent-controller -n auto-agent --timeout=120s
 
 echo ""
 kubectl get pods -n auto-agent -o wide
 
-# Dashboard access: NodePort 30080 (no port-forward needed)
+# Dashboard: served by the controllers behind a ClusterIP Service (ADR-001).
 echo ""
 echo "Dashboard access..."
-
-# Determine dashboard URL
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
-NODEPORT_URL="http://${NODE_IP}:30080"
-
-# Also start port-forward as fallback on localhost:8080
 lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 sleep 1
 kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
 sleep 2
-
-# Test which URL works
 DASHBOARD_URL=""
-if curl -sf http://localhost:30080/healthz > /dev/null 2>&1; then
-    DASHBOARD_URL="http://localhost:30080"
-elif curl -sf "$NODEPORT_URL/healthz" > /dev/null 2>&1; then
-    DASHBOARD_URL="$NODEPORT_URL"
-elif curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
     DASHBOARD_URL="http://localhost:8080"
 fi
-
 if [ -n "$DASHBOARD_URL" ]; then
     echo "  Dashboard: $DASHBOARD_URL"
-    if command -v open &> /dev/null; then
-        open "$DASHBOARD_URL"
-    fi
 else
     echo "  Dashboard not reachable yet. Try:"
-    echo "    http://localhost:30080  (NodePort)"
     echo "    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
 fi
 
@@ -196,9 +184,10 @@ echo "=========================================="
 echo " Deployment Complete!"
 echo "=========================================="
 echo ""
-echo "  Dashboard:     http://localhost:30080 (NodePort, survives pod restarts)"
-echo "  Fallback:      http://localhost:8080  (port-forward)"
-echo "  Agent logs:    kubectl logs -n auto-agent -l app=auto-agent -f"
+echo "  Dashboard:     http://localhost:8080 (port-forward to svc/auto-agent)"
+echo "  Token:         kubectl get secret auto-agent-secrets -n auto-agent -o jsonpath='{.data.DASHBOARD_TOKEN}' | base64 -d"
+echo "  Node agents:   kubectl logs -n auto-agent -l app=auto-agent -f"
+echo "  Controller:    kubectl logs -n auto-agent -l app=auto-agent-controller -f"
 echo "  Agent mode:    $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.AUTO_MODE}')"
 echo "  Watching:      $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')"
 echo "  Cost provider: $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.COST_PROVIDER}' 2>/dev/null || echo 'default')"

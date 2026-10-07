@@ -10,3 +10,16 @@ subjects:
 - kind: ServiceAccount
   name: auto-agent
   namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-agent-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auto-agent-node
+subjects:
+- kind: ServiceAccount
+  name: auto-agent-node
+  namespace: {{ .Values.namespace }}

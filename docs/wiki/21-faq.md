@@ -51,7 +51,7 @@ A: Yes. Node pressure eviction uses the Eviction API which returns 429 if PDB wo
 A: Usually a stale port-forward. Kill it and restart: `kubectl port-forward -n auto-agent svc/auto-agent 8080:8080`. Hard refresh browser with `Cmd+Shift+R`.
 
 **Q: How do I access the dashboard from outside the cluster?**
-A: The Service is NodePort on 30080. Or use an Ingress/LoadBalancer.
+A: The Service is ClusterIP: use `kubectl port-forward -n auto-agent svc/auto-agent 8080:8080`, or put an Ingress in front of it. Every request needs the dashboard token.
 
 **Q: Does the dashboard data survive pod restarts?**
 A: Yes. Events are persisted to `events.jsonl` on the hostPath volume and reloaded on startup.

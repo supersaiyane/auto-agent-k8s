@@ -106,7 +106,7 @@ Go code reads them. Setting them changes nothing.
 
 ### Minimum viable production setup
 ```yaml
-# deployment/03-config.yaml secrets:
+# auto-agent-secrets (kubectl patch secret ...):
 SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."   # alerts
 ```
 That's it: you get Slack alerts for every incident. Everything else is optional.

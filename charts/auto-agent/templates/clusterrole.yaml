@@ -1,7 +1,7 @@
-# Cluster-wide permissions: reads, plus patch on nodes (cluster-scoped, used to
-# cordon and uncordon the agent's own node). Every grant here is used by code;
-# TestRBAC_ChartMatchesCode in internal/kube fails on any drift (ISS-009).
-# Writes to workloads live in roles.yaml, one Role per allowlisted namespace.
+# Cluster-wide reads, one ClusterRole per role (ADR-001). Every grant here is
+# used by the code that role runs; TestRBAC_EachRoleMatchesItsCode in
+# internal/kube fails on any drift (ISS-009). Workload writes live in
+# roles.yaml, one Role per allowlisted namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -9,16 +9,16 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list"]
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]
 - apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get", "list", "watch", "patch"]
-- apiGroups: [""]
   resources: ["endpoints"]
   verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]   # get: the kubectl panel's describe node
 - apiGroups: [""]
   resources: ["events", "namespaces", "limitranges", "persistentvolumeclaims", "resourcequotas", "services"]
   verbs: ["list"]
@@ -43,6 +43,29 @@ rules:
 - apiGroups: ["storage.k8s.io"]
   resources: ["storageclasses"]
   verbs: ["get"]
+- apiGroups: ["autoagent.io"]
+  resources: ["autoremediationpolicies"]
+  verbs: ["get", "list", "watch"]
+---
+# Node agents: the pods and Node object of their own node (the informers
+# filter by node; RBAC cannot), patch to cordon their own node.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auto-agent-node
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list", "watch", "patch"]
 - apiGroups: ["autoagent.io"]
   resources: ["autoremediationpolicies"]
   verbs: ["get", "list", "watch"]

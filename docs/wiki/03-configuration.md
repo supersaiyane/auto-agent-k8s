@@ -2,7 +2,10 @@
 
 > The complete, test-checked list of every setting (variable, Helm value, allowed values, default, effect) is [docs/CONFIGURATION.md](../CONFIGURATION.md). This page is an overview.
 
-All configuration lives in `deployment/03-config.yaml` (ConfigMap + Secret).
+Settings live in the `auto-agent-config` ConfigMap and the `auto-agent-secrets`
+Secret. With Helm, set them as chart values; with the raw manifests, patch the
+live objects (`deployment/03-config.yaml` is generated from the chart, and the
+Secret is created once by `deployment/ensure-secret.sh`).
 
 ## Agent Mode
 
@@ -100,7 +103,7 @@ COST_PROVIDER: ""          # kubecost | opencost | manual | (empty for built-in)
 
 ## Secrets
 
-Set in `deployment/03-config.yaml` under the Secret:
+Patch them into the `auto-agent-secrets` Secret (re-running `deploy.sh` keeps them):
 
 | Secret Key | For |
 |-----------|-----|
