@@ -4,7 +4,7 @@ Created: 2026-10-07
 Status: proposed, not started
 Builds on: PLAN-001 (done; PR #1)
 Rules: `CLAUDE.md` (definition of done, constraints 1 to 11)
-New issues: ISS-033 to ISS-038 in `tasks/ISSUES.md`
+New issues: ISS-033 to ISS-040 in `tasks/ISSUES.md`
 
 ## Goal
 
@@ -215,19 +215,61 @@ with a reason each, so every uncovered line is a decision, not an accident.
 
 ---
 
+## Part E: Every issue, not only network
+
+Part B lists weak spots already found. It is not a complete audit. Two gaps
+remain (ISS-039, ISS-040), measured 2026-10-07:
+
+### E.1 Audit every existing detector (ISS-039)
+
+Each detector gets a written review in its phase 9 test file: what it
+claims to detect, the exact condition in code, false negatives (missed
+cases), false positives (noise), and its fix-ladder rung. The reviews so far
+found a bug every time (ISS-023, ISS-029, ISS-034), so this is expected to
+find more. Done when every detector called from `main` has a test that
+covers its positive case, a healthy control, and each documented miss.
+
+### E.2 Failure classes we do not detect (ISS-040)
+
+Measured by searching detector code for each failure's signal (a mention is
+not proof of correct handling; E.1 checks that). 0 means no signal at all.
+
+| Failure class | Signal found in detectors | Plan | Target rung |
+| --- | --- | --- | --- |
+| Pods stuck Terminating (finalizers, dead node) | 0 | Pods with `deletionTimestamp` older than grace plus 5 min | R3: force delete after approval |
+| Objects or namespaces stuck on finalizers | 0 | `deletionTimestamp` with finalizers older than a window | R1: names the finalizer and its owner |
+| Volume mount failures, pods stuck ContainerCreating | 0 | `FailedMount` / `FailedAttachVolume` events; ContainerCreating older than a window | R1 |
+| Liveness / readiness probe failing (before CrashLoop) | 0 | `Unhealthy` events rate per pod | R1 (often a slow start: suggests probe changes) |
+| Scheduling failures with the reason | 0 (Pending exists without the reason) | `FailedScheduling` event message parsed into the constraint | R1 |
+| PodDisruptionBudget blocking evictions or drains | 0 | Eviction 429s counted; PDB with `disruptionsAllowed: 0` for long | R1 |
+| Job hit `backoffLimit` | 0 (failed jobs exist, reason not read) | `BackoffLimitExceeded` condition reason in the message | R1 |
+| Preemption of pods | 0 | `Preempted` events | R0 / R1 |
+| CPU throttling | 0 (only API server throttling exists) | `container_cpu_cfs_throttled_periods_total` ratio from Prometheus | R3: propose a CPU limit raise |
+| PVC almost full | 0 | `kubelet_volume_stats_used_bytes / capacity` from Prometheus | R3: propose expansion if the StorageClass allows it |
+| Topology spread unsatisfiable | 0 | From `FailedScheduling` parsing | R1 |
+| Readiness gates never satisfied | 0 | Pods with unmet `readinessGates` for long | R1 |
+| etcd health | 0 | Control plane metrics when exposed (often not on managed clusters) | R0 |
+| Deprecated API use | 0 | `apiserver_requested_deprecated_apis` metric | R1 |
+| HPA at max replicas | 2 (check precision in E.1) | `currentReplicas == maxReplicas` with high utilisation for long | R3: propose raising max within a ceiling |
+| Image pull secret problems, registry rate limits | 1 each (check in E.1) | Distinguish `unauthorized` and `toomanyrequests` in pull errors | R1 |
+| Node not ready, disk pressure, kubelet, API server | present (check in E.1) | Audit only | as today |
+
+Work: E.1 runs inside phase 9; E.2 adds a phase 11b after the network work.
+
 ## Phases and order
 
 | Phase | Content | Why this order | Estimate (modelled, one engineer) |
 | --- | --- | --- | --- |
 | 8 | D1 to D4 (testability refactor), D7 gate at the current number | Every later phase needs it; the floor stops regressions immediately | 4 to 6 days |
-| 9 | D5 for existing detectors; ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest | 5 to 8 days |
+| 9 | D5 for existing detectors with the E.1 audit; ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest | 6 to 10 days |
 | 10 | Part A, config reload (A1 to A3), with tests at 100 percent | The headline feature | 6 to 9 days |
 | 11 | Part B network (ISS-033, ISS-036) | Builds on phase 9 tests | 4 to 6 days |
+| 11b | Part E.2 failure classes (ISS-040) | Same detector test pattern | 5 to 8 days |
 | 12 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
 | 13 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |
 | 14 | A4 (Argo Rollouts); `gitops.mode: live` and `images.mirror` behind their flags, off by default, with warnings (ISS-012); floor raised to the final target | Optional extras last | 4 to 6 days |
 
-Total: about 35 to 54 engineer days (modelled). Each phase ends with
+Total: about 42 to 64 engineer days (modelled). Each phase ends with
 `make verify`, `make e2e`, a commit set, and the coverage floor raised to
 the measured value.
 
