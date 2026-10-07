@@ -39,7 +39,7 @@ type finding struct {
 	Severity  eventsvc.Severity
 	Rung      Rung
 	// Target is the rung this finding reaches once the approval queue lands
-	// (PLAN-002 phase 14); empty when Rung is already final.
+	// (PLAN-002 phase 15); empty when Rung is already final.
 	Target  Rung
 	Summary string   // one line: what is wrong
 	Details []string // facts that support it

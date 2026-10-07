@@ -18,10 +18,13 @@
 | 2026-10-07 | PLAN-002 owner decisions | Recorded | Escalation: wire. gitops.mode and images.mirror: keep as flags, off by default, warnings now in values.yaml and CONFIGURATION.md, implement in phase 14 (no code exists today). Secret reload: off by default plus a dedicated usage doc (task A3.2b). Approvals: 30 minutes, named group only, disabled with no group. | docs/plans/PLAN-002-reload-coverage-and-gaps.md (## Owner decisions), charts/auto-agent/values.yaml (gitops.mode, images.mirror), docs/CONFIGURATION.md |
 | 2026-10-07 | PLAN-002 phase 8 | Done; verify and kind e2e passed; committed (1c0fd55, 70f8577, f6baa8e, docs) | 8.1 internal/config (81 variables, Load(getenv), Names()); 8.2 reference test driven by Names(); 8.3 no os.Getenv outside config (guard test; cost.go allowed until 9.3), found ISS-041; 8.4 LOG_LEVEL to klog verbosity; 8.5 injected clock in dedup, limiter, breaker, blast radius, quiet hours, learning, fix tracker; 8.6 coverage floor 27.9 percent; 8.7 strict set at 100 percent. All checks falsified. | internal/config/config.go, internal/config/guard_test.go, internal/config/configref_test.go, scripts/coverage-check.sh, .coverage-floor, cmd/auto-agent/main.go |
 | 2026-10-07 | PLAN-002 phase 9 | Done; verify and kind e2e passed; committed on plan-002 (not pushed) | 9.1/9.2 every outbound client takes an *http.Client (internal/httpx, httpxtest), httptest tests per client; ISS-042 escalation sent unredacted text, fixed and falsified; 9.3 cost init removed; 9.4 no mutable globals (ISS-015 closed); 9.5 run() extracted; 9.6 boot test (run 84.5, cmd 77.8 because main() needs a pod); 9.7 leader 88.9, crd 98.6; 9.8 floor 27.9 to 44.6 (measured) | cmd/auto-agent/run.go:52 (run), run_test.go, internal/escalation/escalation.go (redacted), docs/plans/PLAN-002-reload-coverage-and-gaps.md (Phase 9 result, then Phase 10 table) |
+| 2026-10-07 | PLAN-002 phase 10 batches A and B; architect review | Phase 10 paused; review recorded as phase 11; verify passed; committed (not pushed) | Batch A 7990933: CheckPodStates (10.1, 10.3, 10.4, 10.5, 10.8, 10.11, 10.12), findings.go report path with rungs, ISS-043. Batch B e8a227c: lifecycle.go finalizers and PDBs (10.2, 10.6), job reason (10.7), HPA (10.15), pull causes (10.16), ISS-044 to ISS-046. Review: ISS-047 to ISS-058, PLAN-002 phase 11 inserted, phases 11 to 16 renumbered 12 to 17 | docs/plans/PLAN-002-reload-coverage-and-gaps.md (Phase 11), tasks/ISSUES.md (ISS-047 to ISS-058), internal/kube/podstate.go, internal/kube/lifecycle.go |
 
 ## Next action
 
-1. PLAN-002 phase 10: missing failure classes, one detector per row of the
-   phase 10 table, test first against a fake cluster with a healthy control.
-2. `make e2e` on plan-002 before any push; push only with owner approval.
-3. PR #1 CI (ISS-017).
+1. Owner answers ISS-058 (dashboard architecture, option A recommended);
+   the answer becomes ADR-001, then PLAN-002 phase 11 starts with 11.1.
+2. Phase 10 remainder after phase 11: 10.9, 10.10, 10.13, 10.14 (Prometheus
+   based) and 10.17 (wiring, docs, e2e).
+3. `make e2e` on plan-002 before any push; push only with owner approval.
+4. PR #1 CI (ISS-017).

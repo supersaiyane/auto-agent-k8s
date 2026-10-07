@@ -45,7 +45,7 @@ metricsProvider:
   prometheusUrl: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
 gitops:
-  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 16); the agent always
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17); the agent always
   # opens a pull request. "live" will commit straight to the branch, skipping
   # code review, and will stay off unless you set it.
   mode: pr                         # pr | live (not implemented)
@@ -155,7 +155,7 @@ learning:
   periodDays: 14
 
 images:
-  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 16). When built, the
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17). When built, the
   # admission webhook will rewrite matching image references as pods are
   # created. Off by default.
   mirror:

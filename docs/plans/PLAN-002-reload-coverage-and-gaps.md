@@ -112,7 +112,7 @@ some of these.
 | ISS-012 | Escalation chain built but never called | `cmd/auto-agent/main.go` | **Wire it**: critical incidents and failed fixes escalate (PagerDuty, OpsGenie, email) after Slack, deduplicated, redacted. The code exists; leaving it dead is the worst option | **Decided 2026-10-07: wire it** |
 | ISS-012 | Learning baselines collected, thresholds never applied | `GetThreshold` has no caller | Use the learned per-workload CPU baseline as the scale threshold once `minSamples` is reached, falling back to the global value; show which was used in the scaling event | Do |
 | ISS-012 | Slack buttons never sent; callbacks unwired | `BuildIncidentBlocks` no caller | Becomes the approval channel of Part C | Do (Part C) |
-| ISS-012 | `gitops.mode`, `images.mirror.*` read by nothing; no code implements either (checked 2026-10-07, enforced by `TestConfigReference_MatchesCodeAndChart`) | CONFIGURATION.md | **Keep both as flags, off by default, behind explicit warnings, and implement them** (phase 16). `gitops.mode: live`: commit the fix straight to the configured branch instead of opening a PR; warning in values, docs and the startup log that it skips code review, and it still goes through the gate. `images.mirror`: the admission webhook rewrites matching image references to the mirror prefix; warning that it changes pods as they are created, allowlist only. Until implemented, values and docs say "not implemented" | **Decided 2026-10-07: keep, off by default, warn, implement** |
+| ISS-012 | `gitops.mode`, `images.mirror.*` read by nothing; no code implements either (checked 2026-10-07, enforced by `TestConfigReference_MatchesCodeAndChart`) | CONFIGURATION.md | **Keep both as flags, off by default, behind explicit warnings, and implement them** (phase 17). `gitops.mode: live`: commit the fix straight to the configured branch instead of opening a PR; warning in values, docs and the startup log that it skips code review, and it still goes through the gate. `images.mirror`: the admission webhook rewrites matching image references to the mirror prefix; warning that it changes pods as they are created, allowlist only. Until implemented, values and docs say "not implemented" | **Decided 2026-10-07: keep, off by default, warn, implement** |
 | ISS-037 | CRD fields parsed but unused: `restartStuckPods`, `scale.minReplicas`, `scale.step`, `scale.allowHPAOverride`, `safety.cooldown`, `safety.maxActionsPerHour`, `escalation.slackChannel`, `escalation.ticketing` | grep 2026-10-07 | Wire each into the gate or the action it names (per-policy cooldown and action budget into the guardrails, scaling fields into the scaler, Slack channel and ticketing into the notifier). A field that cannot be honoured is removed from the CRD schema | Do |
 | ISS-032 | `agent.logLevel` unused | `LogLevel` no reader | Map to klog verbosity at startup | Do |
 | ISS-032 | `webhook.enabled` registers a webhook the agent never serves | no cert env | Chart mounts a cert-manager Certificate (or a provided Secret) and sets `WEBHOOK_CERT_FILE` / `WEBHOOK_KEY_FILE`; e2e calls the webhook | Do |
@@ -222,7 +222,7 @@ remain (ISS-039, ISS-040), measured 2026-10-07:
 
 ### E.1 Audit every existing detector (ISS-039)
 
-Each detector gets a written review in its phase 11 test file: what it
+Each detector gets a written review in its phase 12 test file: what it
 claims to detect, the exact condition in code, false negatives (missed
 cases), false positives (noise), and its fix-ladder rung. The reviews so far
 found a bug every time (ISS-023, ISS-029, ISS-034), so this is expected to
@@ -270,9 +270,9 @@ not proof of correct handling; E.1 checks that). 0 means no signal at all.
 | Topology spread rules that cannot be met; readiness gates never met | No |
 | etcd health; use of deprecated APIs | No |
 | HPA stuck at max replicas; pull-secret and registry rate-limit errors | Partly; checked in phase 10 |
-| Node not ready, node disk pressure, kubelet, API server | Yes; audited in phase 11 |
+| Node not ready, node disk pressure, kubelet, API server | Yes; audited in phase 12 |
 
-Work: E.2 is phase 10 (new detectors, test first); E.1 runs inside phase 11 (existing detectors).
+Work: E.2 is phase 10 (new detectors, test first); E.1 runs inside phase 12 (existing detectors).
 
 ## Phases and order
 
@@ -281,18 +281,19 @@ Work: E.2 is phase 10 (new detectors, test first); E.1 runs inside phase 11 (exi
 | 8 | Testability, first half: D1 config struct (one `config.Load()`, no `os.Getenv` in components), D2 injected clock, D7 coverage floor at the current number | The floor stops regressions from day one; config and clock unblock most tests | 2 to 3 days |
 | 9 | Testability, second half: D3 injected HTTP clients and no package globals or `init()` (ISS-015), D4 `run()` extracted from `main` with a boot smoke test | Outbound clients and `main` become testable | 2 to 3 days |
 | 10 | **Missing failure classes** (Part E.2, ISS-040): one test-first detector per row of the E.2 table, each on its fix-ladder rung | The biggest blind spot: common failures we do not see at all | 5 to 8 days |
-| 11 | D5 tests for every existing detector with the E.1 audit (ISS-039); ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest existing code | 6 to 10 days |
-| 12 | Part A, config reload (A1 to A3), with tests at 100 percent | The headline feature | 6 to 9 days |
-| 13 | Part B network (ISS-033, ISS-036) | Builds on phase 11 tests | 4 to 6 days |
-| 14 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
-| 15 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |
-| 16 | A4 (Argo Rollouts); `gitops.mode: live` and `images.mirror` behind their flags, off by default, with warnings (ISS-012); floor raised to the final target | Optional extras last | 4 to 6 days |
+| 11 | **Architect review fixes** (added 2026-10-07): one cluster-wide dashboard and a complete UI, deployment manifests generated from the chart, safe scripts, entry point and shutdown, docs with one owner per topic (ISS-047 to ISS-058) | The dashboard and the install path are what every user touches first; ISS-047 and ISS-048 mislead or lose data today | 14 to 23 days |
+| 12 | D5 tests for every existing detector with the E.1 audit (ISS-039); ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest existing code | 6 to 10 days |
+| 13 | Part A, config reload (A1 to A3), with tests at 100 percent | The headline feature | 6 to 9 days |
+| 14 | Part B network (ISS-033, ISS-036) | Builds on phase 12 tests | 4 to 6 days |
+| 15 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
+| 16 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |
+| 17 | A4 (Argo Rollouts); `gitops.mode: live` and `images.mirror` behind their flags, off by default, with warnings (ISS-012); floor raised to the final target | Optional extras last | 4 to 6 days |
 
-Total: about 42 to 64 engineer days (modelled). Each phase ends with
+Total: about 56 to 87 engineer days (modelled), including phase 11. Each phase ends with
 `make verify`, `make e2e`, a commit set, and the coverage floor raised to
 the measured value.
 
-## Detailed subtasks: phases 8, 9 and 10
+## Detailed subtasks: phases 8 to 11
 
 Added 2026-10-07. Estimates are modelled.
 
@@ -344,7 +345,7 @@ control in a fake cluster, asserting the message, the metric and the rung.
 
 | # | Failure | How we detect it | Rung | Done when |
 | --- | --- | --- | --- | --- |
-| 10.1 | Pods stuck Terminating | `deletionTimestamp` older than grace period plus 5 min | R3 force delete after approval (R1 until phase 14) | Stuck pod found; pod still within its grace period ignored |
+| 10.1 | Pods stuck Terminating | `deletionTimestamp` older than grace period plus 5 min | R3 force delete after approval (R1 until phase 15) | Stuck pod found; pod still within its grace period ignored |
 | 10.2 | Objects or namespaces stuck on finalizers | Deleting, with finalizers, past a window | R1: names the finalizer and its owning controller | Namespace and PVC cases |
 | 10.3 | Volume mount failures | `FailedMount` / `FailedAttachVolume` events; ContainerCreating past a window | R1 | Message carries the volume and the reason |
 | 10.4 | Probes failing before a crashloop | `Unhealthy` event rate per pod | R1: suggests probe timing for slow starts | Liveness and readiness separated |
@@ -352,7 +353,7 @@ control in a fake cluster, asserting the message, the metric and the rung.
 | 10.6 | PodDisruptionBudget blocking evictions | Eviction refusals counted; PDB at 0 allowed disruptions for long | R1 | Covers our own node-pressure evictions being refused |
 | 10.7 | Job hit its retry limit | `BackoffLimitExceeded` reason in the failed-job message | R1 | Reason appears in the alert |
 | 10.8 | Pod preemption | `Preempted` events | R0 / R1 | Victim and preemptor named |
-| 10.9 | CPU throttling | Throttled-period ratio from Prometheus | R3 propose a higher CPU limit (R1 until phase 14) | No alert and no error without Prometheus |
+| 10.9 | CPU throttling | Throttled-period ratio from Prometheus | R3 propose a higher CPU limit (R1 until phase 15) | No alert and no error without Prometheus |
 | 10.10 | PVC almost full | Used vs capacity bytes from Prometheus | R3 propose expansion when the StorageClass allows it | Expansion offered only when allowed |
 | 10.11 | Topology spread unsatisfiable | From the 10.5 parser | R1 | Covered by 10.5 tests |
 | 10.12 | Readiness gates never met | Unmet `readinessGates` past a window | R1 | Gate name in the message |
@@ -363,14 +364,42 @@ control in a fake cluster, asserting the message, the metric and the rung.
 | 10.17 | Wiring, RBAC, docs | Called from the right loop; new reads granted (for example PodDisruptionBudgets); feature table, guide, configuration reference | RBAC, config and every-detector-has-a-test checks pass; `make e2e` passes |
 
 Rows 10.1, 10.9 and 10.10 reach their final rung when the approval queue
-lands in phase 14; until then they stop one rung lower and say so in the
+lands in phase 15; until then they stop one rung lower and say so in the
 alert.
+
+### Phase 11: architect review fixes (14 to 23 days)
+
+Added 2026-10-07 from an architect review of the dashboard, `docs/wiki`,
+`deployment/` (manifests and scripts) and `cmd/auto-agent`. Phase 10 is
+paused after 10.1 to 10.8, 10.11, 10.12, 10.15 and 10.16 (commits 7990933,
+e8a227c); 10.9, 10.10, 10.13, 10.14 and 10.17 resume after this phase.
+Estimates are modelled.
+
+**11.1 needs an owner decision first (ISS-058).** The dashboard is wrong
+by design today (ISS-047): each DaemonSet pod has its own event log, and
+the Service spreads requests across them.
+
+| Option | How | For | Against |
+| --- | --- | --- | --- |
+| **A (recommended)** | One binary, two roles (`AGENT_ROLE=node` or `controller`). Node agents (DaemonSet) watch their own node's pods, take own-node actions and send findings to the controller over an authenticated internal endpoint. The controller (Deployment, two replicas, leader elected) runs the cluster loops, owns the event store, serves the dashboard, API and Slack actions; the Service selects controller pods only and the standby proxies to the leader | One view, one Slack voice, the cluster loops leave the node pods, API load no longer grows with node count, matches how ISS-043 was fixed | Two workloads to deploy; an internal endpoint to secure |
+| B | Keep the DaemonSet; non-leader pods proxy `/api` to the leader found through the Lease | Small change | Node findings still live on each pod unless pushed; every node still runs the cluster informers |
+| C | Shared store (CRs, ConfigMaps or a database) | Survives restarts | Write load on etcd or a new dependency; rejected |
+
+| # | Subtask | What changes | Done when |
+| --- | --- | --- | --- |
+| 11.1 | One cluster-wide view (ISS-047, ISS-058) | ADR-001 records the owner's choice; for option A: `AGENT_ROLE`, controller Deployment and node DaemonSet in the chart, findings forwarded node to controller with a shared token, events and stats served by the controller only | e2e: a finding from a node agent and one from a leader loop both appear on every request, through the Service, from any pod |
+| 11.2 | Dashboard complete (ISS-051, ISS-053) | Views for compliance, baselines, deploys, dry-run log and the audit log; rung column and filters (namespace, severity, reason, time); search; pause and refresh rate; deep links per tab; server-sent events or one batched status call instead of polling every endpoint; accessible markup (labels, keyboard, contrast); HTML, CSS and JS split into embedded files; Content-Security-Policy, nosniff and frame-ancestors headers | A headless browser test in `make e2e` opens every tab with a token, finds no console error and no unescaped field; header test in `httpapi` |
+| 11.3 | One deployment of record (ISS-048, ISS-050, ISS-051) | Every file in `deployment/` generated by `make manifests` from the chart; CI fails if regenerating changes anything; the Secret is created once by the script and never applied over; Service is ClusterIP; one namespace name everywhere (`auto-agent`, including `helm-install`); image by value with a digest; raw defaults equal chart defaults; `COST_PROVIDER` removed or implemented | `make manifests` then `git diff --exit-code` passes in CI; re-running the install keeps a patched Secret (e2e) |
+| 11.4 | Scripts that only touch what they own (ISS-049, ISS-052) | `deploy.sh` and `teardown.sh` rewritten: flags instead of prompts (`--namespace`, `--allowlist`, `--image`, `--with-opencost`), no `kill` of local processes, no orphan port-forward, third-party installs only behind a flag, ownership labels so teardown removes only what deploy created, CRD removal only with `--delete-policies`, failures stop the script; test apps in their own labelled namespaces, never `default`; `shellcheck` on every script in `make verify` and CI | shellcheck clean; e2e runs deploy, re-deploy and teardown on kind and finds no residue and nothing foreign removed |
+| 11.5 | Entry point and shutdown (ISS-054, ISS-055, ISS-056) | Shutdown order: stop intake, wait for handlers and loops (bounded), then close recorder and audit log; one start and stop notice per rollout (leader or controller only); `flag.Set` error handled; QPS and burst in config; kubeconfig fallback for local runs; `auto-agent version` and `auto-agent check-config` (effective config, redacted, unknown keys named); `run()` split into functions under 50 lines | Test: an action in flight at cancel is in the audit log; test: unknown key reported; `cmd` at 85 percent |
+| 11.6 | Docs with one owner per topic (ISS-057) | Each wiki page either owns its topic or is a short page linking to the owner (`GUIDE.md`, `CONFIGURATION.md`); changelog rewritten from git history with computed counts; a docs check (extending the configuration reference test) fails when a page names a setting, API route or Helm value that does not exist; dashboard page rewritten with the new views | The docs check is falsified once; `make check-writing` passes |
+| 11.7 | Records | ADR-001, feature table, GUIDE, CONFIGURATION, STATUS, checkpoint, project map | `make verify` and `make e2e` pass; commit set |
 
 ## Owner decisions (2026-10-07)
 
 | Question | Decision | What it means for the work |
 | --- | --- | --- |
-| Escalation chain | **Wire it** | Phase 15: PagerDuty, OpsGenie and email fire for critical incidents and failed fixes, after Slack, deduplicated and redacted |
-| `gitops.mode`, `images.mirror` | **Keep, off by default, under a warning** | Phase 16: implement both behind their flags. Until then, values and docs mark them "not implemented"; once built, each logs a warning at startup when enabled and its docs carry a warning box |
+| Escalation chain | **Wire it** | Phase 16: PagerDuty, OpsGenie and email fire for critical incidents and failed fixes, after Slack, deduplicated and redacted |
+| `gitops.mode`, `images.mirror` | **Keep, off by default, under a warning** | Phase 17: implement both behind their flags. Until then, values and docs mark them "not implemented"; once built, each logs a warning at startup when enabled and its docs carry a warning box |
 | Secret watching for reload | **Off by default; document its usage clearly** | Task A3.2b: a dedicated guide section on enabling, scoping, testing and disabling it, and what access it grants |
 | Approvals | **30 minutes; a named group only** | Task C1.1: approvals expire after 30 minutes (configurable); `approvals.groups` lists who may approve; with no group configured, approvals are disabled and R3 fixes stay suggestions; every approval records who clicked |

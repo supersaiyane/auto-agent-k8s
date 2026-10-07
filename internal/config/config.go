@@ -83,7 +83,7 @@ type Config struct {
 	// Admission webhook.
 	Webhook Webhook
 
-	// Escalation (built, wired in PLAN-002 phase 15).
+	// Escalation (built, wired in PLAN-002 phase 16).
 	Escalation Escalation
 
 	// Learning mode.

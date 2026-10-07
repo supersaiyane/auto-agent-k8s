@@ -211,7 +211,7 @@ The chart writes these into the ConfigMap, but no code reads them, so
 
 > **Warning: `gitops.mode` and `images.mirror.*` are not implemented.** By
 > owner decision (2026-10-07) they stay as flags, **off by default**, and will
-> be built in PLAN-002 phase 16. When built, `gitops.mode: live` commits fixes
+> be built in PLAN-002 phase 17. When built, `gitops.mode: live` commits fixes
 > straight to the branch and **skips code review**; `images.mirror` makes the
 > admission webhook **rewrite images as pods are created**. Both will log a
 > warning at startup when turned on.
