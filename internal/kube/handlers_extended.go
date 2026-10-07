@@ -11,7 +11,6 @@ import (
 
 	eventsvc "github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
 )
 
 // handleInitContainerFailure handles Init:Error and Init:CrashLoopBackOff.
@@ -32,19 +31,9 @@ func handleInitContainerFailure(ctx context.Context, deps *Deps, pod *corev1.Pod
 		ns, name, initName, reason, url)
 	msg += "_Check_: init container command, dependencies, volumes, and network access.\n"
 
-	if deps.Policy.Mode == policy.Fix {
-		crdPol := effectivePolicy(deps, ns, pod.Labels)
-		if policyAllowsAction(crdPol) && deps.Limiter.Allow() {
-			if checkBreaker(ctx, deps, ns, wl) {
-				if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-					klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
-				} else {
-					msg += "_Action_: deleted pod to retry init containers.\n"
-					obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
-				}
-			}
-		}
-	}
+	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "InitContainerFailed", "delete_pod",
+		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+		"deleted pod to retry init containers", "delete the pod to retry init containers")
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Init container failure: "+reason, logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)

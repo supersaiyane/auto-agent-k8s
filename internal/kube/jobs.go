@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
 )
 
 // CheckFailedJobs scans for failed Jobs and CronJobs and alerts.
@@ -98,11 +98,8 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	msg += fmt.Sprintf("\nReason: %s\nFailed pods: %d\nSaved: `%s`\n", failReason, job.Status.Failed, url)
 
 	// In fix mode, clean up old failed jobs (> 1 hour) to prevent accumulation
-	if deps.Policy.Mode == policy.Fix && cronJobName != "" {
-		cleaned := cleanupOldFailedJobs(ctx, deps, ns, cronJobName)
-		if cleaned > 0 {
-			msg += fmt.Sprintf("_Action_: cleaned up %d old failed jobs for CronJob `%s`.\n", cleaned, cronJobName)
-		}
+	if cronJobName != "" {
+		msg += cleanupOldFailedJobs(ctx, deps, ns, cronJobName)
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Job Failed", logs+"\n"+strings.Join(events, "\n"))
@@ -113,39 +110,51 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	obs.IncidentsTotal.WithLabelValues("JobFailed", ns, name).Inc()
 }
 
-// cleanupOldFailedJobs removes failed jobs older than 1 hour for a given CronJob.
-func cleanupOldFailedJobs(ctx context.Context, deps *Deps, ns, cronJobName string) int {
+// cleanupOldFailedJobs removes failed jobs older than 1 hour for a given
+// CronJob, as one gated action. Returns the gate's message for Slack.
+func cleanupOldFailedJobs(ctx context.Context, deps *Deps, ns, cronJobName string) string {
 	jobs, err := deps.Client.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return 0
+		klog.V(3).Infof("jobs: failed to list jobs in %s: %v", ns, err)
+		return ""
 	}
 
-	cleaned := 0
+	var old []string
 	cutoff := time.Now().Add(-1 * time.Hour)
 	for _, job := range jobs.Items {
-		if !isJobFailed(&job) {
-			continue
-		}
-		// Check if owned by same CronJob
-		ownedByCron := false
-		for _, ref := range job.OwnerReferences {
-			if ref.Kind == "CronJob" && ref.Name == cronJobName {
-				ownedByCron = true
-				break
-			}
-		}
-		if !ownedByCron {
-			continue
-		}
-		if job.CreationTimestamp.Time.Before(cutoff) {
-			bg := metav1.DeletePropagationBackground
-			if err := deps.Client.BatchV1().Jobs(ns).Delete(ctx, job.Name, metav1.DeleteOptions{
-				PropagationPolicy: &bg,
-			}); err == nil {
-				cleaned++
-				obs.ActionsTotal.WithLabelValues("delete_job", ns, cronJobName).Inc()
-			}
+		if isJobFailed(&job) && ownedByCronJob(&job, cronJobName) && job.CreationTimestamp.Time.Before(cutoff) {
+			old = append(old, job.Name)
 		}
 	}
-	return cleaned
+	if len(old) == 0 {
+		return ""
+	}
+
+	_, msg := applyMutation(ctx, deps, mutation{
+		Namespace: ns, Workload: cronJobName, Reason: "JobFailed", ActionType: "delete_job",
+		SuccessMsg: fmt.Sprintf("cleaned up %d old failed jobs for CronJob `%s`", len(old), cronJobName),
+		SuggestMsg: fmt.Sprintf("delete %d failed jobs older than 1h for CronJob `%s`", len(old), cronJobName),
+		Apply: func() error {
+			bg := metav1.DeletePropagationBackground
+			var errs []error
+			for _, name := range old {
+				if err := deps.Client.BatchV1().Jobs(ns).Delete(ctx, name, metav1.DeleteOptions{
+					PropagationPolicy: &bg,
+				}); err != nil {
+					errs = append(errs, fmt.Errorf("delete job %s/%s: %w", ns, name, err))
+				}
+			}
+			return errors.Join(errs...)
+		},
+	})
+	return msg
+}
+
+func ownedByCronJob(job *batchv1.Job, cronJobName string) bool {
+	for _, ref := range job.OwnerReferences {
+		if ref.Kind == "CronJob" && ref.Name == cronJobName {
+			return true
+		}
+	}
+	return false
 }

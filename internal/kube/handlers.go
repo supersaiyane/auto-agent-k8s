@@ -160,7 +160,7 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 		obs.HandlerErrorsTotal.WithLabelValues("notready", "storage").Inc()
 	}
 
-	msg := fmt.Sprintf("*NotReady* on `%s/%s` (container: `%s`) — running but failing readiness probe\nSaved: `%s`\n",
+	msg := fmt.Sprintf("*NotReady* on `%s/%s` (container: `%s`): running but failing readiness probe\nSaved: `%s`\n",
 		ns, name, cname, url)
 	msg += "_Check_: readiness probe endpoint, application startup, and dependencies.\n"
 	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "NotReady", "delete_pod",
@@ -210,56 +210,33 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod stuck Pending", strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
 	fireAlert(ctx, deps, "Pending", ns, wl, name, msg, "warning")
-	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s — %s", ns, wl, reason), msg)
+	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s: %s", ns, wl, reason), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending", Message: reason, LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
 }
 
-// tryFixAction runs a fix action through all guardrails.
+// tryFixAction sends a remediation for an unhealthy workload through the
+// mutation gate and, when it was applied, starts recovery verification.
 // Returns a message string describing what happened.
 func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels map[string]string,
 	reason, actionType string, action func() error, successMsg, suggestMsg string) string {
 
-	if deps.Policy.Mode == policy.Suggest {
-		return fmt.Sprintf("_Suggest_: %s.\n", suggestMsg)
-	}
-	if IsDryRun(deps.Policy) {
-		return SimulateAction(deps, ns, wl, pod, reason, actionType, successMsg)
-	}
-	if deps.Policy.Mode != policy.Fix {
-		return ""
-	}
-
-	blocked, blockReason := checkGuardrails(ctx, deps, ns, wl, labels)
-	if blocked {
-		klog.Infof("tryFixAction: BLOCKED %s/%s reason=%s by=%s", ns, wl, reason, blockReason)
-		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", blockReason)
-		return fmt.Sprintf("_Blocked_: %s.\n", blockReason)
-	}
-	if !deps.Limiter.Allow() {
-		klog.Infof("tryFixAction: RATE LIMITED %s/%s reason=%s", ns, wl, reason)
-		obs.RateLimitedTotal.Inc()
-		auditAction(deps, actionType, ns, wl, pod, reason, "blocked", "rate limited")
-		return "_Action_: rate limited, skipping.\n"
+	outcome, msg := applyMutation(ctx, deps, mutation{
+		Namespace: ns, Workload: wl, Pod: pod, Labels: labels,
+		Reason: reason, ActionType: actionType,
+		SuccessMsg: successMsg, SuggestMsg: suggestMsg,
+		Apply: action,
+	})
+	if outcome != gateApplied {
+		return msg
 	}
 
-	if err := action(); err != nil {
-		klog.Warningf("handler: %s failed for %s/%s: %v", actionType, ns, pod, err)
-		obs.HandlerErrorsTotal.WithLabelValues(reason, actionType).Inc()
-		auditAction(deps, actionType, ns, wl, pod, reason, "failed", err.Error())
-		return fmt.Sprintf("_Action_: failed — %v\n", err)
-	}
-
-	klog.Infof("tryFixAction: SUCCESS %s %s/%s reason=%s", actionType, ns, wl, reason)
-	obs.ActionsTotal.WithLabelValues(actionType, ns, wl).Inc()
-	auditAction(deps, actionType, ns, wl, pod, reason, "success", "")
-
-	// Record action taken — FixTracker will verify if workload actually recovered
+	// Record action taken: FixTracker will verify if workload actually recovered
 	if deps.FixTracker != nil {
 		deps.FixTracker.RecordAction(ns, wl, pod, reason, actionType)
 	}
-	// Record as "action-taken" (pending verification) — NOT as "fix" yet
+	// Record as "action-taken" (pending verification), NOT as "fix" yet
 	recordEvent(deps, eventsvc.Event{
 		Type: eventsvc.Action, Severity: eventsvc.SevInfo,
 		Namespace: ns, Workload: wl, Pod: pod,

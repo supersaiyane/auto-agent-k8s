@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
@@ -90,15 +92,8 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 					newRep = maxRep
 				}
 
-				d.Spec.Replicas = &newRep
-				if d.Annotations == nil {
-					d.Annotations = map[string]string{}
-				}
-				d.Annotations[annoLastScaleUp] = time.Now().UTC().Format(time.RFC3339)
-
-				if _, err := deps.Client.AppsV1().Deployments(ns).Update(ctx, d, metav1.UpdateOptions{}); err != nil {
-					klog.Warningf("scaler: failed to scale up %s/%s: %v", ns, d.Name, err)
-					obs.HandlerErrorsTotal.WithLabelValues("scaler", "scale_up").Inc()
+				if outcome, gmsg := scaleDeployment(ctx, deps, d, rep, newRep, annoLastScaleUp, "ScaleUp", "scale_up"); outcome != gateApplied {
+					klog.V(2).Infof("scaler: scale up %s/%s not applied: %s", ns, d.Name, strings.TrimSpace(gmsg))
 					continue
 				}
 
@@ -108,7 +103,6 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleUp",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
-				obs.ActionsTotal.WithLabelValues("scale_up", ns, d.Name).Inc()
 				obs.ScalingDecisionsTotal.WithLabelValues("up", ns, d.Name).Inc()
 				continue
 			}
@@ -130,15 +124,8 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 					continue
 				}
 
-				d.Spec.Replicas = &newRep
-				if d.Annotations == nil {
-					d.Annotations = map[string]string{}
-				}
-				d.Annotations[annoLastScaleDown] = time.Now().UTC().Format(time.RFC3339)
-
-				if _, err := deps.Client.AppsV1().Deployments(ns).Update(ctx, d, metav1.UpdateOptions{}); err != nil {
-					klog.Warningf("scaler: failed to scale down %s/%s: %v", ns, d.Name, err)
-					obs.HandlerErrorsTotal.WithLabelValues("scaler", "scale_down").Inc()
+				if outcome, gmsg := scaleDeployment(ctx, deps, d, rep, newRep, annoLastScaleDown, "ScaleDown", "scale_down"); outcome != gateApplied {
+					klog.V(2).Infof("scaler: scale down %s/%s not applied: %s", ns, d.Name, strings.TrimSpace(gmsg))
 					continue
 				}
 
@@ -148,7 +135,6 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleDown",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
-				obs.ActionsTotal.WithLabelValues("scale_down", ns, d.Name).Inc()
 				obs.ScalingDecisionsTotal.WithLabelValues("down", ns, d.Name).Inc()
 			}
 		}
@@ -215,4 +201,28 @@ func inCooldown(annotations map[string]string, key string, cooldown time.Duratio
 		return false
 	}
 	return time.Since(t) < cooldown
+}
+
+// scaleDeployment sets the replica count and cooldown annotation on a copy of
+// d and sends the update through the mutation gate.
+func scaleDeployment(ctx context.Context, deps *Deps, d *appsv1.Deployment, from, to int32,
+	cooldownAnno, reason, actionType string) (gateOutcome, string) {
+
+	upd := d.DeepCopy()
+	upd.Spec.Replicas = &to
+	if upd.Annotations == nil {
+		upd.Annotations = map[string]string{}
+	}
+	upd.Annotations[cooldownAnno] = time.Now().UTC().Format(time.RFC3339)
+
+	return applyMutation(ctx, deps, mutation{
+		Namespace: d.Namespace, Workload: d.Name, Labels: d.Spec.Template.Labels,
+		Reason: reason, ActionType: actionType,
+		SuccessMsg: fmt.Sprintf("scaled %s/%s from %d to %d replicas", d.Namespace, d.Name, from, to),
+		SuggestMsg: fmt.Sprintf("scale %s/%s from %d to %d replicas", d.Namespace, d.Name, from, to),
+		Apply: func() error {
+			_, err := deps.Client.AppsV1().Deployments(d.Namespace).Update(ctx, upd, metav1.UpdateOptions{})
+			return err
+		},
+	})
 }
