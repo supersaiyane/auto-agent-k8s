@@ -4,8 +4,9 @@ Last updated: 2026-10-07
 
 ## Active plan
 
-`docs/plans/PLAN-002-reload-coverage-and-gaps.md`: proposed 2026-10-07, not
-started. Native config reload, weak-feature fixes, fix ladder, coverage to
+`docs/plans/PLAN-002-reload-coverage-and-gaps.md`: phase 8 done 2026-10-07
+(config package, no env reads outside it, log level, injected clock, coverage
+floor 27.9 percent and 100 percent strict set). Next: phase 9. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 
 ## Previous plan

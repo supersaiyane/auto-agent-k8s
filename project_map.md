@@ -6,6 +6,7 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 |------|----------------|
 | cmd/auto-agent/main.go | Entry point; wires kube.Deps (~:209), leader-only polling loops (~:250-308), ConfigMap hot-reload |
 | internal/kube/ | Detection + remediation: gate.go (applyMutation, the only path that writes to the cluster; enforced by mutation_guard_test.go), watcher.go (pod/node informers), handlers.go (tryFixAction, wrapper over the gate), guardrails.go, scaler.go, nodes.go, workloads.go, jobs.go, llm.go |
+| internal/config/ | The only place environment variables are read: `Load(getenv)` returns `Config` (81 variables, measured); `Names()` lists them for the docs test; `KlogVerbosity` maps LOG_LEVEL |
 | internal/policy/ | Mode (observe/suggest/dry-run/fix), allowlist, thresholds; HotReloader (ConfigMap reload, immutable snapshots), Static source for tests |
 | internal/ratelimit/ | Action rate limiter |
 | internal/leader/ | Lease-based leader election (kube-system) |

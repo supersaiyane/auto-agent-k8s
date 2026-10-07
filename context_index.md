@@ -9,6 +9,8 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `Deps.Policies` | `internal/kube/deps.go` | Source of the current policy snapshot (hot reloader in production) |
 | `Deps.Policy()` | `internal/kube/deps.go` | Current immutable policy snapshot; replaces the removed `Deps.Policy` field (ISS-007) |
 | `Deps.NodeName` | `internal/kube/deps.go` | Node this agent runs on; node actions only for this node (ISS-004) |
+| `Deps.ScalingGates`, `Deps.TLSCertCheck`, `Deps.Endpoints`, `SelfCheckEndpoints` | `internal/kube/deps.go` | Settings that used to be read from the environment inside kube (PLAN-002 8.3) |
+| `StartLogRetention(ctx, store, days)` | `internal/kube/retention.go` | Hourly log bundle cleanup; takes config instead of reading env |
 | `PolicySource` | `internal/kube/deps.go` | Interface with `Get() *policy.Policy` |
 | `EvaluateAndScale`, `CleanupEvictedPods`, `CheckFailedJobs`, `CheckStuckRollouts` | `internal/kube/scaler.go`, `workloads.go`, `jobs.go` | Leader-only loops called from `cmd/auto-agent/main.go` |
 | `StartWatchers` | `internal/kube/watcher.go` | Pod and node informers |

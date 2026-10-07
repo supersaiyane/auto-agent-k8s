@@ -3,8 +3,10 @@
 Every setting the agent reads, with its Helm value, allowed values, default
 and effect. Built from the code on 2026-10-07.
 
-`TestConfigReference_MatchesCodeAndChart` (in `internal/policy`) keeps this
-file honest: it fails if the code reads a variable that is not listed here,
+All variables are read in one place, `config.Load` in `internal/config`
+(no other code calls `os.Getenv`; `TestNoEnvReadsOutsideConfig` enforces it).
+`TestConfigReference_MatchesCodeAndChart` (in `internal/config`) keeps this
+file honest: it fails if `config.Load` reads a variable that is not listed here,
 if a variable listed here is no longer read, or if the chart sets a variable
 that is neither read nor listed under
 [Set by the chart but not read](#set-by-the-chart-but-not-read).
@@ -130,8 +132,8 @@ env:
 | `LOG_S3_PREFIX` | `logs.s3.prefix` | key prefix | empty | Key prefix in the bucket | `internal/storage/storage.go` |
 | `LOG_RETENTION_DAYS` | `logs.retentionDays` | positive integer | `7` | Hourly cleanup deletes filesystem log bundles older than this | `internal/kube/retention.go` |
 | `AUDIT_LOG_PATH` | env only | path under `/var/log/auto-agent` | `/var/log/auto-agent/audit.jsonl` | Audit log of every action, block and failure (JSON lines) | `cmd/auto-agent/main.go` |
-| `LOG_FORMAT` | `logging.format` | `json`, anything else is off | `text` | `json` adds structured JSON incident logs alongside the normal log | `internal/logging/json.go` |
-| `LOG_LEVEL` | `agent.logLevel` | any | `info` | **No effect**: read into the policy but never used (ISS-032) | `internal/policy/policy.go` |
+| `LOG_FORMAT` | `logging.format` | `json`, anything else is off | `text` | **Almost no effect yet**: `json` only prints one startup line; the JSON logger is never used, so normal logs stay in klog format (ISS-032) | `internal/config/config.go` |
+| `LOG_LEVEL` | `agent.logLevel` | `error`, `warn`, `info` (klog -v 0), `debug` (-v 4), `trace` (-v 6), or a number 0 to 10 | `info` | Sets klog verbosity at startup; anything else keeps the default and logs a warning | `internal/config/config.go` |
 
 ## Cost tab
 

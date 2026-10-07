@@ -585,6 +585,7 @@ More: [docs/wiki/15-security-hardening.md](wiki/15-security-hardening.md).
 | `make vuln` | govulncheck |
 | `make check-writing` | Fails on em or en dashes anywhere (project writing rule) |
 | `make helm-lint` | Lints the chart |
+| `make coverage-check` | Fails if total coverage drops below `.coverage-floor` or the gate, redaction, rate limiting or API auth code is below 100 percent |
 | `make verify` | All of the above; the definition of done |
 | `make e2e` | Full kind test (section 3, option C) |
 | `make manifests` | Regenerates `deployment/02-rbac.yaml` from the chart |
@@ -606,7 +607,10 @@ Work is planned in [docs/plans/](plans/), tracked in
    `charts/auto-agent/templates/clusterrole.yaml`; the RBAC test fails until
    both agree.
 3. Handle API errors with `countAPIError(err, "<resource>", ns)`; never
-   discard them (`TestAPIErrorsAreNotSwallowed`).
+   discard them (`TestAPIErrorsAreNotSwallowed`). New settings go in
+   `config.Load` (`internal/config`) and `docs/CONFIGURATION.md`; nothing
+   else may call `os.Getenv`. Time comes from the component's `clock()`, so
+   tests can drive it.
 4. If it fixes something, hand the write to `tryFixAction` or
    `applyMutation`, and add it to `mutatingDrivers` in `gate_test.go` so it is
    tested in every mode and blocked state.

@@ -63,3 +63,9 @@ outranks the kernel's "orchestrator never executes".
 ## 2026-10-07: phase loop
 **Rule:** For PLAN-001 the owner set the loop: finish a phase, run `make verify` alone and read it, commit, then start the next phase without asking. Stop and ask only for something destructive or outward facing (push, history rewrite, real cluster).
 **Triggers:** a phase finished.
+
+## 2026-10-07: restore from a snapshot, never by reversing an edit
+**Mistake:** Twice in one session a falsification left the file broken: once the restore step was a no-op, once the "inverse" replacement (a bare newline) could not be asserted, so the deleted test was not put back.
+**Correction:** Self-caught both times by checking the file afterwards; no owner correction.
+**Rule:** Before planting a break, read the whole file into `orig`; do the break and the check inside `try`; in `finally` write `orig` back and assert the file equals `orig` byte for byte. Never restore by replacing the planted text with something else.
+**Triggers:** falsification, planting a break, "make the checker fail once".
