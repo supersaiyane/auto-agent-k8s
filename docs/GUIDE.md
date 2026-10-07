@@ -304,9 +304,10 @@ gates (`scalingGates.*`); see [CONFIGURATION.md](CONFIGURATION.md#scaling).
 kubectl -n kube-system port-forward svc/auto-agent 8080:8080
 ```
 
-Open `http://localhost:8080`. The page asks for the dashboard token once per
-browser tab and keeps it in that tab's session storage only. A wrong token
-shows as empty panels; reload the tab to be asked again.
+Open `http://localhost:8080` and sign in with the dashboard token. It stays in
+that browser tab only; **Sign out** forgets it, and a refused token brings the
+sign-in form back. Requests go to the controllers (ADR-001), so every refresh
+shows the same, cluster-wide view.
 
 With `deploy.sh` (local demo) the script starts that port-forward for you and
 prints the command to read the generated token.
@@ -315,17 +316,31 @@ prints the command to read the generated token.
 
 | Tab | What you see |
 | --- | --- |
-| **Events** | Every incident and action, newest first, with filters |
-| **Actions** | Actions taken (or simulated) and whether the workload recovered |
-| **Charts** | Incidents and actions over time |
-| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs, health |
+| **Events** | Every finding and action, newest first, with its fix-ladder rung (R0 to R4) |
+| **Audit** | Every decision of the mutation gate, from every node: applied, simulated, suggested, blocked or failed |
+| **Dry run** | What the agent would have done in dry-run mode, on every node |
+| **Fixes** | Actions taken and whether the workload recovered (verified, verifying, not fixed) |
+| **Compliance** | Incidents, remediation rate, blocked actions and mean time to recover over 7, 30 or 90 days |
+| **Deploys** | Rollouts the leader recorded: revision, image, replicas |
+| **Baselines** | Learned normal CPU, restarts and replicas per workload, when learning mode is on |
+| **K8s events** | Kubernetes events in allowlisted namespaces |
+| **Charts** | Events by type, remediation, pod sizing, top reasons, cost by namespace |
+| **Report** | Incidents by service and by reason; rows open the matching events |
+| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs; rows open a namespace |
 | **Nodes** | Nodes, conditions, pod counts |
-| **Resources** | Requests, limits and usage per allowlisted namespace |
-| **Cost** | Estimated cost per node, namespace and workload (allowlisted namespaces) |
-| **Report** | Summary report, including the dry-run log |
-| **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `top`, `version`, `help` |
+| **Cost** | Estimated cost per node and workload (allowlisted namespaces) |
+| **Resources** | Requests, limits and right-sizing per allowlisted namespace |
+| **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `version`, `help` |
 
-The top bar shows version, mode, whether this pod is the leader, and the node.
+The toolbar filters list views by namespace, severity, gate result and free
+text. The top bar shows version, mode, leader or standby, the refresh rate
+(5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
+(`#audit`, `#compliance`, ...), and the tabs work with the arrow keys.
+
+The page loads no inline script or style, so the server's
+Content-Security-Policy forbids both; every value from the API is escaped
+before it is shown. `make ui-test` opens every tab in headless Chrome and
+fails on any console error, policy violation or injected markup.
 
 ### 6.3 The Terminal tab
 

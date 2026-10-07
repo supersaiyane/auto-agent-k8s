@@ -12,7 +12,7 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | internal/policy/ | Mode (observe/suggest/dry-run/fix), allowlist, thresholds; HotReloader (ConfigMap reload, immutable snapshots), Static source for tests |
 | internal/ratelimit/ | Action rate limiter |
 | internal/leader/ | Lease-based leader election (kube-system) |
-| internal/httpapi/ | Dashboard UI + /api/* (incl. kubectl terminal), /metrics, /healthz; `ingest.go` takes node agents' events, `proxy.go` sends a standby controller's API and ingest requests to the leader (ADR-001) |
+| internal/httpapi/ | Dashboard UI + /api/* (incl. kubectl terminal), /metrics, /healthz; `ingest.go` takes node agents' events, `proxy.go` sends a standby controller's API and ingest requests to the leader (ADR-001); `ui/` is index.html, app.css and app.js (no inline code; strict CSP in `securityHeaders`), tested in headless Chrome by `ui_browser_test.go` (build tag `browser`) and `scripts/ui-test.mjs` |
 | internal/redact/ | Masks secrets and personal data; called inside every outbound client (llm, slack, alertmanager, tickets, PR text). outbound_test.go proves no client leaks |
 | internal/slack/, alertmanager/, integrations/, escalation/ | Notifications, alert ingest, Jira/GitHub issues & PRs, escalation chain (redacted per channel, ISS-042); constructors take an `*http.Client` |
 | internal/events/ | Event log (`Recorder`, controller), `Forwarder` (node agents to the controller ingest), `Tee` and replica forwarder (leader copies its log to the standby, ISS-059); all `Sink` (ADR-001) |
@@ -28,6 +28,6 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | docs/GUIDE.md | Complete guide by reader level: concepts, local try-out, deploy, configuration, dashboard, API, operations, troubleshooting, architecture, security, developing |
 | README.md | Entry point: how it works, guarantees with their tests, install, develop, full feature table (kept in step with docs/wiki/23-feature-status.md) |
 | docs/wiki/ | Wiki docs (23-feature-status.md) |
-| scripts/ | check-writing.sh (dash ratchet), coverage-check.sh (floor and strict set), e2e-kind.sh (Helm install on kind: dry-run, API, node findings on every controller, RBAC), e2e-raw.sh (generated raw manifests on kind) |
+| scripts/ | check-writing.sh (dash ratchet), coverage-check.sh (floor and strict set), e2e-kind.sh (Helm install on kind: dry-run, API, node findings on every controller, RBAC), e2e-raw.sh (generated raw manifests on kind), ui-test.mjs (dashboard in headless Chrome over the DevTools protocol) |
 | Makefile | build, test, tools (pinned), lint, vuln, check-writing, helm-lint, verify, verify-full, e2e |
 | .github/workflows/ci.yaml | CI: build, test, lint, helm lint, docker push |

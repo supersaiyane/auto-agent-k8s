@@ -42,7 +42,8 @@ func TestIngest(t *testing.T) {
 		name, method, auth, body string
 		want                     int
 	}{
-		{"wrong method", "GET", "Bearer node-secret", "", http.StatusMethodNotAllowed},
+		{"wrong method", "PUT", "Bearer node-secret", "", http.StatusMethodNotAllowed},
+		{"export needs the token", "GET", "Bearer dash", "", http.StatusUnauthorized},
 		{"no token", "POST", "", good, http.StatusUnauthorized},
 		{"dashboard token", "POST", "Bearer dash", good, http.StatusUnauthorized},
 		{"bad json", "POST", "Bearer node-secret", "{", http.StatusBadRequest},
@@ -71,5 +72,19 @@ func TestIngest_DisabledWithoutToken(t *testing.T) {
 	s, rec := ingestServer(t, "")
 	if postIngest(s, "POST", "Bearer ", "[]") != http.StatusServiceUnavailable || rec.Count() != 0 {
 		t.Fatal("no internal token, no ingest")
+	}
+}
+
+// ISS-059: a peer can read the whole log to backfill a new controller.
+func TestIngest_ExportForBackfill(t *testing.T) {
+	s, rec := ingestServer(t, "node-secret")
+	rec.Record(events.Event{Type: events.Incident, Reason: "first"})
+	rec.Record(events.Event{Type: events.Incident, Reason: "second"})
+	r := httptest.NewRequest("GET", events.IngestPath, nil)
+	r.Header.Set("Authorization", "Bearer node-secret")
+	w := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "second") || strings.Index(w.Body.String(), "second") > strings.Index(w.Body.String(), "first") {
+		t.Fatalf("export, newest first: %d %s", w.Code, w.Body.String())
 	}
 }

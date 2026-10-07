@@ -16,7 +16,8 @@ coverage 51.5 percent measured. Phase 11 added from an architect review
 11.1 (ADR-001, node and controller roles), then 11.2 to 11.7.
 11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
 done and passing the kind e2e; per-role ServiceAccounts and generated raw
-manifests done 2026-10-08; ISS-059 fixed. 11.1 is complete. Next: 11.2. Old phases 11 to 16
+manifests done 2026-10-08; ISS-059 fixed. 11.1 and 11.2 are complete.
+Next: 11.3 remainder, 11.4, 11.5, 11.6. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 

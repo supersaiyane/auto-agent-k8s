@@ -116,8 +116,17 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		if rl.controller && !rl.node {
 			// The leader copies its log to the standby, so a leader change
 			// keeps the history (ISS-059).
-			replica := events.NewReplicaForwarder(
-				newPeerResolver(cl.Kube, conf.PodNamespace, conf.PodName, httpPort(opts.HTTPAddr)), conf.InternalToken, cl.HTTP)
+			peers := newPeerResolver(cl.Kube, conf.PodNamespace, conf.PodName, httpPort(opts.HTTPAddr))
+			// Copy a running peer's log first, so this pod holds the history
+			// even if it wins the next election (ISS-059).
+			bctx, bcancel := context.WithTimeout(ctx, 5*time.Second)
+			if n, err := events.Backfill(bctx, peers, conf.InternalToken, cl.HTTP, recorder); err != nil {
+				klog.Warningf("events: history not copied from a peer: %v", err)
+			} else if n > 0 {
+				klog.Infof("events: copied %d events from a peer controller", n)
+			}
+			bcancel()
+			replica := events.NewReplicaForwarder(peers, conf.InternalToken, cl.HTTP)
 			go func() { replica.Run(ctx, opts.ForwardEvery); close(forwarded) }()
 			sink = events.Tee{Local: recorder, Copy: replica, Leading: func() bool { return le != nil && le.IsLeader() }}
 		} else {

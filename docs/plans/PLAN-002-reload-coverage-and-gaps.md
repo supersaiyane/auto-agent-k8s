@@ -394,6 +394,12 @@ call graph from each role's entry points, and every raw manifest generated
 from the chart with a drift check and `make e2e-raw` (part of 11.3 pulled
 forward, because the split broke the hand-written raw files). ISS-059 is
 fixed by the leader copying its event log to the standby. 11.1 is done.
+
+11.2 done 2026-10-08: gate decisions become audit events and compliance is
+computed from the event log (ISS-061); security headers (ISS-051); the UI
+rewritten as separate HTML, CSS and JS with no inline code, five new views,
+rungs, filters, refresh control and deep links (ISS-053, ISS-060);
+`make ui-test` runs it in headless Chrome and is part of `make e2e`.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

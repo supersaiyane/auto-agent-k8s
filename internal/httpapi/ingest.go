@@ -22,14 +22,25 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "event ingest disabled on this pod", http.StatusServiceUnavailable)
 		return
 	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(s.internalToken)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+	case http.MethodGet:
+		// A controller that starts empty copies a peer's log before it can
+		// lead, so a leader change never loses the history (ISS-059).
+		if s.recorder == nil {
+			http.Error(w, "no event log on this pod", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, s.recorder.Recent(0))
+		return
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var batch []events.Event

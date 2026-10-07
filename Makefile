@@ -7,7 +7,7 @@ TOOLS_BIN             := $(CURDIR)/bin/tools
 # Ratchet base for lint: only code changed since BASE is held to golangci-lint.
 BASE                  ?= origin/master
 
-.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full e2e e2e-raw manifests check-manifests coverage-check
+.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full ui-test e2e e2e-raw manifests check-manifests coverage-check
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -54,7 +54,11 @@ verify: build vet test coverage-check lint vuln check-writing helm-lint check-ma
 # Kept for muscle memory; verify already includes vuln.
 verify-full: verify
 
-e2e:
+# The dashboard in headless Chrome (PLAN-002 11.2): needs node and Chrome.
+ui-test:
+	go test -tags browser -count=1 -run TestDashboardInBrowser ./internal/httpapi/
+
+e2e: ui-test
 	sh scripts/e2e-kind.sh
 
 # The generated raw manifests on their own kind cluster (ISS-050).
