@@ -1,42 +1,45 @@
+# Cluster-wide permissions: reads, plus patch on nodes (cluster-scoped, used to
+# cordon and uncordon the agent's own node). Every grant here is used by code;
+# TestRBAC_ChartMatchesCode in internal/kube fails on any drift (ISS-009).
+# Writes to workloads live in roles.yaml, one Role per allowlisted namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: auto-agent
 rules:
-# Core resources
-- apiGroups: [""]
-  resources: ["pods", "pods/log", "pods/status", "nodes", "events", "namespaces", "configmaps", "resourcequotas"]
-  verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["delete"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["pods/eviction"]
-  verbs: ["create"]
+  resources: ["pods/log"]
+  verbs: ["get"]
 - apiGroups: [""]
   resources: ["nodes"]
-  verbs: ["get", "list", "watch", "update", "patch"]
-# Apps resources
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["events", "namespaces", "limitranges", "persistentvolumeclaims", "resourcequotas", "services"]
+  verbs: ["list"]
 - apiGroups: ["apps"]
-  resources: ["deployments", "replicasets", "statefulsets"]
-  verbs: ["get", "list", "watch", "patch", "update"]
-# Batch resources (Jobs, CronJobs)
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "statefulsets", "daemonsets"]
+  verbs: ["list"]
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
-  verbs: ["get", "list", "watch", "delete"]
-# Autoscaling (HPA detection)
+  verbs: ["list"]
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
-  verbs: ["get", "list", "watch"]
-# Policy (PDB awareness)
-- apiGroups: ["policy"]
-  resources: ["poddisruptionbudgets"]
-  verbs: ["get", "list", "watch"]
-# Leader election
-- apiGroups: ["coordination.k8s.io"]
-  resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update"]
-# CRD
+  verbs: ["list"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["list"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses"]
+  verbs: ["get"]
 - apiGroups: ["autoagent.io"]
-  resources: ["autoremediationpolicies", "autoremediationpolicies/status"]
-  verbs: ["get", "list", "watch", "update", "patch"]
+  resources: ["autoremediationpolicies"]
+  verbs: ["get", "list", "watch"]

@@ -1,6 +1,6 @@
-# Feature Status — What's Running vs What Needs Configuration
+# Feature Status: What's Running vs What Needs Configuration
 
-This page documents the honest status of every feature — what's actually working out of the box vs what needs credentials/URLs to activate.
+This page documents the honest status of every feature: what's actually working out of the box vs what needs credentials/URLs to activate.
 
 ## Actually Working (no config needed)
 
@@ -17,22 +17,28 @@ This page documents the honest status of every feature — what's actually worki
 | **Config hot-reload** | ConfigMap changes picked up every 30s | No pod restart needed for config changes |
 | **Cost estimation** | Working with built-in instance prices | 40+ AWS/GCP/Azure instance types hardcoded |
 | **Resource efficiency** | Pod overuse/underuse/no-limits analysis | Based on requests vs limits comparison |
-| **kubectl terminal** | Commands execute via K8s Go client | get, describe, logs, version — read-only |
+| **kubectl terminal** | Commands execute via K8s Go client | get, describe, logs, version: read-only |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
 | **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
 
-## Code Exists — Needs Configuration to Activate
+## Code Exists: Needs Configuration to Activate
 
 ### Messaging & Alerting
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **Slack** | Sends incident alerts with logs, LLM diagnosis, interactive buttons | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently — visible only in dashboard |
-| **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired — `FireIncident()` returns nil |
-| **PagerDuty** | Triggers PD incidents for critical/warning severity | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages — escalation chain skips PD |
-| **OpsGenie** | Creates OG alerts for critical/warning | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
-| **Email** | Sends email for critical incidents | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+| **Slack** | Sends incident alerts with logs and LLM diagnosis. Interactive buttons are not sent yet (`BuildIncidentBlocks` has no caller, ISS-012); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and replies that no action was taken | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
+| **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired: `FireIncident()` returns nil |
+| **PagerDuty** | Would trigger PD incidents for critical/warning severity. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
+| **OpsGenie** | Would create OG alerts for critical/warning. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
+| **Email** | Would send email for critical incidents. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+
+### Chart values that nothing reads
+
+Checked 2026-10-07 (ISS-012): `gitops.mode` (`GITOPS_MODE`) and
+`images.mirror.*` (`IMAGE_MIRROR_*`) are rendered into the ConfigMap, but no
+Go code reads them. Setting them changes nothing.
 
 ### Ticketing & GitOps
 
@@ -47,24 +53,24 @@ This page documents the honest status of every feature — what's actually worki
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **LLM diagnosis** | Sends logs+events to LLM, gets SRE advice | Set `LLM_ENABLED=true`, `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` | No AI diagnosis — Slack messages won't have LLM section |
-| **Learning mode** | Collects CPU baselines per workload, auto-tunes thresholds | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
-| **Auto-scaling** | Scales deployments based on CPU + gate signals | Set `METRICS_PROVIDER=prometheus`, `PROMETHEUS_URL` | No scaling — CPU queries return errors with metrics-server |
-| **Anomaly detection** | Evaluates CRD PromQL rules | Set `PROMETHEUS_URL` + create AutoRemediationPolicy with anomalies | No anomaly detection — queries fail without Prometheus |
+| **LLM diagnosis** | Sends logs+events to LLM, gets SRE advice | Set `LLM_ENABLED=true`, `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` | No AI diagnosis: Slack messages won't have LLM section |
+| **Learning mode** | Collects CPU baselines per workload (see `/api/baselines`). Thresholds are **not** auto-tuned yet: `LearningMode.GetThreshold` (`internal/kube/learning.go`) has no caller (ISS-012) | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
+| **Auto-scaling** | Scales deployments based on CPU + gate signals | Set `METRICS_PROVIDER=prometheus`, `PROMETHEUS_URL` | No scaling: CPU queries return errors with metrics-server |
+| **Anomaly detection** | Evaluates CRD PromQL rules | Set `PROMETHEUS_URL` + create AutoRemediationPolicy with anomalies | No anomaly detection: queries fail without Prometheus |
 
 ### Storage & Cost
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **S3 storage** | Persists incident logs to AWS S3 | Set `LOG_STORE=s3`, `LOG_S3_BUCKET`, `LOG_S3_PREFIX` + AWS credentials (IRSA) | Logs go to filesystem `/var/log/auto-agent/` on the node |
-| **Kubecost** | Real cluster cost data from Kubecost API | Set `COST_PROVIDER=kubecost` — deploy.sh auto-installs | Uses built-in instance-type price estimates |
-| **OpenCost** | Real cluster cost data from OpenCost API | Set `COST_PROVIDER=opencost` — deploy.sh auto-installs | Same as above |
+| **Kubecost** | Real cluster cost data from Kubecost API | Set `COST_PROVIDER=kubecost`: deploy.sh auto-installs | Uses built-in instance-type price estimates |
+| **OpenCost** | Real cluster cost data from OpenCost API | Set `COST_PROVIDER=opencost`: deploy.sh auto-installs | Same as above |
 
 ### Security
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **Admission webhook** | Validates deployments have limits, probes, non-blocked images | Set `WEBHOOK_CERT_FILE`, `WEBHOOK_KEY_FILE` + create ValidatingWebhookConfiguration | No admission validation — bad deployments are not prevented, only detected after the fact |
+| **Admission webhook** | Validates deployments have limits, probes, non-blocked images | Set `WEBHOOK_CERT_FILE`, `WEBHOOK_KEY_FILE` + create ValidatingWebhookConfiguration | No admission validation: bad deployments are not prevented, only detected after the fact |
 | **Namespace-scoped RBAC** | Per-namespace Role/RoleBinding instead of ClusterRole | Set `namespacedRBAC.enabled=true` in Helm values | ClusterRole grants access to all namespaces (agent only acts on allowlist though) |
 
 ## Quick Activation Guide
@@ -74,7 +80,7 @@ This page documents the honest status of every feature — what's actually worki
 # deployment/03-config.yaml secrets:
 SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."   # alerts
 ```
-That's it — you get Slack alerts for every incident. Everything else is optional.
+That's it: you get Slack alerts for every incident. Everything else is optional.
 
 ### Recommended production setup
 ```yaml
@@ -130,11 +136,11 @@ ESCALATION_EMAIL_TO: "oncall@yourorg.com"
 
 | Integration | Verify command |
 |-------------|---------------|
-| Slack | Check agent logs: `grep "slack:" logs` — should show POST, not "no webhook" |
-| Alertmanager | `curl http://alertmanager:9093/api/v2/alerts` — check for AutoAgentIncident |
+| Slack | Check agent logs: `grep "slack:" logs`: should show POST, not "no webhook" |
+| Alertmanager | `curl http://alertmanager:9093/api/v2/alerts`: check for AutoAgentIncident |
 | GitOps | Check GitHub/GitLab repo for branches named `auto-agent/oom-*` |
 | Tickets | Search Jira/GitHub Issues for `[auto-agent]` in title |
 | LLM | Check Slack messages for `_LLM diagnosis_:` section |
 | Kubecost | Dashboard Cost tab shows `source: kubecost` instead of `default` |
-| Learning | `curl http://localhost:8080/api/baselines` — should show `learning: true` with baseline data |
+| Learning | `curl http://localhost:8080/api/baselines`: should show `learning: true` with baseline data |
 | Prometheus | Agent logs should NOT show `metrics provider not implemented` |

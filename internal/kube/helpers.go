@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
 )
 
 // dedupKey builds a deduplication key at the WORKLOAD level (not pod level).

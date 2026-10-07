@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // Ticket describes an issue/ticket to create or update.
@@ -45,6 +47,7 @@ func NewGitHubIssues(token, repo string) Ticketer {
 }
 
 func (g *githubIssues) CreateOrUpdate(ctx context.Context, key string, t Ticket) (string, error) {
+	t = redactTicket(t)
 	if g.token == "" {
 		return "", fmt.Errorf("tickets/github: GITHUB_TOKEN not configured")
 	}
@@ -212,6 +215,7 @@ func NewJira(token, baseURL, project, email string) Ticketer {
 }
 
 func (j *jiraClient) CreateOrUpdate(ctx context.Context, key string, t Ticket) (string, error) {
+	t = redactTicket(t)
 	if j.token == "" || j.baseURL == "" {
 		return "", fmt.Errorf("tickets/jira: JIRA_TOKEN or JIRA_BASE_URL not configured")
 	}
@@ -254,9 +258,9 @@ func (j *jiraClient) CreateOrUpdate(ctx context.Context, key string, t Ticket) (
 	// Create new issue
 	payload := map[string]interface{}{
 		"fields": map[string]interface{}{
-			"project":  map[string]string{"key": j.project},
+			"project":   map[string]string{"key": j.project},
 			"issuetype": map[string]string{"name": "Bug"},
-			"summary":  fmt.Sprintf("[auto-agent:%s] %s", key, t.Title),
+			"summary":   fmt.Sprintf("[auto-agent:%s] %s", key, t.Title),
 			"description": map[string]interface{}{
 				"type":    "doc",
 				"version": 1,
@@ -351,4 +355,11 @@ func NewNopTicketer() Ticketer { return &nopTicketer{} }
 
 func (n *nopTicketer) CreateOrUpdate(_ context.Context, _ string, _ Ticket) (string, error) {
 	return "(ticketing disabled)", nil
+}
+
+// redactTicket masks secrets in the text a ticket sends off the cluster (ISS-011).
+func redactTicket(t Ticket) Ticket {
+	t.Title = redact.String(t.Title)
+	t.Body = redact.String(t.Body)
+	return t
 }

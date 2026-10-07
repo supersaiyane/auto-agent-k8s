@@ -9,9 +9,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/yourorg/auto-agent/internal/crd"
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
 
 func newHandlerTestDeps(t *testing.T) (*Deps, *fake.Clientset) {
@@ -21,9 +21,9 @@ func newHandlerTestDeps(t *testing.T) (*Deps, *fake.Clientset) {
 	return &Deps{
 		Client:   kc,
 		Metrics:  &mockMetrics{cpu: 0.5},
-		Policy:   testPolicy(),
+		Policies: policy.Static(testPolicy()),
 		Slack:    sl,
-		LLM:     &mockLLMClient{},
+		LLM:      &mockLLMClient{},
 		Dedup:    ratelimit.NewDeduplicator(5 * time.Minute),
 		Limiter:  ratelimit.NewActionLimiter(100, 10*time.Minute),
 		Sink:     &mockSink{},
@@ -68,7 +68,7 @@ func TestHandleCrashLoop_DeletesPod(t *testing.T) {
 
 func TestHandleCrashLoop_SuggestMode_NoDeletion(t *testing.T) {
 	deps, kc := newHandlerTestDeps(t)
-	deps.Policy.Mode = policy.Suggest
+	deps.Policy().Mode = policy.Suggest
 	ctx := context.Background()
 
 	pod := &corev1.Pod{

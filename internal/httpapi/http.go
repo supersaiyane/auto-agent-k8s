@@ -2,13 +2,16 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -18,7 +21,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 //go:embed ui/*
@@ -30,6 +34,8 @@ type Server struct {
 	recorder *events.Recorder
 	meta     *AgentMeta
 	kc       kubernetes.Interface
+	token    string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
+	allowNS  func(string) bool // namespace allowlist for kubectl reads
 }
 
 type AgentMeta struct {
@@ -41,7 +47,10 @@ type AgentMeta struct {
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface) *Server {
-	s := &Server{recorder: recorder, meta: meta, kc: kc}
+	s := &Server{recorder: recorder, meta: meta, kc: kc, token: os.Getenv("DASHBOARD_TOKEN")}
+	if s.token == "" {
+		klog.Warningf("httpapi: DASHBOARD_TOKEN not set, /api/ is disabled")
+	}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -61,22 +70,10 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// API endpoints
-	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/events", s.handleEvents)
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/api/cluster", s.handleCluster)
-	mux.HandleFunc("/api/namespace/", s.handleNamespace)
-	mux.HandleFunc("/api/nodes", s.handleNodes)
-	mux.HandleFunc("/api/k8s-events", s.handleK8sEvents)
-	mux.HandleFunc("/api/kubectl", s.handleKubectl)
-	mux.HandleFunc("/api/compliance", s.handleCompliance)
-	mux.HandleFunc("/api/baselines", s.handleBaselines)
-	mux.HandleFunc("/api/deploys", s.handleDeploys)
-	mux.HandleFunc("/api/dry-run", s.handleDryRun)
-	mux.HandleFunc("/api/cost", s.handleCost)
-	mux.HandleFunc("/api/resources", s.handleResources)
-	mux.HandleFunc("/api/resources/", s.handleResourcesNs)
-	mux.HandleFunc("/api/fixes", s.handleFixes)
+	for _, rt := range apiRouteTable {
+		h := rt.handler
+		mux.HandleFunc(rt.path, func(w http.ResponseWriter, r *http.Request) { h(s, w, r) })
+	}
 
 	// Slack interactive actions callback
 	slackHandler := NewSlackActionHandler(os.Getenv("SLACK_SIGNING_SECRET"))
@@ -91,7 +88,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 
 	s.srv = &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      s.authorize(mux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -107,6 +104,38 @@ func (s *Server) Start() {
 }
 
 func (s *Server) SetLeaderFunc(fn func() bool) { s.meta.IsLeaderFn = fn }
+
+// SetNamespaceFilter sets the allowlist the kubectl endpoint enforces. Until
+// it is set, namespaced kubectl reads are denied.
+func (s *Server) SetNamespaceFilter(fn func(string) bool) { s.allowNS = fn }
+
+// nsAllowed applies the namespace allowlist to dashboard reads (CLAUDE.md
+// constraint 4, ISS-028). Until a filter is set, nothing is allowed.
+func (s *Server) nsAllowed(ns string) bool { return s.allowNS != nil && s.allowNS(ns) }
+
+// authorize requires the dashboard bearer token on every /api/ path except
+// the Slack callback, which is verified by Slack signature (ISS-005, ISS-006).
+// Probes, /metrics and the static UI files stay open.
+func (s *Server) authorize(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := path.Clean(r.URL.Path)
+		if (p != "/api" && !strings.HasPrefix(p, "/api/")) || p == slackActionsPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if s.token == "" {
+			http.Error(w, "dashboard API disabled: set DASHBOARD_TOKEN", http.StatusServiceUnavailable)
+			return
+		}
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="auto-agent"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) SetReady() {
 	atomic.StoreInt32(&s.ready, 1)
@@ -179,22 +208,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 // --- Cluster Overview API ---
 
 type nsOverview struct {
-	Name        string       `json:"name"`
-	Phase       string       `json:"phase"`
-	Pods        podSummary   `json:"pods"`
-	Deployments int          `json:"deployments"`
-	Services    int          `json:"services"`
-	Jobs        int          `json:"jobs"`
+	Name        string     `json:"name"`
+	Phase       string     `json:"phase"`
+	Pods        podSummary `json:"pods"`
+	Deployments int        `json:"deployments"`
+	Services    int        `json:"services"`
+	Jobs        int        `json:"jobs"`
 }
 
 type podSummary struct {
-	Total      int `json:"total"`
-	Running    int `json:"running"`
-	Pending    int `json:"pending"`
-	Failed     int `json:"failed"`
-	Succeeded  int `json:"succeeded"`
-	CrashLoop  int `json:"crashLoop"`
-	NotReady   int `json:"notReady"`
+	Total     int `json:"total"`
+	Running   int `json:"running"`
+	Pending   int `json:"pending"`
+	Failed    int `json:"failed"`
+	Succeeded int `json:"succeeded"`
+	CrashLoop int `json:"crashLoop"`
+	NotReady  int `json:"notReady"`
 }
 
 // handleCluster returns overview of all namespaces.
@@ -214,27 +243,42 @@ func (s *Server) handleCluster(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]nsOverview, 0, len(nsList.Items))
 	for _, ns := range nsList.Items {
+		if !s.nsAllowed(ns.Name) {
+			continue
+		}
 		ov := nsOverview{
 			Name:  ns.Name,
 			Phase: string(ns.Status.Phase),
 		}
 
-		pods, _ := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+		pods, err := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "pods", ns.Name)
+		}
 		if pods != nil {
 			ov.Pods = summarizePods(pods.Items)
 		}
 
-		deploys, _ := s.kc.AppsV1().Deployments(ns.Name).List(ctx, metav1.ListOptions{})
+		deploys, err := s.kc.AppsV1().Deployments(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "deployments", ns.Name)
+		}
 		if deploys != nil {
 			ov.Deployments = len(deploys.Items)
 		}
 
-		svcs, _ := s.kc.CoreV1().Services(ns.Name).List(ctx, metav1.ListOptions{})
+		svcs, err := s.kc.CoreV1().Services(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "services", ns.Name)
+		}
 		if svcs != nil {
 			ov.Services = len(svcs.Items)
 		}
 
-		jobs, _ := s.kc.BatchV1().Jobs(ns.Name).List(ctx, metav1.ListOptions{})
+		jobs, err := s.kc.BatchV1().Jobs(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "jobs", ns.Name)
+		}
 		if jobs != nil {
 			ov.Jobs = len(jobs.Items)
 		}
@@ -274,11 +318,11 @@ type deployDetail struct {
 }
 
 type svcDetail struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	ClusterIP  string `json:"clusterIP"`
-	Ports      string `json:"ports"`
-	Age        string `json:"age"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	ClusterIP string `json:"clusterIP"`
+	Ports     string `json:"ports"`
+	Age       string `json:"age"`
 }
 
 type nsDetail struct {
@@ -299,6 +343,10 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "namespace required", http.StatusBadRequest)
 		return
 	}
+	if !s.nsAllowed(ns) {
+		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -306,7 +354,10 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 	detail := nsDetail{}
 
 	// Pods
-	pods, _ := s.kc.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+	pods, err := s.kc.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		obs.CountAPIError(err, "pods", ns)
+	}
 	if pods != nil {
 		for _, p := range pods.Items {
 			pd := podDetail{
@@ -346,7 +397,10 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Deployments
-	deploys, _ := s.kc.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+	deploys, err := s.kc.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		obs.CountAPIError(err, "deployments", ns)
+	}
 	if deploys != nil {
 		for _, d := range deploys.Items {
 			desired := int32(1)
@@ -364,7 +418,10 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Services
-	svcs, _ := s.kc.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+	svcs, err := s.kc.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		obs.CountAPIError(err, "services", ns)
+	}
 	if svcs != nil {
 		for _, svc := range svcs.Items {
 			ports := ""
@@ -391,19 +448,19 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 }
 
 type nodeInfo struct {
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	Roles           string `json:"roles"`
-	Version         string `json:"version"`
-	OS              string `json:"os"`
-	Arch            string `json:"arch"`
-	CPU             string `json:"cpu"`
-	Memory          string `json:"memory"`
-	Pods            int    `json:"pods"`
-	MemoryPressure  bool   `json:"memoryPressure"`
-	DiskPressure    bool   `json:"diskPressure"`
-	Unschedulable   bool   `json:"unschedulable"`
-	Age             string `json:"age"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	Roles          string `json:"roles"`
+	Version        string `json:"version"`
+	OS             string `json:"os"`
+	Arch           string `json:"arch"`
+	CPU            string `json:"cpu"`
+	Memory         string `json:"memory"`
+	Pods           int    `json:"pods"`
+	MemoryPressure bool   `json:"memoryPressure"`
+	DiskPressure   bool   `json:"diskPressure"`
+	Unschedulable  bool   `json:"unschedulable"`
+	Age            string `json:"age"`
 }
 
 // handleNodes returns node status and health.
@@ -458,9 +515,12 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Pod count on this node
-		pods, _ := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		pods, err := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 			FieldSelector: "spec.nodeName=" + n.Name,
 		})
+		if err != nil {
+			obs.CountAPIError(err, "pods", "")
+		}
 		if pods != nil {
 			ni.Pods = len(pods.Items)
 		}
@@ -480,7 +540,7 @@ type k8sEvent struct {
 	Reason    string `json:"reason"`
 	Message   string `json:"message"`
 	Count     int32  `json:"count"`
-	Source     string `json:"source"`
+	Source    string `json:"source"`
 	Age       string `json:"age"`
 }
 
@@ -496,6 +556,10 @@ func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
 	ns := r.URL.Query().Get("namespace")
 	var eventList *corev1.EventList
 	var err error
+	if ns != "" && !s.nsAllowed(ns) {
+		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
+		return
+	}
 	if ns != "" {
 		eventList, err = s.kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 	} else {
@@ -506,8 +570,14 @@ func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only allowlisted namespaces (ISS-028).
+	items := make([]corev1.Event, 0, len(eventList.Items))
+	for _, e := range eventList.Items {
+		if s.nsAllowed(e.Namespace) {
+			items = append(items, e)
+		}
+	}
 	// Sort by last timestamp descending, take most recent 200
-	items := eventList.Items
 	// Simple sort: reverse order (API returns chronological)
 	result := make([]k8sEvent, 0, 200)
 	start := 0
@@ -529,7 +599,7 @@ func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
 			Reason:    e.Reason,
 			Message:   e.Message,
 			Count:     e.Count,
-			Source:     e.Source.Component,
+			Source:    e.Source.Component,
 			Age:       age(ts),
 		})
 	}
@@ -624,3 +694,36 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 }
 
 var startTime = time.Now()
+
+// apiRouteTable is every dashboard API route. Registration and the auth test
+// both read it, so a route added here is covered by the test automatically.
+var apiRouteTable = []struct {
+	path    string
+	handler func(*Server, http.ResponseWriter, *http.Request)
+}{
+	{"/api/status", (*Server).handleStatus},
+	{"/api/events", (*Server).handleEvents},
+	{"/api/stats", (*Server).handleStats},
+	{"/api/cluster", (*Server).handleCluster},
+	{"/api/namespace/", (*Server).handleNamespace},
+	{"/api/nodes", (*Server).handleNodes},
+	{"/api/k8s-events", (*Server).handleK8sEvents},
+	{"/api/kubectl", (*Server).handleKubectl},
+	{"/api/compliance", (*Server).handleCompliance},
+	{"/api/baselines", (*Server).handleBaselines},
+	{"/api/deploys", (*Server).handleDeploys},
+	{"/api/dry-run", (*Server).handleDryRun},
+	{"/api/cost", (*Server).handleCost},
+	{"/api/resources", (*Server).handleResources},
+	{"/api/resources/", (*Server).handleResourcesNs},
+	{"/api/fixes", (*Server).handleFixes},
+}
+
+// apiRoutes returns every /api/ path the server serves, Slack included.
+func apiRoutes() []string {
+	paths := []string{slackActionsPath}
+	for _, rt := range apiRouteTable {
+		paths = append(paths, rt.path)
+	}
+	return paths
+}

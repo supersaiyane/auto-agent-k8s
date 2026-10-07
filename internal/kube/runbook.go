@@ -11,14 +11,14 @@ import (
 
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // RunbookStep is a single step in a runbook.
 type RunbookStep struct {
 	Name        string `json:"name" yaml:"name"`
-	Type        string `json:"type" yaml:"type"`     // "check", "action", "notify"
+	Type        string `json:"type" yaml:"type"`       // "check", "action", "notify"
 	Command     string `json:"command" yaml:"command"` // kubectl-style command to execute
 	Expect      string `json:"expect" yaml:"expect"`   // expected output substring
 	Description string `json:"description" yaml:"description"`
@@ -32,17 +32,17 @@ type Runbook struct {
 
 // RunbookResult is the outcome of executing a runbook.
 type RunbookResult struct {
-	Runbook  string             `json:"runbook"`
+	Runbook  string              `json:"runbook"`
 	Steps    []RunbookStepResult `json:"steps"`
-	Success  bool               `json:"success"`
-	Duration string             `json:"duration"`
+	Success  bool                `json:"success"`
+	Duration string              `json:"duration"`
 }
 
 type RunbookStepResult struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"` // "pass", "fail", "skip"
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
+	Name   string `json:"name"`
+	Status string `json:"status"` // "pass", "fail", "skip"
+	Output string `json:"output"`
+	Error  string `json:"error,omitempty"`
 }
 
 // FetchRunbook downloads a runbook from a URL (JSON format).
@@ -154,7 +154,7 @@ func RunRunbookForIncident(ctx context.Context, deps *Deps, runbookURL, ns, work
 		}
 		msg += fmt.Sprintf("  [%s] %s", icon, s.Name)
 		if s.Error != "" {
-			msg += fmt.Sprintf(" — %s", s.Error)
+			msg += fmt.Sprintf(": %s", s.Error)
 		}
 		msg += "\n"
 	}

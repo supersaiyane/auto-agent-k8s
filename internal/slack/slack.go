@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // Client supports posting to a default webhook and per-channel overrides.
@@ -81,6 +83,7 @@ func (c *Client) resolveChannel(channel string) string {
 }
 
 func (c *Client) postTo(hook, text string) error {
+	text = redact.String(text) // ISS-011
 	if hook == "" {
 		klog.V(4).Infof("slack: no webhook, skipping: %s", truncate(text, 80))
 		return nil
@@ -102,6 +105,7 @@ func (c *Client) postTo(hook, text string) error {
 }
 
 func (c *Client) postBlocksTo(hook string, blocks []map[string]interface{}) error {
+	blocks = redact.Value(blocks).([]map[string]interface{}) // ISS-011
 	if hook == "" {
 		return nil
 	}

@@ -10,11 +10,11 @@ Monthly = (CPU_cores × CPU_price/hr + Memory_GiB × Mem_price/hr) × 730 hrs/mo
 
 ### Pricing Sources (priority order)
 
-1. **Kubecost API** — real cluster costs (most accurate)
-2. **OpenCost API** — open-source alternative
-3. **Instance-type lookup** — reads `node.kubernetes.io/instance-type` label, matches against 40+ built-in prices
-4. **Manual rates** — `COST_CPU_PER_HOUR`, `COST_MEM_PER_GIB_HOUR`
-5. **Default** — $0.05/vCPU/hr, $0.005/GiB/hr
+1. **Kubecost API**: real cluster costs (most accurate)
+2. **OpenCost API**: open-source alternative
+3. **Instance-type lookup**: reads `node.kubernetes.io/instance-type` label, matches against 40+ built-in prices
+4. **Manual rates**: `COST_CPU_PER_HOUR`, `COST_MEM_PER_GIB_HOUR`
+5. **Default**: $0.05/vCPU/hr, $0.005/GiB/hr
 
 ### Built-in Instance Prices
 
@@ -34,8 +34,8 @@ Azure: Standard_B2s, B2ms, D2s_v3, D4s_v3, D8s_v3, D2as_v4
 ## Identifying Waste
 
 1. **Node Cost tab**: Look for nodes with low CPU% and Mem%. High cost but low utilization = overpaying
-2. **Top Workloads**: Sort by $/mo — are the most expensive workloads actually critical?
-3. **Resources tab**: Find pods with `overuse` or `no-limits` — they reserve more than they need
+2. **Top Workloads**: Sort by $/mo: are the most expensive workloads actually critical?
+3. **Resources tab**: Find pods with `overuse` or `no-limits`: they reserve more than they need
 
 ## Right-Sizing Recommendations
 
@@ -43,10 +43,10 @@ The Resources tab classifies each pod:
 
 | Classification | Meaning | Action |
 |---|---|---|
-| **right-sized** | Limits are 1-5× requests | Good — no action needed |
+| **right-sized** | Limits are 1-5× requests | Good: no action needed |
 | **overuse** | No requests, or limits >5× requests | Reduce limits closer to actual usage |
 | **underuse** | Very low requests with high limits | Increase requests to prevent throttling |
-| **no-limits** | No CPU/memory limits set | Add limits — pod can exhaust node resources |
+| **no-limits** | No CPU/memory limits set | Add limits: pod can exhaust node resources |
 
 ## Cost Reduction Strategies
 

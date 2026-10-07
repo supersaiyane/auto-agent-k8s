@@ -1,13 +1,13 @@
 ##############################################################
 # APP 3: inventory-service (namespace: test2)
-# 3 pods — each fails in a different way
+# 3 pods: each fails in a different way
 #
-# Pod 1 (pending):    Pending — impossible resource request
-# Pod 2 (restart):    Restart storm — exits rapidly
-# Pod 3 (rollout):    Stuck rollout — broken v2 after healthy v1
+# Pod 1 (pending):    Pending: impossible resource request
+# Pod 2 (restart):    Restart storm: exits rapidly
+# Pod 3 (rollout):    Stuck rollout: broken v2 after healthy v1
 ##############################################################
 
-# Deployment 1: Pending — requests more resources than the cluster has
+# Deployment 1: Pending: requests more resources than the cluster has
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,7 +40,7 @@ spec:
               cpu: "500"
               memory: "999Gi"
 ---
-# Deployment 2: Restart storm — process exits after 1 second, restarts rapidly
+# Deployment 2: Restart storm: process exits after 1 second, restarts rapidly
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -125,7 +125,7 @@ spec:
               cpu: 100m
               memory: 128Mi
 ---
-# Resource quota — tight, will alert at 90% usage
+# Resource quota: tight, will alert at 90% usage
 apiVersion: v1
 kind: ResourceQuota
 metadata:

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -18,29 +19,29 @@ type nsResourceOverview struct {
 	MemRequestsMi float64 `json:"memRequestsMi"`
 	MemLimitsMi   float64 `json:"memLimitsMi"`
 	Monthly       float64 `json:"monthly"`
-	Overuse       int     `json:"overuse"`   // pods with no limits or limit >> request
-	Underuse      int     `json:"underuse"`  // pods with very low requests
-	NoLimits      int     `json:"noLimits"`  // pods with no resource limits at all
+	Overuse       int     `json:"overuse"`  // pods with no limits or limit >> request
+	Underuse      int     `json:"underuse"` // pods with very low requests
+	NoLimits      int     `json:"noLimits"` // pods with no resource limits at all
 	Healthy       int     `json:"healthy"`
 }
 
 type podResourceDetail struct {
-	Name          string                `json:"name"`
-	Namespace     string                `json:"namespace"`
-	Node          string                `json:"node"`
-	Status        string                `json:"status"`
-	Age           string                `json:"age"`
-	Restarts      int32                 `json:"restarts"`
-	Efficiency    string                `json:"efficiency"` // "overuse", "underuse", "right-sized", "no-limits"
-	EffColor      string                `json:"effColor"`   // red, yellow, green, muted
-	CPURequest    string                `json:"cpuRequest"`
-	CPULimit      string                `json:"cpuLimit"`
-	MemRequest    string                `json:"memRequest"`
-	MemLimit      string                `json:"memLimit"`
-	LimitReqRatio float64              `json:"limitReqRatio"` // limit/request ratio
-	Monthly       float64              `json:"monthly"`
-	Containers    []containerResource   `json:"containers"`
-	Advice        string                `json:"advice"`
+	Name          string              `json:"name"`
+	Namespace     string              `json:"namespace"`
+	Node          string              `json:"node"`
+	Status        string              `json:"status"`
+	Age           string              `json:"age"`
+	Restarts      int32               `json:"restarts"`
+	Efficiency    string              `json:"efficiency"` // "overuse", "underuse", "right-sized", "no-limits"
+	EffColor      string              `json:"effColor"`   // red, yellow, green, muted
+	CPURequest    string              `json:"cpuRequest"`
+	CPULimit      string              `json:"cpuLimit"`
+	MemRequest    string              `json:"memRequest"`
+	MemLimit      string              `json:"memLimit"`
+	LimitReqRatio float64             `json:"limitReqRatio"` // limit/request ratio
+	Monthly       float64             `json:"monthly"`
+	Containers    []containerResource `json:"containers"`
+	Advice        string              `json:"advice"`
 }
 
 type containerResource struct {
@@ -54,9 +55,9 @@ type containerResource struct {
 }
 
 type nsResourceDetail struct {
-	Namespace string               `json:"namespace"`
-	Summary   nsResourceOverview   `json:"summary"`
-	Pods      []podResourceDetail  `json:"pods"`
+	Namespace string              `json:"namespace"`
+	Summary   nsResourceOverview  `json:"summary"`
+	Pods      []podResourceDetail `json:"pods"`
 }
 
 // handleResources returns all namespaces with resource overview.
@@ -76,8 +77,14 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]nsResourceOverview, 0, len(nsList.Items))
 	for _, ns := range nsList.Items {
+		if !s.nsAllowed(ns.Name) {
+			continue
+		}
 		ov := nsResourceOverview{Name: ns.Name}
-		pods, _ := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+		pods, err := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "pods", ns.Name)
+		}
 		if pods == nil {
 			result = append(result, ov)
 			continue
@@ -121,6 +128,10 @@ func (s *Server) handleResourcesNs(w http.ResponseWriter, r *http.Request) {
 	ns := r.URL.Path[len("/api/resources/"):]
 	if ns == "" {
 		http.Error(w, "namespace required", http.StatusBadRequest)
+		return
+	}
+	if !s.nsAllowed(ns) {
+		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
 		return
 	}
 
@@ -222,15 +233,15 @@ func (s *Server) handleResourcesNs(w http.ResponseWriter, r *http.Request) {
 
 // classifyPod determines if a pod is overuse, underuse, right-sized, or has no limits.
 func classifyPod(cpuReq, cpuLim, memReq, memLim float64) string {
-	// No limits at all — dangerous
+	// No limits at all, dangerous
 	if cpuLim == 0 && memLim == 0 {
 		return "no-limits"
 	}
-	// No requests — likely overusing shared resources
+	// No requests, likely overusing shared resources
 	if cpuReq == 0 && memReq == 0 {
 		return "overuse"
 	}
-	// Limit >> request (more than 5x) — overprovisioned, wasting reservation
+	// Limit >> request (more than 5x), overprovisioned, wasting reservation
 	if cpuReq > 0 && cpuLim/cpuReq > 5 {
 		return "overuse"
 	}
@@ -276,14 +287,14 @@ func effAdvice(eff string, cpuReq, cpuLim, memReq, memLim float64) string {
 		return "Set CPU and memory limits to prevent node exhaustion"
 	case "overuse":
 		if cpuReq == 0 {
-			return "Set CPU/memory requests — pod may be starving other workloads"
+			return "Set CPU/memory requests: pod may be starving other workloads"
 		}
 		if cpuReq > 0 && cpuLim/cpuReq > 5 {
-			return fmt.Sprintf("Limit/request ratio is %.0fx — reduce limits closer to actual usage", cpuLim/cpuReq)
+			return fmt.Sprintf("Limit/request ratio is %.0fx: reduce limits closer to actual usage", cpuLim/cpuReq)
 		}
 		return "Resource limits too high relative to requests"
 	case "underuse":
-		return "Very low resource requests — pod may get throttled under load. Increase requests."
+		return "Very low resource requests: pod may get throttled under load. Increase requests."
 	default:
 		return ""
 	}

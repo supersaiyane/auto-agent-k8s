@@ -79,7 +79,7 @@ func (dt *DeployTracker) CorrelateIncident(ns, workload string) string {
 		return ""
 	}
 	for _, d := range recent {
-		return fmt.Sprintf("_Correlation_: deploy `%s` (image: `%s`) happened %s ago — may be the cause.\n",
+		return fmt.Sprintf("_Correlation_: deploy `%s` (image: `%s`) happened %s ago: may be the cause.\n",
 			d.Deployment, d.Image, time.Since(d.Timestamp).Round(time.Second))
 	}
 	return ""
@@ -90,9 +90,10 @@ func ScanDeployments(ctx context.Context, deps *Deps) {
 	if deps.DeployTracker == nil {
 		return
 	}
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "deployments", ns)
 			continue
 		}
 		for _, d := range deploys.Items {

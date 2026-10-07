@@ -13,10 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/yourorg/auto-agent/internal/crd"
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
-	"github.com/yourorg/auto-agent/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
 )
 
 // mockMetrics implements metrics.Provider for testing.
@@ -46,13 +46,6 @@ func (m *mockSlack) Postf(format string, args ...any) error {
 	return m.Post(fmt.Sprintf(format, args...))
 }
 
-// mockLLM returns empty advice.
-type mockLLM struct{}
-
-func (m *mockLLM) Enabled() bool                                          { return false }
-func (m *mockLLM) Diagnose(_ context.Context, _, _ string) string         { return "" }
-func (m *mockLLM) DiagnoseWithFallback(_ context.Context, _, _ string) string { return "" }
-
 // mockSink discards records.
 type mockSink struct{}
 
@@ -71,9 +64,9 @@ func newTestDeps(t *testing.T, objects ...metav1.Object) (*Deps, *fake.Clientset
 	return &Deps{
 		Client:   kc,
 		Metrics:  &mockMetrics{cpu: 0.5},
-		Policy:   testPolicy(),
+		Policies: policy.Static(testPolicy()),
 		Slack:    &mockSlackClient{},
-		LLM:     &mockLLMClient{},
+		LLM:      &mockLLMClient{},
 		Dedup:    ratelimit.NewDeduplicator(5 * time.Minute),
 		Limiter:  ratelimit.NewActionLimiter(100, 10*time.Minute),
 		Sink:     &mockSink{},
@@ -202,7 +195,7 @@ func TestEvaluateAndScale_SkipsHPA(t *testing.T) {
 func TestEvaluateAndScale_RespectsMaxReplicas(t *testing.T) {
 	deps, kc := newTestDeps(t)
 	deps.Metrics = &mockMetrics{cpu: 0.9}
-	deps.Policy.MaxReplicas = 5
+	deps.Policy().MaxReplicas = 5
 
 	rep := int32(4)
 	deploy := &appsv1.Deployment{

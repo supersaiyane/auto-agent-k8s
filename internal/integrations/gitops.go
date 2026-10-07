@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // GitOpsChange describes a file change to propose via PR/MR.
@@ -46,6 +48,8 @@ func NewGitHub(token, repo, base string) GitOps {
 }
 
 func (g *githubClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, error) {
+	// PR text is redacted; the file content is the change itself and is not (ISS-011).
+	ch.Title, ch.Body = redact.String(ch.Title), redact.String(ch.Body)
 	if g.token == "" {
 		return "", fmt.Errorf("gitops/github: GIT_TOKEN not configured")
 	}
@@ -256,6 +260,8 @@ func NewGitLab(token, project, base string) GitOps {
 }
 
 func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, error) {
+	// PR text is redacted; the file content is the change itself and is not (ISS-011).
+	ch.Title, ch.Body = redact.String(ch.Title), redact.String(ch.Body)
 	if g.token == "" {
 		return "", fmt.Errorf("gitops/gitlab: GIT_TOKEN not configured")
 	}
@@ -282,7 +288,10 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	// Check if file exists
 	fileCheckURL := fmt.Sprintf("%s/projects/%s/repository/files/%s?ref=%s",
 		apiBase, g.project, urlEncodePath(ch.FilePath), branch)
-	req, _ := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("gitlab: file check request: %w", err)
+	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
 	resp, err := g.client.Do(req)
 	if err != nil || resp.StatusCode == 404 {

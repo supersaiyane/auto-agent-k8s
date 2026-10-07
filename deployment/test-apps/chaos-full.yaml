@@ -1,5 +1,5 @@
 ##############################################################
-# CHAOS SUITE — 30 pods simulating ALL 74 K8s failure conditions
+# CHAOS SUITE: 30 pods simulating ALL 74 K8s failure conditions
 # Namespace: chaos
 #
 # Deploys workloads that trigger every issue auto-agent can detect.
@@ -249,7 +249,7 @@ spec:
   selector: { app: nothing-matches-this }
   ports: [ { port: 80, targetPort: 8080 } ]
 ---
-# 15. Stuck rollout — deploy healthy v1 first
+# 15. Stuck rollout: deploy healthy v1 first
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: stuck-rollout, namespace: chaos, labels: { app: stuck-rollout, suite: workload } }

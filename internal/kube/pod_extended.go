@@ -10,19 +10,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // additionalPodReasons lists extra waiting reasons we detect beyond the main handlers.
 var additionalPodReasons = map[string]struct{}{
-	"RunContainerError":     {},
-	"ContainerCannotRun":    {},
-	"PostStartHookError":    {},
-	"PreStopHookError":      {},
-	"InvalidImageName":      {},
-	"ErrImageNeverPull":     {},
-	"StartError":            {},
+	"RunContainerError":  {},
+	"ContainerCannotRun": {},
+	"PostStartHookError": {},
+	"PreStopHookError":   {},
+	"InvalidImageName":   {},
+	"ErrImageNeverPull":  {},
+	"StartError":         {},
 }
 
 // handleAdditionalPodIssue handles pod waiting states not covered by the main handlers.
@@ -33,8 +33,11 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 
 	logs := getLastLogs(ctx, deps.Client, ns, name, cname, 30)
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		reason, message, logs, events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	sev := eventsvc.SevWarning
 	if reason == "RunContainerError" || reason == "ContainerCannotRun" || reason == "InvalidImageName" {
@@ -55,7 +58,7 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 	case "PostStartHookError":
 		msg += "_Check_: postStart lifecycle hook command and timeout.\n"
 	case "InvalidImageName":
-		msg += "_Check_: image reference format — must be registry/repo:tag.\n"
+		msg += "_Check_: image reference format: must be registry/repo:tag.\n"
 	case "ErrImageNeverPull":
 		msg += "_Check_: image is pre-loaded on the node, or change imagePullPolicy from Never.\n"
 	}
@@ -73,11 +76,12 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 
 // CheckDeadlineExceeded detects pods that exceeded their activeDeadlineSeconds.
 func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
 		if err != nil {
+			countAPIError(err, "pods", ns)
 			continue
 		}
 		for _, pod := range pods.Items {
@@ -107,11 +111,12 @@ func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
 
 // CheckEphemeralStorageFull detects pods evicted due to ephemeral storage.
 func CheckEphemeralStorageFull(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
 		if err != nil {
+			countAPIError(err, "pods", ns)
 			continue
 		}
 		for _, pod := range pods.Items {

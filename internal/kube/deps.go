@@ -5,15 +5,15 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/yourorg/auto-agent/internal/alertmanager"
-	"github.com/yourorg/auto-agent/internal/crd"
-	"github.com/yourorg/auto-agent/internal/escalation"
-	"github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/metrics"
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
-	"github.com/yourorg/auto-agent/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
+	"github.com/supersaiyane/auto-agent-k8s/internal/metrics"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
 )
 
 // SlackPoster abstracts Slack message posting for testability.
@@ -31,27 +31,44 @@ type LLMDiagnoser interface {
 
 // Deps holds shared dependencies injected into all kube handlers.
 type Deps struct {
-	Client       kubernetes.Interface
-	Metrics      metrics.Provider
-	Policy       *policy.Policy
-	Slack        SlackPoster
-	LLM          LLMDiagnoser
-	Dedup        *ratelimit.Deduplicator
-	Limiter      *ratelimit.ActionLimiter
-	Sink         storage.Sink
-	CRDStore     *crd.Store
-	GitOps       integrations.GitOps
-	Ticketer     integrations.Ticketer
-	Recorder     *events.Recorder
-	Breaker      *ratelimit.CircuitBreaker
-	AlertManager *alertmanager.Client
-	AuditLog     *AuditLog
-	BlastRadius  *BlastRadiusTracker
-	QuietHours   *QuietHours
-	DryRunLog    *DryRunLog
-	FixTracker   *FixTracker
-	Escalation   *escalation.Chain
+	Client kubernetes.Interface
+	// NodeName is the node this agent pod runs on (downward API NODE_NAME).
+	// Node actions are taken only for this node; empty means none (ISS-004).
+	NodeName string
+	Metrics  metrics.Provider
+	// Policies supplies the current policy snapshot. Read it through
+	// Deps.Policy(); never store a policy in a shared field (ISS-007).
+	Policies      PolicySource
+	Slack         SlackPoster
+	LLM           LLMDiagnoser
+	Dedup         *ratelimit.Deduplicator
+	Limiter       *ratelimit.ActionLimiter
+	Sink          storage.Sink
+	CRDStore      *crd.Store
+	GitOps        integrations.GitOps
+	Ticketer      integrations.Ticketer
+	Recorder      *events.Recorder
+	Breaker       *ratelimit.CircuitBreaker
+	AlertManager  *alertmanager.Client
+	AuditLog      *AuditLog
+	BlastRadius   *BlastRadiusTracker
+	QuietHours    *QuietHours
+	DryRunLog     *DryRunLog
+	FixTracker    *FixTracker
+	Escalation    *escalation.Chain
 	DeployTracker *DeployTracker
-	LearningMode *LearningMode
-	Compliance   *ComplianceTracker
+	LearningMode  *LearningMode
+	Compliance    *ComplianceTracker
+}
+
+// PolicySource returns the current immutable policy snapshot. In production
+// it is the ConfigMap hot reloader; tests use policy.Static.
+type PolicySource interface {
+	Get() *policy.Policy
+}
+
+// Policy returns the current policy snapshot. A reload replaces the snapshot
+// rather than changing it, so a caller may hold the returned value.
+func (d *Deps) Policy() *policy.Policy {
+	return d.Policies.Get()
 }

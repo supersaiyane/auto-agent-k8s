@@ -20,8 +20,8 @@ func TestLoadFromEnv_Defaults(t *testing.T) {
 
 	p := LoadFromEnv()
 
-	if p.Mode != Fix {
-		t.Errorf("expected mode Fix, got %s", p.Mode)
+	if p.Mode != DryRun {
+		t.Errorf("expected default mode DryRun (CLAUDE.md constraint 2), got %s", p.Mode)
 	}
 	if p.CPUThreshold != 0.8 {
 		t.Errorf("expected CPU threshold 0.8, got %f", p.CPUThreshold)

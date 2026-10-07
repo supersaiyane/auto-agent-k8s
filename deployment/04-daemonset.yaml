@@ -21,6 +21,12 @@ spec:
       serviceAccountName: auto-agent
       priorityClassName: system-node-critical
       terminationGracePeriodSeconds: 30
+      # Same hardening as charts/auto-agent/templates/daemonset.yaml (ISS-010).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
       tolerations:
         - operator: "Exists"
       volumes:
@@ -28,6 +34,20 @@ spec:
           hostPath:
             path: /var/log/auto-agent
             type: DirectoryOrCreate
+      initContainers:
+        # Hands the root-owned hostPath log directory to the agent's uid.
+        - name: log-dir-owner
+          image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          command: ["chown", "65532:65532", "/var/log/auto-agent"]
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"], add: ["CHOWN"] }
+          volumeMounts:
+            - name: logs
+              mountPath: /var/log/auto-agent
       containers:
         - name: agent
           image: auto-agent:latest
@@ -77,6 +97,8 @@ spec:
               memory: 384Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
 ---
 apiVersion: v1
 kind: Service

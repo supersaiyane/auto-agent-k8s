@@ -10,7 +10,7 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourorg/auto-agent-k8s.git
+git clone https://github.com/supersaiyane/auto-agent-k8s-k8s.git
 cd auto-agent-k8s
 
 # Deploy (builds image, loads into cluster, applies all manifests)
@@ -45,9 +45,9 @@ Deploy test apps that intentionally fail:
 ```
 
 This creates:
-- **payment-service** (default) — CrashLoop, OOM, ConfigError
-- **order-service** (test1) — Init failure, ImagePull, NotReady, 0 endpoints, failed Job
-- **inventory-service** (test2) — Pending, restart storm, healthy v1
+- **payment-service** (default): CrashLoop, OOM, ConfigError
+- **order-service** (test1): Init failure, ImagePull, NotReady, 0 endpoints, failed Job
+- **inventory-service** (test2): Pending, restart storm, healthy v1
 
 Watch the dashboard populate with incidents and actions in real-time.
 
@@ -68,7 +68,7 @@ bash deployment/test-apps/chaos-test.sh
 Edit `deployment/03-config.yaml`:
 
 ```yaml
-AUTO_MODE: "observe"    # Alert only — start here
+AUTO_MODE: "observe"    # Alert only: start here
 AUTO_MODE: "suggest"    # Alert + recommend actions
 AUTO_MODE: "fix"        # Auto-remediate
 AUTO_MODE: "dry-run"    # Simulate fixes, show what would happen
@@ -139,8 +139,8 @@ curl -s http://localhost:8080/api/cost | python3 -c "import sys,json;d=json.load
 
 ## Next Steps
 
-- [Configuration Reference](03-configuration.md) — all settings explained
-- [Dashboard Guide](06-dashboard.md) — what each tab shows
-- [Safety Model](05-safety.md) — how guardrails protect your cluster
-- [Feature Status](23-feature-status.md) — what's running vs what needs config
-- [Troubleshooting](11-troubleshooting.md) — when things don't work
+- [Configuration Reference](03-configuration.md): all settings explained
+- [Dashboard Guide](06-dashboard.md): what each tab shows
+- [Safety Model](05-safety.md): how guardrails protect your cluster
+- [Feature Status](23-feature-status.md): what's running vs what needs config
+- [Troubleshooting](11-troubleshooting.md): when things don't work

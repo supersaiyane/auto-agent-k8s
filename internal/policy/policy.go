@@ -31,10 +31,10 @@ type Policy struct {
 	LogLevel           string
 
 	// Scaling
-	CooldownUp    string
-	CooldownDown  string
-	MaxReplicas   int32
-	MinReplicas   int32
+	CooldownUp   string
+	CooldownDown string
+	MaxReplicas  int32
+	MinReplicas  int32
 
 	// Deduplication
 	DedupTTLSeconds int
@@ -53,7 +53,7 @@ func LoadFromEnv() *Policy {
 		}
 	}
 
-	m := Mode(envOr("AUTO_MODE", "fix"))
+	m := Mode(envOr("AUTO_MODE", string(DryRun)))
 	switch m {
 	case Observe, Suggest, Fix, DryRun:
 	default:
@@ -183,3 +183,13 @@ func envInt(key string, fallback int) int {
 	}
 	return i
 }
+
+// StaticSource serves one fixed policy, for code paths with no hot reload
+// (tests and one-off tools). Production code reads through HotReloader.
+type StaticSource struct{ P *Policy }
+
+// Get returns the fixed policy.
+func (s StaticSource) Get() *Policy { return s.P }
+
+// Static wraps p as a policy source.
+func Static(p *Policy) StaticSource { return StaticSource{P: p} }

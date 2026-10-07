@@ -9,8 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckNodeExtended detects additional node conditions beyond memory/disk pressure.
@@ -18,6 +18,7 @@ import (
 func CheckNodeExtended(ctx context.Context, deps *Deps) {
 	nodes, err := deps.Client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
+		countAPIError(err, "nodes", "")
 		return
 	}
 
@@ -37,7 +38,7 @@ func checkPIDPressure(ctx context.Context, deps *Deps, node *corev1.Node) {
 			if !deps.Dedup.Check(key) {
 				return
 			}
-			msg := fmt.Sprintf("*PIDPressure* on node `%s`\nToo many processes running — pods may be evicted.\n", node.Name)
+			msg := fmt.Sprintf("*PIDPressure* on node `%s`\nToo many processes running: pods may be evicted.\n", node.Name)
 			msg += "_Action_: investigate runaway processes, check for fork bombs or misconfigured sidecars.\n"
 			deps.Slack.Post(msg)
 			fireAlert(ctx, deps, "PIDPressure", "", node.Name, "", msg, "critical")
@@ -79,7 +80,7 @@ func checkContainerRuntime(ctx context.Context, deps *Deps, node *corev1.Node) {
 					return
 				}
 				msg := fmt.Sprintf("*ContainerRuntimeDown* on node `%s`\n", node.Name)
-				msg += fmt.Sprintf("Reason: %s — %s\n", c.Reason, c.Message)
+				msg += fmt.Sprintf("Reason: %s: %s\n", c.Reason, c.Message)
 				msg += "_Action_: check kubelet and container runtime (containerd/docker) on this node.\n"
 				deps.Slack.Post(msg)
 				fireAlert(ctx, deps, "ContainerRuntimeDown", "", node.Name, "", msg, "critical")
@@ -103,7 +104,7 @@ func checkCordonedForgotten(ctx context.Context, deps *Deps, node *corev1.Node) 
 	// Only alert if cordoned for more than 1 hour
 	for _, c := range node.Status.Conditions {
 		if c.Type == corev1.NodeReady && c.Status == corev1.ConditionTrue {
-			// Node is Ready but cordoned — someone forgot
+			// Node is Ready but cordoned, someone forgot
 			if time.Since(node.CreationTimestamp.Time) < 1*time.Hour {
 				return // recently created, might be intentional
 			}

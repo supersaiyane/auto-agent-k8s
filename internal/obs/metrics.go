@@ -42,6 +42,13 @@ var (
 		[]string{"status"},
 	)
 
+	APIErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "auto_agent_api_errors_total",
+			Help: "Failed Kubernetes API reads by resource and reason (forbidden means RBAC does not grant it)",
+		},
+		[]string{"resource", "reason"},
+	)
 	HandlerErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "auto_agent_handler_errors_total",
@@ -83,6 +90,7 @@ func init() {
 		RateLimitedTotal,
 		LLMRequestsTotal,
 		HandlerErrorsTotal,
+		APIErrorsTotal,
 		ScalingDecisionsTotal,
 		AnomaliesDetectedTotal,
 		InfoGauge,

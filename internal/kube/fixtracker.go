@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // FixRecord tracks an action taken and whether the workload recovered.
@@ -79,17 +79,17 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 	var stillPending []FixRecord
 
 	for _, rec := range pending {
-		// Skip if too old (>15 min) — give up
+		// Skip if too old (>15 min), give up
 		if time.Since(rec.Timestamp) > 15*time.Minute {
 			rec.Status = "not-fixed"
 			rec.VerifiedAt = time.Now().UTC()
-			rec.Detail = "timed out — workload did not recover within 15 minutes"
+			rec.Detail = "timed out: workload did not recover within 15 minutes"
 			deps.FixTracker.addFailed(rec)
 			klog.V(3).Infof("fixtracker: timed out %s/%s reason=%s", rec.Namespace, rec.Workload, rec.Reason)
 			continue
 		}
 
-		// Don't check too early — wait at least 30s after action
+		// Don't check too early, wait at least 30s after action
 		if time.Since(rec.Timestamp) < 30*time.Second {
 			stillPending = append(stillPending, rec)
 			continue
@@ -107,8 +107,8 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 			recordEvent(deps, eventsvc.Event{
 				Type: eventsvc.Action, Severity: eventsvc.SevInfo,
 				Namespace: rec.Namespace, Workload: rec.Workload,
-				Reason:  rec.Reason,
-				Action:  "verified-fix",
+				Reason: rec.Reason,
+				Action: "verified-fix",
 				Message: fmt.Sprintf("Fixed: %s → %s (verified healthy after %s)",
 					rec.Reason, rec.Action, time.Since(rec.Timestamp).Round(time.Second)),
 			})
@@ -116,7 +116,7 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 			klog.Infof("fixtracker: VERIFIED FIX %s/%s reason=%s action=%s recovery=%s",
 				rec.Namespace, rec.Workload, rec.Reason, rec.Action, time.Since(rec.Timestamp).Round(time.Second))
 		} else {
-			// Still not healthy — keep checking
+			// Still not healthy, keep checking
 			stillPending = append(stillPending, rec)
 		}
 	}
@@ -127,7 +127,7 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 }
 
 // isWorkloadHealthy checks if the workload's parent Deployment/StatefulSet is healthy.
-// The workload name is "replicaset/name-hash" — we resolve to the parent Deployment
+// The workload name is "replicaset/name-hash", we resolve to the parent Deployment
 // because after a fix, a NEW ReplicaSet is created with a different hash.
 func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bool, string) {
 	// Extract deployment name from "replicaset/api-server-8446f784fd"
@@ -150,6 +150,7 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 	// Fallback: check pods directly by owner name match
 	pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
+		countAPIError(err, "pods", ns)
 		return false, ""
 	}
 

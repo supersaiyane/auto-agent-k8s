@@ -62,7 +62,7 @@ func (hr *HotReloader) Start(ctx context.Context, kc kubernetes.Interface) {
 func (hr *HotReloader) reload(data map[string]string) {
 	newPol := applyConfigMapData(hr.Get(), data)
 	if err := newPol.Validate(); err != nil {
-		klog.Warningf("policy: reload rejected — validation failed: %v", err)
+		klog.Warningf("policy: reload rejected, validation failed: %v", err)
 		return
 	}
 	hr.mu.Lock()
@@ -87,8 +87,10 @@ func applyConfigMapData(existing *Policy, data map[string]string) *Policy {
 	// Override from configmap
 	m := Mode(get("AUTO_MODE", string(p.Mode)))
 	switch m {
-	case Observe, Suggest, Fix:
+	case Observe, Suggest, Fix, DryRun:
 		p.Mode = m
+	default:
+		klog.Warningf("policy: reload ignored invalid AUTO_MODE %q, keeping %s", m, p.Mode)
 	}
 
 	if v := get("SCALE_CPU_THRESHOLD", ""); v != "" {

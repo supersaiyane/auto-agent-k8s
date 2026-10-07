@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -50,7 +51,7 @@ func (s *Server) handleKubectl(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	output, err := executeKubectl(ctx, s.kc, cmd)
+	output, err := executeKubectl(ctx, s.kc, cmd, s.allowNS)
 	resp := kubectlResponse{Output: output}
 	if err != nil {
 		resp.Error = err.Error()
@@ -58,13 +59,16 @@ func (s *Server) handleKubectl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func executeKubectl(ctx context.Context, kc kubernetes.Interface, cmd string) (string, error) {
+func executeKubectl(ctx context.Context, kc kubernetes.Interface, cmd string, allowNS func(string) bool) (string, error) {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		return "", fmt.Errorf("empty command")
 	}
 
 	verb := parts[0]
+	if err := checkKubectlScope(verb, parts[1:], allowNS); err != nil {
+		return "", err
+	}
 	switch verb {
 	case "get":
 		return handleGet(ctx, kc, parts[1:])
@@ -98,6 +102,33 @@ func executeKubectl(ctx context.Context, kc kubernetes.Interface, cmd string) (s
 	default:
 		return "", fmt.Errorf("unsupported command: %s\nType 'help' for supported commands", verb)
 	}
+}
+
+// clusterScoped resources are readable regardless of the namespace allowlist.
+var clusterScoped = map[string]bool{
+	"nodes": true, "node": true, "no": true,
+	"namespaces": true, "namespace": true, "ns": true,
+}
+
+// checkKubectlScope applies the namespace allowlist to namespaced reads
+// (CLAUDE.md constraint 4). A nil allowlist denies them.
+func checkKubectlScope(verb string, args []string, allowNS func(string) bool) error {
+	switch verb {
+	case "get", "describe", "logs", "top":
+	default:
+		return nil
+	}
+	resource, _, ns, _, allNs, _ := parseFlags(args)
+	if verb != "logs" && clusterScoped[resource] {
+		return nil
+	}
+	if allNs {
+		return fmt.Errorf("all namespaces is not in the namespace allowlist; use -n <namespace>")
+	}
+	if allowNS == nil || !allowNS(ns) {
+		return fmt.Errorf("namespace %q is not in the namespace allowlist", ns)
+	}
+	return nil
 }
 
 func parseFlags(args []string) (resource, name, namespace, container string, allNs bool, tail int64) {
@@ -441,9 +472,12 @@ func describePod(ctx context.Context, kc kubernetes.Interface, ns, name string) 
 		}
 	}
 	// Events
-	events, _ := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+	events, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 		FieldSelector: "involvedObject.name=" + name,
 	})
+	if err != nil {
+		obs.CountAPIError(err, "events", ns)
+	}
 	if events != nil && len(events.Items) > 0 {
 		buf.WriteString("\nEvents:\n")
 		for _, e := range events.Items {

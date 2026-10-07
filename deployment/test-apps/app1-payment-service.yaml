@@ -1,10 +1,10 @@
 ##############################################################
 # APP 1: payment-service (namespace: default)
-# 3 pods — each fails in a different way
+# 3 pods: each fails in a different way
 #
-# Pod 1 (crash): CrashLoopBackOff — DB connection refused
-# Pod 2 (oom):   OOMKilled — memory leak
-# Pod 3 (config): CreateContainerConfigError — missing secret
+# Pod 1 (crash): CrashLoopBackOff: DB connection refused
+# Pod 2 (oom):   OOMKilled: memory leak
+# Pod 3 (config): CreateContainerConfigError: missing secret
 ##############################################################
 
 # ConfigMap that the app needs
@@ -17,7 +17,7 @@ data:
   APP_NAME: "payment-service"
   LOG_LEVEL: "info"
 ---
-# Deployment 1: CrashLoopBackOff — the main process crashes on startup
+# Deployment 1: CrashLoopBackOff: the main process crashes on startup
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -62,7 +62,7 @@ spec:
             - configMapRef:
                 name: payment-config
 ---
-# Deployment 2: OOMKilled — worker that leaks memory
+# Deployment 2: OOMKilled: worker that leaks memory
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -104,7 +104,7 @@ spec:
               cpu: 100m
               memory: 32Mi
 ---
-# Deployment 3: CreateContainerConfigError — references a Secret that doesn't exist
+# Deployment 3: CreateContainerConfigError: references a Secret that doesn't exist
 apiVersion: apps/v1
 kind: Deployment
 metadata:

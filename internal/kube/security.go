@@ -5,13 +5,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckSecurityIssues scans for cert expiry, RBAC errors, and LimitRange violations.
@@ -23,11 +24,17 @@ func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 
 // checkCertExpiry scans TLS secrets for certificates expiring within 30 days.
 func checkCertExpiry(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	// Reading secrets is an opt-in grant (chart rbac.readTLSSecrets sets
+	// TLS_CERT_CHECK); without it the check does not run at all (ISS-009).
+	if os.Getenv("TLS_CERT_CHECK") != "true" {
+		return
+	}
+	for ns := range deps.Policy().NamespaceAllow {
 		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "type=kubernetes.io/tls",
 		})
 		if err != nil {
+			countAPIError(err, "secrets", ns)
 			continue
 		}
 		for _, secret := range secrets.Items {
@@ -84,13 +91,16 @@ func checkCertExpiry(ctx context.Context, deps *Deps) {
 
 // checkLimitRangeViolations detects pods that violate namespace LimitRange defaults.
 func checkLimitRangeViolations(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		lrs, err := deps.Client.CoreV1().LimitRanges(ns).List(ctx, metav1.ListOptions{})
 		if err != nil || len(lrs.Items) == 0 {
 			continue
 		}
 		// Just check if events mention LimitRange failures
-		events, _ := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			countAPIError(err, "events", ns)
+		}
 		if events == nil {
 			continue
 		}
@@ -136,8 +146,8 @@ func checkAPIServerThrottling(ctx context.Context, deps *Deps) {
 		if !deps.Dedup.Check(key) {
 			return
 		}
-		msg := "*APIServerThrottled* — K8s API server is returning 429 Too Many Requests\n"
-		msg += fmt.Sprintf("Source: %s — %s\n", ev.InvolvedObject.Name, ev.Message)
+		msg := "*APIServerThrottled*: K8s API server is returning 429 Too Many Requests\n"
+		msg += fmt.Sprintf("Source: %s: %s\n", ev.InvolvedObject.Name, ev.Message)
 		msg += "_Check_: reduce API call frequency, check for controller loops.\n"
 		deps.Slack.Post(msg)
 		fireAlert(ctx, deps, "APIThrottled", "", "apiserver", "", msg, "warning")
@@ -163,9 +173,10 @@ func containsAny(s string, substrs ...string) bool {
 
 // detectWebhookBlocking checks events for admission webhook rejections.
 func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "events", ns)
 			continue
 		}
 		for _, ev := range events.Items {
@@ -182,7 +193,7 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 			if !deps.Dedup.Check(key) {
 				continue
 			}
-			msg := fmt.Sprintf("*WebhookBlocking* in `%s` — admission webhook denied `%s/%s`\n",
+			msg := fmt.Sprintf("*WebhookBlocking* in `%s`: admission webhook denied `%s/%s`\n",
 				ns, ev.InvolvedObject.Kind, ev.InvolvedObject.Name)
 			msg += fmt.Sprintf("Message: %s\n", ev.Message)
 			msg += "_Check_: webhook configuration, or contact the webhook owner.\n"
@@ -197,9 +208,10 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 
 // CheckRBACDenied detects RBAC permission errors in events.
 func CheckRBACDenied(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "events", ns)
 			continue
 		}
 		for _, ev := range events.Items {

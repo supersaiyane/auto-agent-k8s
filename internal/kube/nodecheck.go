@@ -8,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckNodeHealth detects nodes in NotReady state. Runs from the leader
@@ -55,9 +55,12 @@ func CheckNodeHealth(ctx context.Context, deps *Deps) {
 		}
 
 		// Count pods on this node
-		pods, _ := deps.Client.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		pods, err := deps.Client.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 			FieldSelector: "spec.nodeName=" + node.Name,
 		})
+		if err != nil {
+			countAPIError(err, "pods", "")
+		}
 		podCount := 0
 		if pods != nil {
 			podCount = len(pods.Items)

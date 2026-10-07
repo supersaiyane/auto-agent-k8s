@@ -9,9 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // handleInitContainerFailure handles Init:Error and Init:CrashLoopBackOff.
@@ -32,19 +31,9 @@ func handleInitContainerFailure(ctx context.Context, deps *Deps, pod *corev1.Pod
 		ns, name, initName, reason, url)
 	msg += "_Check_: init container command, dependencies, volumes, and network access.\n"
 
-	if deps.Policy.Mode == policy.Fix {
-		crdPol := effectivePolicy(deps, ns, pod.Labels)
-		if policyAllowsAction(crdPol) && deps.Limiter.Allow() {
-			if checkBreaker(ctx, deps, ns, wl) {
-				if err := deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-					klog.Warningf("handler: failed to delete pod %s/%s: %v", ns, name, err)
-				} else {
-					msg += "_Action_: deleted pod to retry init containers.\n"
-					obs.ActionsTotal.WithLabelValues("delete_pod", ns, wl).Inc()
-				}
-			}
-		}
-	}
+	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "InitContainerFailed", "delete_pod",
+		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+		"deleted pod to retry init containers", "delete the pod to retry init containers")
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Init container failure: "+reason, logs+"\n"+strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
@@ -63,8 +52,11 @@ func handleConfigError(ctx context.Context, deps *Deps, pod *corev1.Pod, cname, 
 	klog.Infof("handler: config error on %s/%s (container: %s)", ns, name, cname)
 
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		"ConfigError", reason, "", events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	msg := fmt.Sprintf("*CreateContainerConfigError* on `%s/%s` (container: `%s`)\nReason: %s\nSaved: `%s`\n",
 		ns, name, cname, reason, url)
@@ -86,8 +78,11 @@ func handleRestartStorm(ctx context.Context, deps *Deps, pod *corev1.Pod, cname 
 
 	logs := getLastLogs(ctx, deps.Client, ns, name, cname, 30)
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		"RestartStorm", fmt.Sprintf("Rapid restarts: %d", restartCount), logs, events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	msg := fmt.Sprintf("*RestartStorm* on `%s/%s` (container: `%s`, restarts: %d)\nSaved: `%s`\n",
 		ns, name, cname, restartCount, url)

@@ -8,15 +8,16 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckStatefulSetStuck detects StatefulSets stuck in ordered ready (pod N waiting for N-1).
 func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		stss, err := deps.Client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "statefulsets", ns)
 			continue
 		}
 		for _, sts := range stss.Items {
@@ -35,7 +36,7 @@ func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
 				if !deps.Dedup.Check(key) {
 					continue
 				}
-				msg := fmt.Sprintf("*StatefulSetStuck* `%s/%s` — %d/%d ready, %d updated\n",
+				msg := fmt.Sprintf("*StatefulSetStuck* `%s/%s`: %d/%d ready, %d updated\n",
 					ns, sts.Name, sts.Status.ReadyReplicas, desired, sts.Status.UpdatedReplicas)
 				msg += "_Check_: previous pod may not be Ready (ordered startup). Check pod events.\n"
 				deps.Slack.Post(msg)
@@ -50,9 +51,10 @@ func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
 
 // CheckDaemonSetMissing detects DaemonSets not running on all expected nodes.
 func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		dss, err := deps.Client.AppsV1().DaemonSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "daemonsets", ns)
 			continue
 		}
 		for _, ds := range dss.Items {
@@ -62,7 +64,7 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 				if !deps.Dedup.Check(key) {
 					continue
 				}
-				msg := fmt.Sprintf("*DaemonSetMissing* `%s/%s` — %d pods not scheduled/ready (desired=%d, ready=%d)\n",
+				msg := fmt.Sprintf("*DaemonSetMissing* `%s/%s`: %d pods not scheduled/ready (desired=%d, ready=%d)\n",
 					ns, ds.Name, missing, ds.Status.DesiredNumberScheduled, ds.Status.NumberReady)
 				if ds.Status.NumberMisscheduled > 0 {
 					msg += fmt.Sprintf("Misscheduled: %d\n", ds.Status.NumberMisscheduled)
@@ -80,9 +82,10 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 
 // CheckHPAIssues detects HPAs at max replicas or unable to scale.
 func CheckHPAIssues(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		hpas, err := deps.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "horizontalpodautoscalers", ns)
 			continue
 		}
 		for _, hpa := range hpas.Items {
@@ -111,7 +114,7 @@ func CheckHPAIssues(ctx context.Context, deps *Deps) {
 						continue
 					}
 					msg := fmt.Sprintf("*HPAScalingFailed* `%s/%s` cannot compute metrics\n", ns, hpa.Name)
-					msg += fmt.Sprintf("Reason: %s — %s\n", c.Reason, c.Message)
+					msg += fmt.Sprintf("Reason: %s: %s\n", c.Reason, c.Message)
 					msg += "_Check_: metrics-server running, resource metrics available.\n"
 					deps.Slack.Post(msg)
 					recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
@@ -125,9 +128,10 @@ func CheckHPAIssues(ctx context.Context, deps *Deps) {
 
 // CheckCronJobMissed detects CronJobs that missed their schedule.
 func CheckCronJobMissed(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		crons, err := deps.Client.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "cronjobs", ns)
 			continue
 		}
 		for _, cj := range crons.Items {
@@ -161,9 +165,10 @@ func CheckCronJobMissed(ctx context.Context, deps *Deps) {
 
 // CheckDeploymentPaused detects deployments someone paused and forgot.
 func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "deployments", ns)
 			continue
 		}
 		for _, d := range deploys.Items {
@@ -172,7 +177,7 @@ func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
 				if !deps.Dedup.Check(key) {
 					continue
 				}
-				msg := fmt.Sprintf("*DeploymentPaused* `%s/%s` is paused — no rollouts will happen\n", ns, d.Name)
+				msg := fmt.Sprintf("*DeploymentPaused* `%s/%s` is paused: no rollouts will happen\n", ns, d.Name)
 				msg += "_Check_: was this intentional? Resume: `kubectl rollout resume deploy/%s -n %s`\n"
 				msg = fmt.Sprintf(msg, d.Name, ns)
 				deps.Slack.Post(msg)
@@ -187,9 +192,10 @@ func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
 
 // CheckReplicaSetFailure detects ReplicaSets that can't create pods.
 func CheckReplicaSetFailure(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		rss, err := deps.Client.AppsV1().ReplicaSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "replicasets", ns)
 			continue
 		}
 		for _, rs := range rss.Items {
@@ -198,7 +204,7 @@ func CheckReplicaSetFailure(ctx context.Context, deps *Deps) {
 				desired = *rs.Spec.Replicas
 			}
 			if desired > 0 && rs.Status.ReadyReplicas == 0 && rs.Status.Replicas == 0 {
-				// RS wants pods but has none — likely blocked by quota or admission
+				// RS wants pods but has none, likely blocked by quota or admission
 				key := dedupKey(ns, rs.Name, "ReplicaSetFailure")
 				if !deps.Dedup.Check(key) {
 					continue
@@ -206,7 +212,7 @@ func CheckReplicaSetFailure(ctx context.Context, deps *Deps) {
 				for _, c := range rs.Status.Conditions {
 					if c.Type == appsv1.ReplicaSetReplicaFailure {
 						msg := fmt.Sprintf("*ReplicaSetFailure* `%s/%s` cannot create pods\n", ns, rs.Name)
-						msg += fmt.Sprintf("Reason: %s — %s\n", c.Reason, c.Message)
+						msg += fmt.Sprintf("Reason: %s: %s\n", c.Reason, c.Message)
 						msg += "_Check_: ResourceQuota, admission webhooks, or scheduling constraints.\n"
 						deps.Slack.Post(msg)
 						recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,

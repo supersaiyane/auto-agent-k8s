@@ -11,11 +11,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 const (
-	informerResyncPeriod = 5 * time.Minute
+	informerResyncPeriod  = 5 * time.Minute
 	maxConcurrentHandlers = 20
 	handlerTimeout        = 60 * time.Second
 )
@@ -69,8 +69,17 @@ func StartWatchers(ctx context.Context, deps *Deps) {
 		},
 	})
 
-	// Node informer: separate factory (unfiltered — nodes are cluster-scoped)
-	nodeFactory := informers.NewSharedInformerFactory(deps.Client, informerResyncPeriod)
+	// Node informer: only this agent's own node, since node actions are taken
+	// only by the agent on that node (ISS-004).
+	if deps.NodeName == "" {
+		klog.Warningf("watcher: NODE_NAME not set, node pressure actions are disabled")
+	}
+	nodeFactory := informers.NewSharedInformerFactoryWithOptions(
+		deps.Client, informerResyncPeriod,
+		informers.WithTweakListOptions(func(opts *metav1.ListOptions) {
+			opts.FieldSelector = "metadata.name=" + deps.NodeName
+		}),
+	)
 	nodeInf := nodeFactory.Core().V1().Nodes().Informer()
 	nodeInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -96,10 +105,10 @@ func StartWatchers(ctx context.Context, deps *Deps) {
 
 // handlePodUpdate dispatches pod status changes to appropriate handlers.
 func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod) {
-	if !deps.Policy.AllowedNamespace(newPod.Namespace) {
+	if !deps.Policy().AllowedNamespace(newPod.Namespace) {
 		return
 	}
-	if hasAnnotation(newPod, deps.Policy.ExcludedAnnotation) {
+	if hasAnnotation(newPod, deps.Policy().ExcludedAnnotation) {
 		return
 	}
 

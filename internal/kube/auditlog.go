@@ -148,6 +148,20 @@ func (b *BlastRadiusTracker) AllowAction(ns string) bool {
 	return true
 }
 
+// WouldAllow reports what AllowAction would answer without recording an
+// action. Dry-run uses it so simulations do not spend the budget (ISS-022).
+func (b *BlastRadiusTracker) WouldAllow(ns string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if time.Since(b.lastReset) >= b.window {
+		return b.maxNamespaces > 0
+	}
+	if _, exists := b.namespaceCounts[ns]; exists {
+		return true
+	}
+	return len(b.namespaceCounts) < b.maxNamespaces
+}
+
 // AffectedNamespaces returns the count of namespaces with actions in the current window.
 func (b *BlastRadiusTracker) AffectedNamespaces() int {
 	b.mu.Lock()

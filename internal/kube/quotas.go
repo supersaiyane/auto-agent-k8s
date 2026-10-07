@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 const quotaUsageThreshold = 0.9 // alert at 90% usage
@@ -16,7 +16,7 @@ const quotaUsageThreshold = 0.9 // alert at 90% usage
 // CheckResourceQuotas scans allowed namespaces for resource quotas nearing exhaustion.
 // Must be called only by the leader.
 func CheckResourceQuotas(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		quotas, err := deps.Client.CoreV1().ResourceQuotas(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(3).Infof("quotas: failed to list in %s: %v", ns, err)

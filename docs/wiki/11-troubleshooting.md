@@ -16,7 +16,7 @@
 | No events in dashboard | Is the namespace in `NAMESPACE_ALLOWLIST`? |
 | Pod crashing but no alert | Does pod have `auto-agent.io/disable` annotation? |
 | Events appear but no actions | Is `AUTO_MODE` set to `fix`? (not `observe`) |
-| Only ImagePullBackOff detected | Cluster can't pull images — fix registry access first |
+| Only ImagePullBackOff detected | Cluster can't pull images: fix registry access first |
 | Detection delayed >5 min | Pending/NotReady have intentional thresholds (5min/3min) |
 
 ## Dashboard Issues
@@ -44,17 +44,17 @@
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Pending" forever | FixTracker checks old RS name | Fixed in latest — update agent |
-| "Not Fixed" after 15min | Pod didn't recover | Root cause still exists — manual investigation needed |
+| "Pending" forever | FixTracker checks old RS name | Fixed in latest: update agent |
+| "Not Fixed" after 15min | Pod didn't recover | Root cause still exists: manual investigation needed |
 | Fix verified but pod crashes again | Underlying issue not resolved | The delete only clears backoff; fix the actual bug |
 
 ## Leader Election
 
 | Symptom | Check |
 |---------|-------|
-| Only one pod does scaling/scanning | That's correct — leader-only operations |
+| Only one pod does scaling/scanning | That's correct: leader-only operations |
 | "attempting to acquire leader lease" loops | Normal for non-leader pods |
-| Both pods claim leader | Shouldn't happen — check lease in kube-system |
+| Both pods claim leader | Shouldn't happen: check lease in kube-system |
 
 ```bash
 # Check leader

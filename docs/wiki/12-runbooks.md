@@ -52,8 +52,8 @@ For each issue type, what the agent does automatically and what requires manual 
 **Agent does**: Detects ProgressDeadlineExceeded, rolls back to previous revision.
 **Manual**: If rollback also fails:
 - Check new image exists and pulls successfully
-- Check readiness probe — is the endpoint correct?
-- Check resource requests — can the cluster schedule the new pods?
+- Check readiness probe: is the endpoint correct?
+- Check resource requests: can the cluster schedule the new pods?
 - `kubectl describe deploy <name>` for conditions
 
 ## Failed Job
@@ -61,15 +61,15 @@ For each issue type, what the agent does automatically and what requires manual 
 **Agent does**: Collects pod logs, creates ticket, cleans up old failed CronJob children.
 **Manual**:
 - Read job pod logs: `kubectl logs job/<name>`
-- Check backoffLimit — is it too low?
-- Check command/args — is the binary correct?
+- Check backoffLimit: is it too low?
+- Check command/args: is the binary correct?
 - CronJob: check `concurrencyPolicy` and `startingDeadlineSeconds`
 
 ## PVC Pending
 
 **Agent does**: Alerts with StorageClass name and size.
 **Manual**:
-- `kubectl get sc` — does the StorageClass exist?
+- `kubectl get sc`: does the StorageClass exist?
 - Is the provisioner running? (check CSI driver pods)
 - Is there capacity? (check cloud provider quotas)
 - Access mode issue? (ReadWriteMany not supported by all provisioners)
@@ -89,7 +89,7 @@ For each issue type, what the agent does automatically and what requires manual 
 **Manual**:
 - Was this intentional maintenance? If done, uncordon: `kubectl uncordon <node>`
 - Check if a drain operation was interrupted
-- The agent uses `auto-agent.io/cordoned` annotation to track nodes it cordoned — it won't alert on those
+- The agent uses `auto-agent.io/cordoned` annotation to track nodes it cordoned: it won't alert on those
 
 ## ClockSkew
 
@@ -97,7 +97,7 @@ For each issue type, what the agent does automatically and what requires manual 
 **Manual**:
 - SSH to the node and check NTP: `timedatectl status`
 - Restart chrony/ntpd: `systemctl restart chronyd`
-- TLS certificates may fail with clock drift — check HTTPS services on the node
+- TLS certificates may fail with clock drift: check HTTPS services on the node
 - If kubelet restarts, heartbeat resets
 
 ## DNS Down/Degraded

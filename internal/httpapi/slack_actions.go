@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,9 +53,18 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.signingSecret == "" {
+		http.Error(w, "slack actions disabled: set SLACK_SIGNING_SECRET", http.StatusServiceUnavailable)
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if err := verifySlackSignature(h.signingSecret, r.Header, body, time.Now()); err != nil {
+		klog.Warningf("slack: rejected callback: %v", err)
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
 
@@ -69,8 +82,8 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload struct {
-		Type    string `json:"type"`
-		User    struct {
+		Type string `json:"type"`
+		User struct {
 			ID       string `json:"id"`
 			Username string `json:"username"`
 		} `json:"user"`
@@ -98,19 +111,19 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.onApprove != nil {
 				responseText = h.onApprove(action.Value)
 			} else {
-				responseText = fmt.Sprintf("Approved by %s (handler not configured)", payload.User.Username)
+				responseText = fmt.Sprintf("Approve is not available yet, no action was taken (requested by %s)", payload.User.Username)
 			}
 		case "rollback":
 			if h.onRollback != nil {
 				responseText = h.onRollback(action.Value)
 			} else {
-				responseText = fmt.Sprintf("Rollback requested by %s (handler not configured)", payload.User.Username)
+				responseText = fmt.Sprintf("Rollback is not available yet, no action was taken (requested by %s)", payload.User.Username)
 			}
 		case "silence_1h":
 			if h.onSilence != nil {
 				responseText = h.onSilence(action.Value, 1*time.Hour)
 			} else {
-				responseText = fmt.Sprintf("Silenced for 1h by %s", payload.User.Username)
+				responseText = fmt.Sprintf("Silence is not available yet, no action was taken (requested by %s)", payload.User.Username)
 			}
 		default:
 			responseText = fmt.Sprintf("Unknown action: %s", action.ActionID)
@@ -132,7 +145,7 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // RegisterSlackActions adds the /api/slack/actions endpoint to the server.
 func RegisterSlackActions(mux *http.ServeMux, handler *SlackActionHandler) {
-	mux.Handle("/api/slack/actions", handler)
+	mux.Handle(slackActionsPath, handler)
 }
 
 // parseNsWorkload splits "namespace/workload" from silence button value.
@@ -142,4 +155,32 @@ func parseNsWorkload(s string) (string, string) {
 		return parts[0], parts[1]
 	}
 	return s, ""
+}
+
+// slackActionsPath is where Slack posts interactive callbacks. It is
+// authenticated by Slack request signature, not the dashboard token.
+const slackActionsPath = "/api/slack/actions"
+
+// slackSignatureMaxAge bounds replay of a captured request (Slack's guidance).
+const slackSignatureMaxAge = 5 * time.Minute
+
+// verifySlackSignature checks Slack's v0 request signature:
+// "v0=" + hex(HMAC-SHA256(secret, "v0:" + timestamp + ":" + body)).
+func verifySlackSignature(secret string, hdr http.Header, body []byte, now time.Time) error {
+	ts := hdr.Get("X-Slack-Request-Timestamp")
+	sec, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return fmt.Errorf("bad timestamp %q", ts)
+	}
+	if age := now.Sub(time.Unix(sec, 0)); age > slackSignatureMaxAge || age < -slackSignatureMaxAge {
+		return fmt.Errorf("timestamp outside %s window", slackSignatureMaxAge)
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("v0:" + ts + ":"))
+	mac.Write(body)
+	want := "v0=" + hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(want), []byte(hdr.Get("X-Slack-Signature"))) {
+		return fmt.Errorf("signature mismatch")
+	}
+	return nil
 }

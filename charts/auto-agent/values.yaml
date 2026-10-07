@@ -1,21 +1,27 @@
 image:
-  repository: ghcr.io/yourorg/auto-agent
+  repository: ghcr.io/supersaiyane/auto-agent-k8s
   tag: "1.0.0"
   pullPolicy: IfNotPresent
 
 namespace: kube-system
+# Kept on purpose (reviewed 2026-10-07, ISS-010): node actions are taken only
+# by the agent on that node (ISS-004), so it must run on every node and must
+# not be evicted by the node pressure it is handling.
 priorityClassName: system-node-critical
+# Init container that chowns the hostPath log directory. Pinned by digest.
+initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
 
 agent:
-  mode: fix                        # observe|suggest|fix
+  mode: dry-run                    # observe|suggest|dry-run|fix (fix is an explicit opt-in)
   hpaCoexistence: true             # skip scaling if HPA present
   cpuThreshold: 0.8                # avg CPU threshold for scale-up
   scaleWindow: 5m
   maxScaleStep: 2
   maxActionsPer10m: 10
-  namespaceAllowlist: ["default","prod"]
+  # Namespaces the agent reads and may act in. Each gets a write Role, so each
+  # must exist before install. Add production namespaces explicitly.
+  namespaceAllowlist: ["default"]
   excludedAnnotation: "auto-agent.io/disable"
-  promQueryForSlo: ""              # optional promql for latency/queue
   logLevel: info
   cooldownUp: 2m                   # minimum time between scale-ups
   cooldownDown: 10m                # long cooldown for scale-down
@@ -32,6 +38,7 @@ llm:
 
 slack:
   webhookUrl: ""                   # put in secret or here for POC
+  signingSecret: ""                # Slack app signing secret; buttons are rejected without it
 
 metricsProvider:
   type: "prometheus"               # "metrics-server" or "prometheus"
@@ -68,8 +75,59 @@ logs:
     path: /var/log/auto-agent
   retentionDays: 7
 
-namespacedRBAC:
-  enabled: false                   # per-namespace Role/RoleBinding instead of ClusterRole
+rbac:
+  # Lets the certificate expiry check list TLS secrets in allowlisted
+  # namespaces. Off by default: reading secrets is a large grant.
+  readTLSSecrets: false
+
+leaderElection:
+  namespace: kube-system           # where the auto-agent-leader Lease lives
+
+guardrails:
+  circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips
+  blastRadiusMaxNamespaces: 5      # distinct namespaces acted on per hour
+  quietHours: ""                   # UTC windows with no actions, e.g. "02:00-06:00,22:00-23:00"
+
+# Optional PromQL "gates" for scale-up. If any is set, scale-up needs CPU over
+# the threshold AND a gate query returning > 0. Empty: CPU alone decides.
+scalingGates:
+  queueDepthQuery: ""
+  errorRateQuery: ""
+  p95LatencyQuery: ""
+
+alertmanager:
+  url: ""                          # e.g. http://alertmanager.monitoring:9093
+
+# How often the leader loops run.
+loops:
+  scaleInterval: 30s               # scaling, anomalies, fix verification
+  jobInterval: 2m                  # workload, job, rollout and node checks
+  quotaInterval: 5m                # quota, storage, network and security checks
+  healthInterval: 3m               # self check
+
+# Cost tab. Empty means the built-in defaults (0.05 per core-hour, 0.005 per
+# GiB-hour, source "default"); setting cpuPerHour marks the source "manual".
+cost:
+  cpuPerHour: ""
+  memPerGiBHour: ""
+  currency: ""                     # default USD
+  instancePrices: ""               # e.g. "t3.medium=0.0416,m5.xlarge=0.192"
+  kubecostUrl: ""                  # use Kubecost as the source
+  opencostUrl: ""                  # use OpenCost as the source (if no Kubecost)
+
+logging:
+  format: text                     # text | json
+
+dashboard:
+  # Bearer token for /api/ (dashboard and kubectl endpoint). Empty disables
+  # the API (503). Generate one with: openssl rand -hex 32
+  token: ""
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the agent on 8080 (dashboard, /metrics, Slack
+  # callback). Add your Prometheus and ingress controller namespaces here.
+  allowFromNamespaces: ["monitoring"]
 
 webhook:
   enabled: false                   # enable admission webhook
@@ -85,6 +143,7 @@ escalation:
   smtpHost: ""
   smtpPort: "587"
   smtpUser: ""
+  smtpPass: ""                     # stored in the Secret
   smtpFrom: ""
   emailTo: ""
 
