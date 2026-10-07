@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"flag"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
 	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
@@ -39,7 +39,14 @@ var version = "dev"
 
 func main() {
 	klog.InitFlags(nil)
-	logging.Init() // structured JSON if LOG_FORMAT=json
+	// The only environment read in the agent (PLAN-002 8.3).
+	conf := config.Load(os.Getenv)
+	if v, ok := config.KlogVerbosity(conf.Policy.LogLevel); ok {
+		_ = flag.Set("v", strconv.Itoa(v)) // agent.logLevel (ISS-032)
+	} else {
+		klog.Warningf("unknown LOG_LEVEL %q, keeping klog defaults", conf.Policy.LogLevel)
+	}
+	logging.Init(conf.LogFormat)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -62,11 +69,11 @@ func main() {
 	}
 
 	// --- Load policy (with ConfigMap hot-reload) ---
-	podNS := os.Getenv("POD_NAMESPACE")
+	podNS := conf.PodNamespace
 	if podNS == "" {
 		podNS = "kube-system"
 	}
-	pol := policy.LoadFromEnv()
+	pol := conf.Policy
 	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
 	go hotReloader.Start(ctx, kc)
 
@@ -83,49 +90,48 @@ func main() {
 	httpSrv := httpapi.NewServer(":8080", recorder, &httpapi.AgentMeta{
 		Version:  version,
 		Mode:     string(pol.Mode),
-		NodeName: os.Getenv("NODE_NAME"),
-		PodName:  os.Getenv("POD_NAME"),
-	}, kc)
+		NodeName: conf.NodeName,
+		PodName:  conf.PodName,
+	}, kc, httpapi.Options{DashboardToken: conf.DashboardToken, SlackSigningSecret: conf.SlackSigningSecret})
 	httpSrv.SetNamespaceFilter(func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) })
 	go httpSrv.Start()
 
 	// --- Admission webhook (optional, requires TLS certs) ---
-	webhookCert := os.Getenv("WEBHOOK_CERT_FILE")
-	webhookKey := os.Getenv("WEBHOOK_KEY_FILE")
-	if webhookCert != "" && webhookKey != "" {
-		blockedImages := strings.Split(os.Getenv("WEBHOOK_BLOCKED_IMAGES"), ",")
+	if conf.Webhook.Enabled() {
+		// An unset list is empty, not [""]; an empty prefix would block every
+		// image (ISS-041).
 		wh := webhook.NewValidator(webhook.Config{
 			Port:             8443,
-			RequireLimits:    os.Getenv("WEBHOOK_REQUIRE_LIMITS") != "false",
-			RequireReadiness: os.Getenv("WEBHOOK_REQUIRE_READINESS") != "false",
-			BlockedImages:    blockedImages,
+			RequireLimits:    conf.Webhook.RequireLimits,
+			RequireReadiness: conf.Webhook.RequireReadiness,
+			BlockedImages:    conf.Webhook.BlockedImages,
 		})
-		go wh.Start(webhookCert, webhookKey)
+		go wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile)
 		klog.Infof("webhook: admission validator enabled on :8443")
 	}
 
 	// --- Initialize dependencies ---
-	sl := slack.New(os.Getenv("SLACK_WEBHOOK_URL"), pol.SlackTimeoutSec)
+	sl := slack.New(conf.SlackWebhookURL, pol.SlackTimeoutSec)
 	ll := llm.New(
-		os.Getenv("LLM_API_URL"),
-		os.Getenv("LLM_API_KEY"),
-		os.Getenv("LLM_MODEL"),
+		conf.LLMAPIURL,
+		conf.LLMAPIKey,
+		conf.LLMModel,
 		pol.LLMEnabled,
 		pol.LLMTimeoutSec,
 	)
 
-	mp, err := metrics.NewProviderFromEnv(ctx)
+	mp, err := metrics.NewProvider(conf.MetricsProvider, conf.PrometheusURL)
 	if err != nil {
 		klog.Fatalf("metrics provider: %v", err)
 	}
 
-	sink := storage.GlobalSink()
+	sink := storage.NewSink(conf.Storage)
 	dedup := ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second)
 	limiter := ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute)
-	breaker := ratelimit.NewCircuitBreaker(intEnv("CIRCUIT_BREAKER_THRESHOLD", 5), 1*time.Hour)
+	breaker := ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, 1*time.Hour)
 
 	// Alertmanager client (optional)
-	am := alertmanager.New(os.Getenv("ALERTMANAGER_URL"))
+	am := alertmanager.New(conf.AlertmanagerURL)
 
 	// CRD store + controller
 	crdStore := crd.NewStore()
@@ -133,33 +139,31 @@ func main() {
 
 	// --- GitOps client ---
 	var gitOps integrations.GitOps
-	gitToken := os.Getenv("GIT_TOKEN")
-	gitRepo := os.Getenv("GITOPS_REPO")
-	gitBranch := os.Getenv("GITOPS_BRANCH")
+	gitToken, gitRepo, gitBranch := conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch
 	if gitToken != "" && gitRepo != "" {
-		switch os.Getenv("GITOPS_PROVIDER") {
+		switch conf.GitOpsProvider {
 		case "gitlab":
 			gitOps = integrations.NewGitLab(gitToken, gitRepo, gitBranch)
 		default:
 			gitOps = integrations.NewGitHub(gitToken, gitRepo, gitBranch)
 		}
-		klog.Infof("gitops: configured (%s)", os.Getenv("GITOPS_PROVIDER"))
+		klog.Infof("gitops: configured (%s)", conf.GitOpsProvider)
 	}
 
 	// --- Ticketing client ---
 	var ticketer integrations.Ticketer
-	if os.Getenv("TICKETS_ENABLED") == "true" {
-		switch os.Getenv("TICKETS_PROVIDER") {
+	if conf.TicketsEnabled {
+		switch conf.TicketsProvider {
 		case "jira":
 			ticketer = integrations.NewJira(
-				os.Getenv("JIRA_TOKEN"),
-				os.Getenv("JIRA_BASE_URL"),
-				os.Getenv("JIRA_PROJECT_KEY"),
-				os.Getenv("JIRA_EMAIL"),
+				conf.JiraToken,
+				conf.JiraBaseURL,
+				conf.JiraProjectKey,
+				conf.JiraEmail,
 			)
 			klog.Infof("tickets: configured (jira)")
 		case "github":
-			ticketer = integrations.NewGitHubIssues(os.Getenv("GITHUB_TOKEN"), os.Getenv("GITHUB_REPO"))
+			ticketer = integrations.NewGitHubIssues(conf.GitHubToken, conf.GitHubRepo)
 			klog.Infof("tickets: configured (github)")
 		default:
 			ticketer = integrations.NewNopTicketer()
@@ -167,16 +171,16 @@ func main() {
 	}
 
 	// --- Audit log (persistent, survives restarts) ---
-	auditLog := kube.NewAuditLog(os.Getenv("AUDIT_LOG_PATH"))
+	auditLog := kube.NewAuditLog(conf.AuditLogPath)
 
 	// --- Blast radius tracker (max namespaces affected per hour) ---
-	blastRadius := kube.NewBlastRadiusTracker(intEnv("BLAST_RADIUS_MAX_NAMESPACES", 5), 1*time.Hour) // distinct namespaces acted on per hour
+	blastRadius := kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, 1*time.Hour) // distinct namespaces acted on per hour
 
 	// --- Quiet hours / maintenance windows ---
-	quietHours := kube.NewQuietHours(os.Getenv("QUIET_HOURS")) // e.g. "02:00-06:00"
+	quietHours := kube.NewQuietHours(conf.QuietHours) // e.g. "02:00-06:00"
 
 	// --- Escalation chain (PagerDuty, OpsGenie, email) ---
-	escChain := escalation.NewChain()
+	escChain := escalation.NewChain(conf.Escalation)
 
 	// --- Deploy tracker (incident correlation) ---
 	deployTracker := kube.NewDeployTracker(100)
@@ -186,11 +190,8 @@ func main() {
 
 	// --- Learning mode (baseline collection) ---
 	var learningMode *kube.LearningMode
-	if os.Getenv("LEARNING_ENABLED") == "true" {
-		days := 14
-		if v := os.Getenv("LEARNING_PERIOD_DAYS"); v != "" {
-			fmt.Sscanf(v, "%d", &days)
-		}
+	if conf.LearningEnabled {
+		days := conf.LearningPeriodDays
 		learningMode = kube.NewLearningMode("", time.Duration(days)*24*time.Hour)
 		klog.Infof("learning: enabled (period=%d days)", days)
 	}
@@ -211,8 +212,15 @@ func main() {
 
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
-		Client:        kc,
-		NodeName:      os.Getenv("NODE_NAME"),
+		Client:       kc,
+		NodeName:     conf.NodeName,
+		ScalingGates: conf.ScalingGates,
+		TLSCertCheck: conf.TLSCertCheck,
+		Endpoints: kube.SelfCheckEndpoints{
+			PrometheusURL:   conf.PrometheusURL,
+			SlackWebhookURL: conf.SlackWebhookURL,
+			AlertmanagerURL: conf.AlertmanagerURL,
+		},
 		Metrics:       mp,
 		Policies:      hotReloader,
 		Slack:         sl,
@@ -238,14 +246,14 @@ func main() {
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
-	le := leader.Start(ctx, kc, envOr("LEADER_LEASE_NAMESPACE", "kube-system"), "auto-agent-leader")
+	le := leader.Start(ctx, kc, conf.LeaderLeaseNamespace, "auto-agent-leader", conf.PodName)
 	httpSrv.SetLeaderFunc(le.IsLeader)
 
 	// --- Start watchers (pod + node informers) ---
 	kube.StartWatchers(ctx, deps)
 
 	// --- Log retention cleanup (filesystem only) ---
-	go kube.StartLogRetention(ctx)
+	go kube.StartLogRetention(ctx, conf.Storage, conf.LogRetentionDays)
 
 	// --- Mark ready ---
 	httpSrv.SetReady()
@@ -255,10 +263,10 @@ func main() {
 	go func() {
 		// Intervals are configurable (ISS-015); the e2e shortens them so every
 		// detector runs within one test.
-		scaleTicker := time.NewTicker(durationEnv("SCALE_INTERVAL", 30*time.Second))
-		jobTicker := time.NewTicker(durationEnv("JOB_INTERVAL", 2*time.Minute))
-		quotaTicker := time.NewTicker(durationEnv("QUOTA_INTERVAL", 5*time.Minute))
-		healthTicker := time.NewTicker(durationEnv("HEALTH_INTERVAL", 3*time.Minute))
+		scaleTicker := time.NewTicker(conf.ScaleInterval)
+		jobTicker := time.NewTicker(conf.JobInterval)
+		quotaTicker := time.NewTicker(conf.QuotaInterval)
+		healthTicker := time.NewTicker(conf.HealthInterval)
 		defer scaleTicker.Stop()
 		defer jobTicker.Stop()
 		defer quotaTicker.Stop()
@@ -341,42 +349,4 @@ func namespaceList(pol *policy.Policy) []string {
 		nss = append(nss, ns)
 	}
 	return nss
-}
-
-// durationEnv reads a positive duration such as "45s" from the environment,
-// falling back to def when unset or invalid.
-func durationEnv(name string, def time.Duration) time.Duration {
-	v := os.Getenv(name)
-	if v == "" {
-		return def
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
-		klog.Warningf("invalid %s %q, using %s", name, v, def)
-		return def
-	}
-	return d
-}
-
-// intEnv reads a positive integer from the environment, falling back to def
-// when unset or invalid (ISS-015).
-func intEnv(name string, def int) int {
-	v := os.Getenv(name)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 {
-		klog.Warningf("invalid %s %q, using %d", name, v, def)
-		return def
-	}
-	return n
-}
-
-// envOr returns the environment value of name, or def when it is unset.
-func envOr(name, def string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return def
 }

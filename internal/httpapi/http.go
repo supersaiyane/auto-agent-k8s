@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -46,8 +45,14 @@ type AgentMeta struct {
 	IsLeaderFn func() bool
 }
 
-func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface) *Server {
-	s := &Server{recorder: recorder, meta: meta, kc: kc, token: os.Getenv("DASHBOARD_TOKEN")}
+// Options carries the server's secrets (PLAN-002 8.3: no env reads here).
+type Options struct {
+	DashboardToken     string // bearer token for /api/; empty disables it (503)
+	SlackSigningSecret string // verifies Slack callbacks; empty rejects them (503)
+}
+
+func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
+	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken}
 	if s.token == "" {
 		klog.Warningf("httpapi: DASHBOARD_TOKEN not set, /api/ is disabled")
 	}
@@ -76,7 +81,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 
 	// Slack interactive actions callback
-	slackHandler := NewSlackActionHandler(os.Getenv("SLACK_SIGNING_SECRET"))
+	slackHandler := NewSlackActionHandler(opts.SlackSigningSecret)
 	RegisterSlackActions(mux, slackHandler)
 
 	// Embedded UI

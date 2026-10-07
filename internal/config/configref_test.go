@@ -1,4 +1,4 @@
-package policy
+package config
 
 import (
 	"bufio"
@@ -27,7 +27,9 @@ var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]+$`)
 var envHelper = regexp.MustCompile(`(?i)env`)
 
 // codeEnvVars returns every variable name passed as a string literal to an
-// env-reading function in non-test code.
+// env-reading function in non-test code. After PLAN-002 task 8.3 this only
+// finds reads outside the config package (allowed only in cost.go until 9.3);
+// it is a cross-check that nothing reads a variable Names() does not list.
 func codeEnvVars(t *testing.T) map[string]bool {
 	t.Helper()
 	vars := map[string]bool{}
@@ -163,15 +165,23 @@ func sorted(m map[string]bool) []string {
 }
 
 // TestConfigReference_MatchesCodeAndChart keeps docs/CONFIGURATION.md, the
-// code and the chart in step: every variable the code reads is documented,
-// nothing documented is stale, and every variable the chart sets is either
-// read by the code or listed as not read.
+// code and the chart in step: every variable the agent reads (Names(), taken
+// from Load itself) is documented, nothing documented is stale, and every
+// variable the chart sets is either read or listed as not read.
 func TestConfigReference_MatchesCodeAndChart(t *testing.T) {
-	code := codeEnvVars(t)
-	listed, unread := docEnvVars(t)
-	if len(code) < 50 {
-		t.Fatalf("found only %d env reads; the scanner is broken", len(code))
+	code := map[string]bool{}
+	for _, n := range Names() {
+		code[n] = true
 	}
+	if len(code) < 50 {
+		t.Fatalf("Names() returned only %d variables; Load is not reading them all", len(code))
+	}
+	for v := range codeEnvVars(t) {
+		if !code[v] {
+			t.Errorf("%s is read outside internal/config and is missing from config.Load", v)
+		}
+	}
+	listed, unread := docEnvVars(t)
 
 	missing, stale := map[string]bool{}, map[string]bool{}
 	for v := range code {

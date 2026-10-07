@@ -306,8 +306,8 @@ func TestCertExpiryCheck_OnlyWhenOptedIn(t *testing.T) {
 		wantReads bool
 	}{{"", false}, {"false", false}, {"true", true}} {
 		t.Run("TLS_CERT_CHECK="+tc.env, func(t *testing.T) {
-			t.Setenv("TLS_CERT_CHECK", tc.env)
 			deps, kc := newHandlerTestDeps(t)
+			deps.TLSCertCheck = tc.env == "true" // parsing is tested in internal/config
 			reads := 0
 			kc.PrependReactor("list", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
 				reads++

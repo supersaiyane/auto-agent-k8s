@@ -2,7 +2,6 @@ package kube
 
 import (
 	"context"
-	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -42,7 +41,7 @@ func runHandler(parentCtx context.Context, fn func(ctx context.Context)) {
 // StartWatchers initializes pod and node informers with event handlers.
 func StartWatchers(ctx context.Context, deps *Deps) {
 	// Pod informer: filter to local node only (NODE_NAME set via downward API)
-	nodeName := os.Getenv("NODE_NAME")
+	nodeName := deps.NodeName
 	var factory informers.SharedInformerFactory
 	if nodeName != "" {
 		klog.Infof("watcher: filtering pod informer to node %s", nodeName)

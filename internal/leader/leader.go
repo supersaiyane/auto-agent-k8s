@@ -15,12 +15,11 @@ type Elector struct{ leader int32 }
 
 func (e *Elector) IsLeader() bool { return atomic.LoadInt32(&e.leader) == 1 }
 
-func Start(ctx context.Context, kc *kubernetes.Clientset, namespace, name string) *Elector {
+func Start(ctx context.Context, kc *kubernetes.Clientset, namespace, name, identity string) *Elector {
 	e := &Elector{}
 
 	// Each pod must have a unique identity for leader election.
-	// Use POD_NAME (set via downward API) or fall back to hostname.
-	identity := os.Getenv("POD_NAME")
+	// The caller passes POD_NAME (downward API); fall back to the hostname.
 	if identity == "" {
 		var err error
 		identity, err = os.Hostname()

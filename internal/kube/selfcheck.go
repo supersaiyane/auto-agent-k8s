@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -19,7 +18,7 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	var issues []string
 
 	// Check Prometheus connectivity
-	promURL := os.Getenv("PROMETHEUS_URL")
+	promURL := deps.Endpoints.PrometheusURL
 	if promURL != "" {
 		if err := httpCheck(ctx, promURL+"/-/healthy"); err != nil {
 			issues = append(issues, fmt.Sprintf("Prometheus unreachable (%s): %v", promURL, err))
@@ -27,7 +26,7 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	}
 
 	// Check Slack connectivity
-	slackURL := os.Getenv("SLACK_WEBHOOK_URL")
+	slackURL := deps.Endpoints.SlackWebhookURL
 	if slackURL != "" {
 		// Don't POST to slack, just check DNS/TCP
 		if err := httpCheck(ctx, slackURL); err != nil {
@@ -39,7 +38,7 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	}
 
 	// Check Alertmanager connectivity
-	amURL := os.Getenv("ALERTMANAGER_URL")
+	amURL := deps.Endpoints.AlertmanagerURL
 	if amURL != "" {
 		if err := httpCheck(ctx, amURL+"/-/healthy"); err != nil {
 			issues = append(issues, fmt.Sprintf("Alertmanager unreachable (%s): %v", amURL, err))

@@ -17,8 +17,7 @@ import (
 
 func newTestServer(t *testing.T, token string) *Server {
 	t.Helper()
-	t.Setenv("DASHBOARD_TOKEN", token)
-	return NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, fake.NewSimpleClientset())
+	return NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, fake.NewSimpleClientset(), Options{DashboardToken: token})
 }
 
 func get(s *Server, path, auth string) int {
@@ -113,7 +112,6 @@ func TestKubectl_NamespaceAllowlist(t *testing.T) {
 // outside the allowlist. The routes come from apiRouteTable, so a new route
 // is covered without editing this test.
 func TestAPI_NoRouteLeaksNonAllowlistedNamespaces(t *testing.T) {
-	t.Setenv("DASHBOARD_TOKEN", "s3cret")
 	kc := fake.NewSimpleClientset(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "hidden-ns"}},
@@ -126,7 +124,7 @@ func TestAPI_NoRouteLeaksNonAllowlistedNamespaces(t *testing.T) {
 		&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "e1", Namespace: "hidden-ns"},
 			Message: "hidden-event-sentinel", InvolvedObject: corev1.ObjectReference{Name: "hidden-pod-sentinel"}},
 	)
-	s := NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, kc)
+	s := NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, kc, Options{DashboardToken: "s3cret"})
 	s.SetNamespaceFilter(func(ns string) bool { return ns == "default" })
 
 	paths := []string{"/api/namespace/hidden-ns", "/api/resources/hidden-ns", "/api/k8s-events?namespace=hidden-ns"}

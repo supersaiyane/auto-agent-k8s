@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/smtp"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"k8s.io/klog/v2"
 )
 
@@ -41,20 +41,20 @@ type Chain struct {
 	email     *EmailClient
 }
 
-func NewChain() *Chain {
+// NewChain builds the escalation targets that are configured.
+func NewChain(cfg config.Escalation) *Chain {
 	c := &Chain{}
-	if key := os.Getenv("PAGERDUTY_ROUTING_KEY"); key != "" {
+	if key := cfg.PagerDutyRoutingKey; key != "" {
 		c.pagerduty = NewPagerDuty(key)
 		klog.Infof("escalation: PagerDuty configured")
 	}
-	if key := os.Getenv("OPSGENIE_API_KEY"); key != "" {
+	if key := cfg.OpsGenieAPIKey; key != "" {
 		c.opsgenie = NewOpsGenie(key)
 		klog.Infof("escalation: OpsGenie configured")
 	}
-	if host := os.Getenv("SMTP_HOST"); host != "" {
-		c.email = NewEmail(host, os.Getenv("SMTP_PORT"), os.Getenv("SMTP_USER"),
-			os.Getenv("SMTP_PASS"), os.Getenv("SMTP_FROM"), os.Getenv("ESCALATION_EMAIL_TO"))
-		klog.Infof("escalation: email configured (to: %s)", os.Getenv("ESCALATION_EMAIL_TO"))
+	if host := cfg.SMTPHost; host != "" {
+		c.email = NewEmail(host, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.EmailTo)
+		klog.Infof("escalation: email configured")
 	}
 	return c
 }

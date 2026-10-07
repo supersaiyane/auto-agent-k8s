@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"time"
 
@@ -20,11 +19,13 @@ type Provider interface {
 	QueryInstant(ctx context.Context, promQL string) (float64, error)
 }
 
-func NewProviderFromEnv(ctx context.Context) (Provider, error) {
-	t := envOr("METRICS_PROVIDER", "metrics-server")
+// NewProvider returns the CPU metrics source: "prometheus" (needs url) or the
+// metrics-server stub for anything else.
+func NewProvider(kind, url string) (Provider, error) {
+	t := kind
 	switch t {
 	case "prometheus":
-		base := envOr("PROMETHEUS_URL", "")
+		base := url
 		if base == "" {
 			return nil, fmt.Errorf("PROMETHEUS_URL required for prometheus provider")
 		}
@@ -126,13 +127,6 @@ func (p *prom) AvgDeploymentCPU(ctx context.Context, d *appsv1.Deployment, windo
 		ns, name, window,
 	)
 	return p.QueryInstant(ctx, q)
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func truncBody(b []byte) string {

@@ -221,8 +221,8 @@ func TestEvaluateAndScale_ScaleDown(t *testing.T) {
 	deps, kc := newTestDeps(t)
 	deps.Metrics = &mockMetrics{cpu: 0.1}
 
-	// Set env so gates are configured but inactive
-	t.Setenv("PROM_QUEUE_DEPTH", "some_metric")
+	// Gates configured but inactive
+	deps.ScalingGates.QueueDepth = "some_metric"
 
 	rep := int32(5)
 	deploy := &appsv1.Deployment{
@@ -279,7 +279,7 @@ func TestEvaluateAndScale_LowCPU_NoScaleDown_WhenGatesActive(t *testing.T) {
 	// Low CPU but gate returns positive value (load still present)
 	deps.Metrics = &mockMetrics{cpu: 0.1, gate: 5.0}
 
-	t.Setenv("PROM_QUEUE_DEPTH", "queue_depth_total")
+	deps.ScalingGates.QueueDepth = "queue_depth_total"
 
 	rep := int32(5)
 	deploy := &appsv1.Deployment{

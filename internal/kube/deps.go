@@ -6,6 +6,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
 	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
@@ -35,7 +36,13 @@ type Deps struct {
 	// NodeName is the node this agent pod runs on (downward API NODE_NAME).
 	// Node actions are taken only for this node; empty means none (ISS-004).
 	NodeName string
-	Metrics  metrics.Provider
+	// ScalingGates are optional PromQL gates for scale-up (PLAN-002 8.3).
+	ScalingGates config.ScalingGates
+	// TLSCertCheck turns on the certificate expiry check (rbac.readTLSSecrets).
+	TLSCertCheck bool
+	// Endpoints the self check probes; empty ones are skipped.
+	Endpoints SelfCheckEndpoints
+	Metrics   metrics.Provider
 	// Policies supplies the current policy snapshot. Read it through
 	// Deps.Policy(); never store a policy in a shared field (ISS-007).
 	Policies      PolicySource
@@ -71,4 +78,11 @@ type PolicySource interface {
 // rather than changing it, so a caller may hold the returned value.
 func (d *Deps) Policy() *policy.Policy {
 	return d.Policies.Get()
+}
+
+// SelfCheckEndpoints are the external endpoints SelfCheck probes.
+type SelfCheckEndpoints struct {
+	PrometheusURL   string
+	SlackWebhookURL string
+	AlertmanagerURL string
 }
