@@ -42,11 +42,12 @@ check-writing:
 helm-lint:
 	helm lint charts/auto-agent
 
-# verify is the definition-of-done gate. vuln joins it once ISS-016 (old
-# dependencies) is fixed in PLAN-001 P6.2; until then run verify-full to see it.
-verify: build vet test lint check-writing helm-lint
+# verify is the definition-of-done gate (CLAUDE.md). vuln joined it on
+# 2026-10-07 once govulncheck was clean (ISS-016).
+verify: build vet test lint vuln check-writing helm-lint
 
-verify-full: verify vuln
+# Kept for muscle memory; verify already includes vuln.
+verify-full: verify
 
 e2e:
 	sh scripts/e2e-kind.sh

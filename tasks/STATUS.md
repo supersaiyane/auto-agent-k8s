@@ -85,6 +85,19 @@ Nothing pushed.
   annotations). `TestOutboundClientsRedact` leaked on all 7 paths before the
   fix and passes after. LLM stays off by default. ISS-011.
 
+## Phase 6
+
+- P6.2 done: k8s.io 0.30.0 to 0.37.1, client_golang 1.18.0 to 1.24.1, klog
+  2.120.1 to 2.140.0, aws-sdk-go-v2 1.30.0 to 1.47.1, s3 1.56.0 to 1.114.1;
+  `go 1.26.0` with `toolchain go1.26.6`. govulncheck (measured 2026-10-07):
+  before 18 reachable (14 stdlib, 4 modules); after module upgrades 16 (all
+  stdlib of go1.26.1); after the toolchain pin, none. `vuln` is now part of
+  `make verify`.
+- P6.1 code done: CI runs `make verify` (with helm for the RBAC test) and
+  `make e2e`; the image job builds, scans with Trivy (fixable HIGH/CRITICAL
+  fail), writes an SBOM, pushes semver/sha/latest tags and signs the digest
+  with keyless cosign. Not proven: needs a push, which waits for the owner.
+
 ## Evidence (measured 2026-10-07)
 
 `go build ./...` ok, `go vet ./...` ok, `go test -race ./...` ok,
