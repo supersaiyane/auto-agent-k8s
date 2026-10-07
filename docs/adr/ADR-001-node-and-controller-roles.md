@@ -81,9 +81,10 @@ the code its role runs.
 - Node agents no longer need cluster-wide reads, which shrinks their
   permissions and the API load per node.
 - The dashboard, the API and Slack speak with one voice.
-- Each controller keeps its own event history. After a leader change the
-  new leader serves only what it recorded, so the old leader's history
-  drops out of view until it is carried over (ISS-059, PLAN-002 11.1d).
+- The leader copies every event it stores, its own and those ingested from
+  node agents, to the standby, so after a leader change the new leader
+  already holds the history (ISS-059). A standby that starts later has
+  only what was recorded after it joined.
 - The rate limiter, circuit breaker and blast radius stay per process: a node
   agent limits actions on its node, the controller limits cluster actions.
   A cluster-wide budget across nodes is not part of this ADR.

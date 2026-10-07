@@ -129,6 +129,28 @@ for c in $CONTROLLERS; do
 	port=$((port + 1))
 done
 
+log "checking the history survives a leader change (ISS-059)"
+LEADER=$(kubectl --context "$CTX" -n "$NS_AGENT" get lease auto-agent-leader -o jsonpath='{.spec.holderIdentity}')
+[ -n "$LEADER" ] || fail "no lease holder"
+kubectl --context "$CTX" -n "$NS_AGENT" delete pod "$LEADER" --wait=false >/dev/null
+deadline=$(( $(date +%s) + 90 ))
+NEW_LEADER="$LEADER"
+while [ "$(date +%s)" -lt "$deadline" ]; do
+	NEW_LEADER=$(kubectl --context "$CTX" -n "$NS_AGENT" get lease auto-agent-leader -o jsonpath='{.spec.holderIdentity}')
+	[ -n "$NEW_LEADER" ] && [ "$NEW_LEADER" != "$LEADER" ] && break
+	sleep 3
+done
+[ "$NEW_LEADER" != "$LEADER" ] || fail "no controller took over after $LEADER was deleted"
+log "leader moved from $LEADER to $NEW_LEADER"
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$NEW_LEADER" 18099:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+HISTORY=$(curl -s -H 'Authorization: Bearer e2e-token' "http://127.0.0.1:18099/api/events?limit=500")
+kill "$PF" 2>/dev/null || true
+echo "$HISTORY" | grep -q "crasher" || fail "the new leader $NEW_LEADER lost the crasher finding recorded under $LEADER"
+log "new leader $NEW_LEADER still shows the crasher finding"
+AGENT_POD="$NEW_LEADER"
+
 log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
 for pod in "$AGENT_POD" "$NODE_POD"; do
 	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
@@ -144,4 +166,4 @@ echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acqu
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, node findings on every controller, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, node findings on every controller, history kept across a leader change, non-root, RBAC complete"

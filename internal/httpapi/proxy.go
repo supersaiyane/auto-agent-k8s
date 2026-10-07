@@ -9,12 +9,14 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
-// proxiedHeader marks a request a standby already forwarded, so two
-// controllers that disagree about the leader cannot bounce it forever.
-const proxiedHeader = "X-Auto-Agent-Proxied"
+// proxiedHeader marks a request a standby already forwarded, or an event
+// copy from the leader, so it is served where it lands and two controllers
+// that disagree about the leader cannot bounce it forever.
+const proxiedHeader = events.RoutedHeader
 
 // toLeader sends API and ingest requests to the leader when this
 // controller is the standby (ADR-001): the leader holds the one event log,

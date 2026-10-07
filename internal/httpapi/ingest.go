@@ -18,7 +18,7 @@ const maxIngestBody = 1 << 20
 // its own token, separate from the dashboard's, and stores only events
 // from allowlisted namespaces, with their text redacted.
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
-	if s.internalToken == "" || s.recorder == nil {
+	if s.internalToken == "" || s.ingest == nil {
 		http.Error(w, "event ingest disabled on this pod", http.StatusServiceUnavailable)
 		return
 	}
@@ -48,7 +48,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 		e.ID = 0 // the controller numbers its own log
 		e.Message = redact.String(e.Message)
-		s.recorder.Record(e)
+		s.ingest.Record(e)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

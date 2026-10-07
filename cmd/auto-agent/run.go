@@ -103,16 +103,26 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	// The controller keeps the one event log; a node agent forwards to it.
 	var recorder *events.Recorder
 	var sink events.Sink
+	var le *leader.Elector // set below, before anything records events
 	forwarded := make(chan struct{})
 	if onlyNode {
 		fwd := events.NewForwarder(conf.ControllerURL, conf.InternalToken, conf.NodeName, cl.HTTP)
 		go func() { fwd.Run(ctx, opts.ForwardEvery); close(forwarded) }()
 		sink = fwd
 	} else {
-		close(forwarded)
 		recorder = events.NewRecorder(500)
 		recorder.EnablePersistence(opts.EventsPath)
 		sink = recorder
+		if rl.controller && !rl.node {
+			// The leader copies its log to the standby, so a leader change
+			// keeps the history (ISS-059).
+			replica := events.NewReplicaForwarder(
+				newPeerResolver(cl.Kube, conf.PodNamespace, conf.PodName, httpPort(opts.HTTPAddr)), conf.InternalToken, cl.HTTP)
+			go func() { replica.Run(ctx, opts.ForwardEvery); close(forwarded) }()
+			sink = events.Tee{Local: recorder, Copy: replica, Leading: func() bool { return le != nil && le.IsLeader() }}
+		} else {
+			close(forwarded)
+		}
 	}
 
 	// --- Admission webhook (optional, requires TLS certs; controller) ---
@@ -202,7 +212,6 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	}
 
 	// --- Leader election (cluster-wide loops; controller only) ---
-	var le *leader.Elector
 	isLeader := func() bool { return false }
 	var leaderTarget func() (string, error) // nil: never proxy
 	if rl.controller {
@@ -228,6 +237,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		IsLeader:           isLeader,
 		Leader:             leaderTarget,
 		HealthOnly:         onlyNode,
+		Ingest:             sink,
 		InternalToken:      conf.InternalToken,
 		Extended: httpapi.ExtendedDeps{
 			Compliance: complianceTracker,
@@ -433,3 +443,27 @@ func httpPort(addr string) string {
 	}
 	return "8080"
 }
+
+// newPeerResolver lists the other running controllers in this namespace, the
+// standbys the leader copies its event log to (ISS-059).
+func newPeerResolver(kc kubernetes.Interface, ns, self, port string) func() ([]string, error) {
+	return func() ([]string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		pods, err := kc.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: controllerSelector})
+		if err != nil {
+			return nil, fmt.Errorf("list controllers in %s: %w", ns, err)
+		}
+		var peers []string
+		for _, p := range pods.Items {
+			if p.Name == self || p.Status.PodIP == "" || p.Status.Phase != "Running" {
+				continue
+			}
+			peers = append(peers, "http://"+net.JoinHostPort(p.Status.PodIP, port))
+		}
+		return peers, nil
+	}
+}
+
+// controllerSelector matches the controller pods the chart creates.
+const controllerSelector = "app=auto-agent-controller"

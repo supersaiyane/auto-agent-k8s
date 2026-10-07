@@ -15,7 +15,7 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | internal/httpapi/ | Dashboard UI + /api/* (incl. kubectl terminal), /metrics, /healthz; `ingest.go` takes node agents' events, `proxy.go` sends a standby controller's API and ingest requests to the leader (ADR-001) |
 | internal/redact/ | Masks secrets and personal data; called inside every outbound client (llm, slack, alertmanager, tickets, PR text). outbound_test.go proves no client leaks |
 | internal/slack/, alertmanager/, integrations/, escalation/ | Notifications, alert ingest, Jira/GitHub issues & PRs, escalation chain (redacted per channel, ISS-042); constructors take an `*http.Client` |
-| internal/events/ | Event log (`Recorder`, controller) and `Forwarder` (node agents to the controller ingest), both `Sink` (ADR-001) |
+| internal/events/ | Event log (`Recorder`, controller), `Forwarder` (node agents to the controller ingest), `Tee` and replica forwarder (leader copies its log to the standby, ISS-059); all `Sink` (ADR-001) |
 | internal/httpx/ | `Client(hc, timeout)`: the injected HTTP client rule; `httpxtest/` is the shared `httptest` server that records requests |
 | internal/crd/, webhook/ | AutoRemediationPolicy CRD, admission webhook |
 | internal/obs/ | Prometheus metrics; CountAPIError (forbidden reads become a metric and one warning) |

@@ -392,8 +392,8 @@ controller Deployment and node DaemonSet, e2e showing a node finding on
 every controller (b7ef047); one ServiceAccount per role, checked against a
 call graph from each role's entry points, and every raw manifest generated
 from the chart with a drift check and `make e2e-raw` (part of 11.3 pulled
-forward, because the split broke the hand-written raw files). 11.1 is done
-apart from ISS-059 (event history across a leader change).
+forward, because the split broke the hand-written raw files). ISS-059 is
+fixed by the leader copying its event log to the standby. 11.1 is done.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

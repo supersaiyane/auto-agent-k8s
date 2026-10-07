@@ -35,7 +35,9 @@ type Server struct {
 	// internalToken authenticates forwarded events (ADR-001).
 	internalToken string
 	// leader resolves where a standby controller proxies to (ADR-001).
-	leader  func() (string, error)
+	leader func() (string, error)
+	// ingest stores forwarded events.
+	ingest  events.Sink
 	meta    *AgentMeta
 	kc      kubernetes.Interface
 	token   string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
@@ -65,6 +67,9 @@ type Options struct {
 	// standby, "" when it leads, or an error before a leader is known.
 	// nil means never proxy (ADR-001).
 	Leader func() (string, error)
+	// Ingest receives forwarded events; nil means the recorder. The
+	// controller passes a Tee so ingested events are copied too (ISS-059).
+	Ingest events.Sink
 	// HealthOnly serves only the probes and /metrics, for node agents.
 	HealthOnly bool
 	// InternalToken authenticates node agents forwarding events to the
@@ -82,6 +87,10 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
 		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader}
+	s.ingest = opts.Ingest
+	if s.ingest == nil && recorder != nil {
+		s.ingest = recorder
+	}
 	if opts.IsLeader != nil {
 		meta.IsLeaderFn = opts.IsLeader
 	}

@@ -40,9 +40,14 @@ type queued struct {
 // the controller. Record never blocks a handler.
 type Forwarder struct {
 	url, token, node string
-	client           *http.Client
-	now              func() time.Time // injectable clock; nil means time.Now
-	max              int
+	// peers, when set, replaces url: the batch goes to every address it
+	// returns (controller replication, ISS-059). routed marks those requests
+	// so the receiving controller stores them instead of proxying them.
+	peers  func() ([]string, error)
+	routed bool
+	client *http.Client
+	now    func() time.Time // injectable clock; nil means time.Now
+	max    int
 
 	mu      sync.Mutex
 	buf     []queued
@@ -107,19 +112,21 @@ func (f *Forwarder) Flush(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("forwarder: encode: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.url, bytes.NewReader(body))
-	if err != nil {
-		return 0, fmt.Errorf("forwarder: request: %w", err)
+	targets := []string{f.url}
+	if f.peers != nil {
+		bases, err := f.peers()
+		if err != nil {
+			return 0, fmt.Errorf("forwarder: peers: %w", err)
+		}
+		targets = targets[:0]
+		for _, b := range bases {
+			targets = append(targets, b+IngestPath)
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+f.token)
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("forwarder: post: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("forwarder: controller answered %d", resp.StatusCode)
+	for _, u := range targets { // none: no standby to keep a copy, so the batch is done
+		if err := f.post(ctx, u, body); err != nil {
+			return 0, err
+		}
 	}
 	// Remove what was sent by sequence number: events dropped while the
 	// request was in flight must not shift the window onto unsent ones.
@@ -131,6 +138,27 @@ func (f *Forwarder) Flush(ctx context.Context) (int, error) {
 	f.buf = f.buf[i:]
 	f.mu.Unlock()
 	return n, nil
+}
+
+func (f *Forwarder) post(ctx context.Context, url string, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("forwarder: request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+f.token)
+	if f.routed {
+		req.Header.Set(RoutedHeader, "1")
+	}
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("forwarder: post: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("forwarder: %s answered %d", url, resp.StatusCode)
+	}
+	return nil
 }
 
 // Run flushes every interval until ctx ends, then tries once more briefly

@@ -296,3 +296,22 @@ func TestLeaderTarget(t *testing.T) {
 		t.Fatal("httpPort")
 	}
 }
+
+// ISS-059: the leader finds the standby controllers to copy its log to.
+func TestPeerResolver(t *testing.T) {
+	ctrl := func(name, ip string, phase corev1.PodPhase, app string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "auto-agent", Labels: map[string]string{"app": app}},
+			Status: corev1.PodStatus{PodIP: ip, Phase: phase}}
+	}
+	kc := fake.NewClientset(
+		ctrl("ctrl-self", "10.0.0.1", corev1.PodRunning, "auto-agent-controller"),
+		ctrl("ctrl-peer", "10.0.0.2", corev1.PodRunning, "auto-agent-controller"),
+		ctrl("ctrl-starting", "", corev1.PodPending, "auto-agent-controller"),
+		ctrl("ctrl-done", "10.0.0.4", corev1.PodSucceeded, "auto-agent-controller"),
+		ctrl("node-agent", "10.0.0.5", corev1.PodRunning, "auto-agent"),
+	)
+	peers, err := newPeerResolver(kc, "auto-agent", "ctrl-self", "8080")()
+	if err != nil || len(peers) != 1 || peers[0] != "http://10.0.0.2:8080" {
+		t.Fatalf("peers %v err %v", peers, err)
+	}
+}
