@@ -14,9 +14,10 @@
 | 2026-10-07 | Complete guide for every reader | Done, committed | docs/GUIDE.md (concepts, local try-out, deploy, configuration, dashboard, API and metrics, day-2, troubleshooting, architecture, security, developing), README "Start here" table, wiki index link. Every claim checked against code; found and fixed ISS-031. | docs/GUIDE.md, README.md (## Start here), charts/auto-agent/templates/configmap.yaml (LOG_EFS_PATH) |
 | 2026-10-07 | Configuration reference | Done; verify and kind e2e passed, committed | docs/CONFIGURATION.md lists all 81 env vars (Helm value, options, default, effect, file) plus 8 chart values nothing reads; TestConfigReference_MatchesCodeAndChart keeps doc, code and chart in step (falsified twice); chart now wires learning, retention, webhook, escalation, quiet hours, Alertmanager, scaling gates, loop intervals, cost, log format; ISS-032 logged. | docs/CONFIGURATION.md, internal/policy/configref_test.go, charts/auto-agent/values.yaml, charts/auto-agent/templates/configmap.yaml, secret.yaml |
 | 2026-10-07 | Push and PR | Done | Branch phase0-1-safety pushed; PR https://github.com/supersaiyane/auto-agent-k8s/pull/1 opened against master (14 commits). First run of the rewritten CI pending. | .github/workflows/ci.yaml, tasks/ISSUES.md (ISS-017) |
+| 2026-10-07 | PLAN-002 written | Done, branch plan-002 | Plan: native config reload better than Reloader (Part A), weak features with fixes (Part B), fix ladder R0 to R4 with approve-to-fix (Part C), coverage 26.1 to 95+ percent with refactor, per-detector tests, floor and mutation testing (Part D). ISS-033 to ISS-038 logged. | docs/plans/PLAN-002-reload-coverage-and-gaps.md, tasks/ISSUES.md |
 
 ## Next action
 
-1. Read the first CI run on PR #1 (verify, e2e, image jobs). Fix any failure; ISS-017 closes when it is green.
-2. Owner decisions: ISS-012, ISS-020, ISS-025, ISS-030, ISS-032.
-3. Open technical items: ISS-015 package globals, ISS-018 tracing and metric cardinality, ISS-021 tests for untested packages.
+1. Owner answers to PLAN-002 open questions (escalation wire or delete, remove gitops.mode and images.mirror, reload.secrets default, approval expiry and approvers).
+2. Start PLAN-002 phase 8 (testability refactor and coverage floor) on a branch from plan-002 once PR #1 is merged or rebased.
+3. PR #1: read the first CI run (ISS-017).

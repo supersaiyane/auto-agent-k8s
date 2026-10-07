@@ -4,6 +4,12 @@ Last updated: 2026-10-07
 
 ## Active plan
 
+`docs/plans/PLAN-002-reload-coverage-and-gaps.md`: proposed 2026-10-07, not
+started. Native config reload, weak-feature fixes, fix ladder, coverage to
+95 percent. PLAN-001 is complete (PR #1).
+
+## Previous plan
+
 `docs/plans/PLAN-001-safety-hardening.md`: phases 0 and 1 committed
 (3c3d99c, 4082923, 98bb754); phase 2 done on branch `phase0-1-safety`.
 Nothing pushed.
