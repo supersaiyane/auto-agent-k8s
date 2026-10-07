@@ -4,7 +4,8 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 
 | Path | Responsibility |
 |------|----------------|
-| cmd/auto-agent/main.go | Entry point; wires kube.Deps (~:209), leader-only polling loops (~:250-308), ConfigMap hot-reload |
+| cmd/auto-agent/main.go | Entry point: config, klog level, in-cluster clients, signal context, then `run()` |
+| cmd/auto-agent/run.go | `run(ctx, conf, Clients, RunOptions)`: builds every dependency, leader election, HTTP server, watchers, leader-only loops; boot test in `run_test.go` |
 | internal/kube/ | Detection + remediation: gate.go (applyMutation, the only path that writes to the cluster; enforced by mutation_guard_test.go), watcher.go (pod/node informers), handlers.go (tryFixAction, wrapper over the gate), guardrails.go, scaler.go, nodes.go, workloads.go, jobs.go, llm.go |
 | internal/config/ | The only place environment variables are read: `Load(getenv)` returns `Config` (81 variables, measured); `Names()` lists them for the docs test; `KlogVerbosity` maps LOG_LEVEL |
 | internal/policy/ | Mode (observe/suggest/dry-run/fix), allowlist, thresholds; HotReloader (ConfigMap reload, immutable snapshots), Static source for tests |
@@ -12,7 +13,8 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | internal/leader/ | Lease-based leader election (kube-system) |
 | internal/httpapi/ | Dashboard UI + /api/* (incl. kubectl terminal), /metrics, /healthz |
 | internal/redact/ | Masks secrets and personal data; called inside every outbound client (llm, slack, alertmanager, tickets, PR text). outbound_test.go proves no client leaks |
-| internal/slack/, alertmanager/, integrations/, escalation/ | Notifications, alert ingest, Jira/GitHub issues & PRs, escalation chain |
+| internal/slack/, alertmanager/, integrations/, escalation/ | Notifications, alert ingest, Jira/GitHub issues & PRs, escalation chain (redacted per channel, ISS-042); constructors take an `*http.Client` |
+| internal/httpx/ | `Client(hc, timeout)`: the injected HTTP client rule; `httpxtest/` is the shared `httptest` server that records requests |
 | internal/crd/, webhook/ | AutoRemediationPolicy CRD, admission webhook |
 | internal/obs/ | Prometheus metrics; CountAPIError (forbidden reads become a metric and one warning) |
 | internal/storage/, logging/, metrics/, events/ | Log sinks (S3/EFS), logging, observability |

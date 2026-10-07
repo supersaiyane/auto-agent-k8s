@@ -322,6 +322,21 @@ Added 2026-10-07. Estimates are modelled.
 | 9.7 | Leader and CRD tests | Leader election with a fake Lease (acquire, lose, re-acquire); CRD watcher with a fake dynamic client | `leader` and `crd` above 90 percent |
 | 9.8 | Floor raised, records | `.coverage-floor` set to the new measured total | `make verify` and `make e2e` pass; commit |
 
+Result, 2026-10-07 (all figures measured with `go test -race -cover`):
+
+- 9.1, 9.2: every outbound client takes an `*http.Client` (`internal/httpx`),
+  tested against `httptest` through `internal/httpx/httpxtest`. Package
+  coverage: slack 88.9, llm 90.2, alertmanager 82.4, metrics 87.2,
+  escalation 92.5, integrations 87.5. Writing these tests found ISS-042:
+  escalation sent text to PagerDuty, OpsGenie and email unredacted.
+- 9.3, 9.4: met. The globals guard allows only read-only values.
+- 9.5: partly met. `main()` is 30 lines; `main.go` is 54 with imports.
+- 9.6: partly met. `run()` is at 84.5 percent and the smoke test passes under
+  `-race`, but the `cmd` package is at 77.8 because `main()` builds the
+  in-cluster config and cannot run outside a pod.
+- 9.7: `crd` 98.6. `leader` 88.9; the uncovered lines are the two
+  `klog.Fatalf` branches, which exit the process.
+
 ### Phase 10: missing failure classes (5 to 8 days)
 
 Each row is one detector, written test first: a bad state plus a healthy

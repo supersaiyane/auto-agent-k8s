@@ -614,7 +614,7 @@ Work is planned in [docs/plans/](plans/), tracked in
 4. If it fixes something, hand the write to `tryFixAction` or
    `applyMutation`, and add it to `mutatingDrivers` in `gate_test.go` so it is
    tested in every mode and blocked state.
-5. Call it from the right leader loop in `cmd/auto-agent/main.go`.
+5. Call it from the right leader loop in `cmd/auto-agent/run.go`.
 6. `make verify`, then `make e2e`.
 
 ### 12.4 Known gaps

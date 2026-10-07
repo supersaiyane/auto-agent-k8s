@@ -6,7 +6,10 @@ Last updated: 2026-10-07
 
 `docs/plans/PLAN-002-reload-coverage-and-gaps.md`: phase 8 done 2026-10-07
 (config package, no env reads outside it, log level, injected clock, coverage
-floor 27.9 percent and 100 percent strict set). Next: phase 9. Native config reload, weak-feature fixes, fix ladder, coverage to
+floor 27.9 percent and 100 percent strict set). Phase 9 done 2026-10-07
+(injected HTTP clients with httptest tests, no mutable globals, `run()`
+extracted with a boot test, leader and CRD tests, ISS-042 fixed; total
+coverage 44.6 percent measured). Next: phase 10. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 
 ## Previous plan

@@ -30,9 +30,9 @@ This page documents the honest status of every feature: what's actually working 
 |---------|-------------|-----------------|------------|
 | **Slack** | Sends incident alerts with logs and LLM diagnosis. Interactive buttons are not sent yet (`BuildIncidentBlocks` has no caller, ISS-012); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and replies that no action was taken | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
 | **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired: `FireIncident()` returns nil |
-| **PagerDuty** | Would trigger PD incidents for critical/warning severity. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
-| **OpsGenie** | Would create OG alerts for critical/warning. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
-| **Email** | Would send email for critical incidents. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+| **PagerDuty** | Would trigger PD incidents for critical/warning severity. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
+| **OpsGenie** | Would create OG alerts for critical/warning. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
+| **Email** | Would send email for critical incidents. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
 
 ### Chart values that nothing reads
 
