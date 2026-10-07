@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/metrics"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
@@ -24,6 +25,8 @@ type mockMetrics struct {
 	cpu    float64
 	cpuErr error
 	gate   float64
+	// vector answers QueryVector; nil means no Prometheus.
+	vector func(q string) ([]metrics.Sample, error)
 }
 
 func (m *mockMetrics) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, _ string) (float64, error) {
@@ -31,6 +34,12 @@ func (m *mockMetrics) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, 
 }
 func (m *mockMetrics) QueryInstant(_ context.Context, _ string) (float64, error) {
 	return m.gate, nil
+}
+func (m *mockMetrics) QueryVector(_ context.Context, q string) ([]metrics.Sample, error) {
+	if m.vector == nil {
+		return nil, metrics.ErrNoPromQL
+	}
+	return m.vector(q)
 }
 
 // mockSlack collects posted messages.

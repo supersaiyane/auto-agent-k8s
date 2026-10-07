@@ -22,6 +22,35 @@ This page documents the honest status of every feature: what's actually working 
 | **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
 
+## Added in PLAN-002 phase 10 (2026-10-08)
+
+Each runs on the leader, reports through one path that records its rung on
+the fix ladder (R0 alert, R1 guided fix, R3 approve to fix once the approval
+queue exists), and is tested with a bad case and a healthy control.
+Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
+
+| Detector | Reasons reported | Rung | Code | Test |
+| --- | --- | --- | --- | --- |
+| Pods stuck terminating | `PodStuckTerminating` | R1, R3 later | `internal/kube/podstate.go` | `TestStuckTerminating` |
+| Volumes that do not attach or mount | `VolumeAttachFailed`, `VolumeMountFailed` | R1 | `internal/kube/podstate.go` | `TestVolumeFailures` |
+| Probes failing before a crashloop | `LivenessProbeFailing`, `ReadinessProbeFailing`, `StartupProbeFailing` | R1 | `internal/kube/podstate.go` | `TestProbeFailures` |
+| Why a pod cannot be scheduled (taint, affinity, resources, volume, topology spread) | `Unschedulable` | R1 | `internal/kube/podstate.go`, `scheduling.go` | `TestUnschedulable_ReportedByLeader`, `TestParseSchedulingFailure_OneCasePerCause` |
+| Preemption, naming victim and preemptor | `Preempted` | R1 | `internal/kube/podstate.go` | `TestPreemption_NamesVictimAndPreemptor` |
+| Readiness gates never met | `ReadinessGateUnmet` | R1 | `internal/kube/podstate.go` | `TestReadinessGates` |
+| Namespaces and claims held by finalizers | `NamespaceStuckTerminating`, `PVCStuckTerminating` | R1 | `internal/kube/lifecycle.go` | `TestStuckFinalizers_NamespaceAndPVC` |
+| Disruption budgets blocking evictions; refused evictions counted (`auto_agent_evictions_blocked_total`) | `PDBBlocksDisruption` | R1 | `internal/kube/lifecycle.go`, `nodes.go` | `TestDisruptionBudgets`, `TestNodePressure_EvictionRefusedByBudgetIsCounted` |
+| Job hit its retry limit or deadline, reason in the alert | `JobFailed` | R1 | `internal/kube/jobs.go` | `TestFailedJob_ReasonInAlert` |
+| HPA capped at its maximum for 15 minutes, higher maximum proposed within the policy ceiling | `HPAMaxedOut`, `HPAScalingFailed` | R1, R3 later | `internal/kube/workload_extended.go` | `TestHPA_StuckAtMaxOnlyWhenLimited` |
+| Image pull cause: rate limit, unauthorized, not found, network; no retry where it cannot help | `ImagePullBackOff` | R1, or R4 for network | `internal/kube/handlers.go` | `TestImagePull_CauseDecidesRetry` |
+| CPU throttling (Prometheus) | `CPUThrottled` | R1, R3 later | `internal/kube/promchecks.go` | `TestCPUThrottling` |
+| Claims almost full; expansion offered only when the StorageClass allows it (Prometheus) | `VolumeAlmostFull` | R1, R3 later | `internal/kube/promchecks.go` | `TestVolumeAlmostFull` |
+| etcd: no leader, leader churn, database near quota (Prometheus, self-managed control planes) | `EtcdNoLeader`, `EtcdLeaderChurn`, `EtcdDBNearQuota` | R0 | `internal/kube/promchecks.go` | `TestEtcdHealth` |
+| Deprecated API use, with the replacement (Prometheus scraping the API server) | `DeprecatedAPIInUse` | R1 | `internal/kube/promchecks.go` | `TestDeprecatedAPIs` |
+
+`TestEveryDetectorHasATest` (`internal/kube/detector_guard_test.go`) fails
+when an exported `Check*` detector has no test; the older ones are listed
+there until PLAN-002 phase 12 tests them.
+
 ## Code Exists: Needs Configuration to Activate
 
 ### Messaging & Alerting

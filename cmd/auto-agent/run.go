@@ -272,6 +272,8 @@ func leaderLoops(ctx context.Context, conf config.Config, deps *kube.Deps, le *l
 			kube.CheckRBACDenied(ctx, deps)
 			kube.CheckStuckFinalizers(ctx, deps)
 			kube.CheckDisruptionBudgets(ctx, deps)
+			kube.CheckResourcePressure(ctx, deps)
+			kube.CheckControlPlane(ctx, deps)
 		case <-healthTicker.C:
 			kube.SelfCheck(ctx, deps)
 		}

@@ -250,6 +250,14 @@ Scale-down happens when average CPU utilisation is below 0.3.
 
 ### 5.4 Notifications and integrations
 
+Four detectors read Prometheus and stay silent without it (no alert, no
+error): CPU throttling, claims almost full, etcd health and deprecated API
+use. They need `metrics.type: prometheus` and a Prometheus that scrapes the
+kubelet (cAdvisor and volume stats), plus etcd and the API server for the
+last two; managed control planes usually expose neither, which is fine.
+The full list of detectors, with their rung and test, is in
+`docs/wiki/23-feature-status.md`.
+
 | Value | Default | What it does |
 | --- | --- | --- |
 | `slack.webhookUrl` | empty | Incident messages |
@@ -375,7 +383,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -X POST -d '{"command":"get pods -n de
 | `auto_agent_actions_total` | Actions applied, by type |
 | `auto_agent_rate_limited_total` | Actions refused by the rate limiter |
 | `auto_agent_dedup_skipped_total` | Duplicate reports suppressed |
-| `auto_agent_handler_errors_total` | Handler failures, by handler and error type |
+| `auto_agent_handler_errors_total` | Handler failures, by handler and error type (`prometheus` means a detector's PromQL query failed) |
+| `auto_agent_evictions_blocked_total` | Node-pressure evictions a PodDisruptionBudget refused, by namespace |
 | `auto_agent_api_errors_total` | Failed API reads, by resource and reason (`forbidden` means RBAC is missing a grant) |
 | `auto_agent_scaling_decisions_total` | Scale up / down decisions |
 | `auto_agent_anomalies_detected_total` | CPU anomalies |

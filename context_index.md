@@ -18,6 +18,7 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `FetchRunbook(ctx, hc, url)` | `internal/kube/runbook.go` | Fetches a runbook with the injected client |
 | `CheckPodStates` | `internal/kube/podstate.go` | Leader pass over every allowlisted pod: stuck terminating, volume failures, probes, unschedulable, preemption, readiness gates (PLAN-002 10.1 to 10.12); replaced `CheckVolumeAttachments` |
 | `CheckStuckFinalizers`, `CheckDisruptionBudgets` | `internal/kube/lifecycle.go` | Leader checks: namespaces and claims held by finalizers (10.2), budgets blocking evictions (10.6) |
+| `CheckResourcePressure`, `CheckControlPlane` | `internal/kube/promchecks.go` | Prometheus checks: CPU throttling, claims almost full (10.9, 10.10), etcd health, deprecated API use (10.13, 10.14); silent when `metrics.ErrNoPromQL` |
 | `Rung`, `RungAlert` to `RungAuto` | `internal/kube/findings.go` | Fix ladder rung carried by every phase 10 finding; reported through the unexported `report()` |
 | `Deps.Now` | `internal/kube/deps.go` | Injected clock for detector time windows; nil means time.Now |
 | `NewDryRunLog`, `SimulateAction` | `internal/kube/dryrun.go` | Dry-run record of what the gate would have done |

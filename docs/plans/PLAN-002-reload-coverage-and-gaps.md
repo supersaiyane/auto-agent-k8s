@@ -363,6 +363,16 @@ control in a fake cluster, asserting the message, the metric and the rung.
 | 10.16 | Pull-secret and registry rate-limit errors | Audit the existing check: separate `unauthorized` and `toomanyrequests` | R1 | Two distinct messages |
 | 10.17 | Wiring, RBAC, docs | Called from the right loop; new reads granted (for example PodDisruptionBudgets); feature table, guide, configuration reference | RBAC, config and every-detector-has-a-test checks pass; `make e2e` passes |
 
+Result, 2026-10-08 (measured): all 17 rows done. Every new detector reports
+through `report()` in `internal/kube/findings.go` with its rung and has a
+test with a bad case and a healthy control; `TestEveryDetectorHasATest`
+keeps it that way and lists the 20 older detectors that phase 12 must test.
+Auditing the existing checks found ISS-043 (unschedulable pods never
+reported under the DaemonSet), ISS-044 (image pull retried even on rate
+limits), ISS-045 (job failure reason missing) and ISS-046 (false HPA
+alerts), all fixed. 10.3 replaced `CheckVolumeAttachments`. Total coverage
+44.6 to 51.5 percent. Commits 7990933, e8a227c and the phase 10 completion.
+
 Rows 10.1, 10.9 and 10.10 reach their final rung when the approval queue
 lands in phase 15; until then they stop one rung lower and say so in the
 alert.
@@ -370,9 +380,11 @@ alert.
 ### Phase 11: architect review fixes (14 to 23 days)
 
 Added 2026-10-07 from an architect review of the dashboard, `docs/wiki`,
-`deployment/` (manifests and scripts) and `cmd/auto-agent`. Phase 10 is
-paused after 10.1 to 10.8, 10.11, 10.12, 10.15 and 10.16 (commits 7990933,
-e8a227c); 10.9, 10.10, 10.13, 10.14 and 10.17 resume after this phase.
+`deployment/` (manifests and scripts) and `cmd/auto-agent`. Phase 10 was
+finished first, on 2026-10-08, at the owner's request.
+
+**Owner decision 2026-10-08 (ISS-058): option A.** Order: phase 10 done,
+then 11.1 (ADR-001 first), then 11.2 to 11.7.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

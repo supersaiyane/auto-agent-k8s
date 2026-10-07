@@ -9,11 +9,11 @@ Last updated: 2026-10-07
 floor 27.9 percent and 100 percent strict set). Phase 9 done 2026-10-07
 (injected HTTP clients with httptest tests, no mutable globals, `run()`
 extracted with a boot test, leader and CRD tests, ISS-042 fixed; total
-coverage 44.6 percent measured). Phase 10 paused 2026-10-07 after
-10.1 to 10.8, 10.11, 10.12, 10.15, 10.16 (7990933, e8a227c; ISS-043 to
-ISS-046 fixed; coverage 50.2 percent measured). Phase 11 added from an
-architect review (dashboard, deployment, scripts, cmd, docs; ISS-047 to
-ISS-058); it waits on the owner decision in ISS-058. Old phases 11 to 16
+coverage 44.6 percent measured). Phase 10 done 2026-10-08: all 17
+rows, ISS-040 and ISS-043 to ISS-046 fixed, every new detector tested,
+coverage 51.5 percent measured. Phase 11 added from an architect review
+(ISS-047 to ISS-058); owner chose option A for 11.1 on 2026-10-08. Next:
+11.1 (ADR-001, node and controller roles), then 11.2 to 11.7. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 

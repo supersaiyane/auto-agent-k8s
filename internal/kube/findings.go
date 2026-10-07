@@ -51,7 +51,10 @@ type finding struct {
 
 func (f finding) message() string {
 	var b strings.Builder
-	where := f.Namespace + "/" + f.Workload
+	where := f.Workload // cluster-scoped findings, such as etcd, have no namespace
+	if f.Namespace != "" {
+		where = f.Namespace + "/" + f.Workload
+	}
 	if f.Pod != "" && f.Pod != f.Workload {
 		where += " (pod " + f.Pod + ")"
 	}

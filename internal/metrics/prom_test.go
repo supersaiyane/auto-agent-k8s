@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -77,5 +78,32 @@ func TestNewProviderKinds(t *testing.T) {
 	}
 	if _, err := p.AvgDeploymentCPU(context.Background(), &appsv1.Deployment{}, "5m"); err == nil {
 		t.Fatal("the stub has no CPU data")
+	}
+}
+
+// PLAN-002 phase 10: every series with its labels; empty is not an error.
+func TestQueryVector(t *testing.T) {
+	s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) {
+		httpxtest.JSON(w, 200, `{"status":"success","data":{"result":[`+
+			`{"metric":{"namespace":"a","pod":"p1"},"value":[1,"0.5"]},`+
+			`{"metric":{"namespace":"b","pod":"p2"},"value":[1,"2"]}]}}`)
+	})
+	defer s.Close()
+	p, _ := NewProvider("prometheus", s.URL, s.Client(time.Second))
+	v, err := p.QueryVector(context.Background(), "x")
+	if err != nil || len(v) != 2 || v[0].Labels["pod"] != "p1" || v[1].Value != 2 {
+		t.Fatalf("vector: %+v %v", v, err)
+	}
+	empty := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) {
+		httpxtest.JSON(w, 200, `{"status":"success","data":{"result":[]}}`)
+	})
+	defer empty.Close()
+	p, _ = NewProvider("prometheus", empty.URL, empty.Client(time.Second))
+	if v, err := p.QueryVector(context.Background(), "x"); err != nil || len(v) != 0 {
+		t.Fatalf("empty: %+v %v", v, err)
+	}
+	stub, _ := NewProvider("metrics-server", "", nil)
+	if _, err := stub.QueryVector(context.Background(), "x"); !errors.Is(err, ErrNoPromQL) {
+		t.Fatalf("the stub says no Prometheus: %v", err)
 	}
 }
