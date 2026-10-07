@@ -1,0 +1,99 @@
+# Namespaced permissions (CLAUDE.md constraints 4 and 7).
+# Workload writes: one Role per allowlisted namespace, nowhere else.
+{{- range .Values.agent.namespaceAllowlist }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-write
+  namespace: {{ . }}
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["patch", "update"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["delete"]
+{{- if $.Values.rbac.readTLSSecrets }}
+# Certificate expiry check reads TLS secrets. Off by default (ISS-009).
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-write
+  namespace: {{ . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ $.Values.namespace }}
+{{- end }}
+---
+# Leader election. The lease namespace is fixed in code (internal/leader,
+# ISS-015). get and update are pinned to the agent's own lease; create cannot
+# be pinned by name in RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-leader
+  namespace: kube-system
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["create"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  resourceNames: ["auto-agent-leader"]
+  verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-leader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-leader
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ .Values.namespace }}
+---
+# Policy hot reload reads the agent's ConfigMap in its own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-config
+  namespace: {{ .Values.namespace }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-config
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-config
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ .Values.namespace }}

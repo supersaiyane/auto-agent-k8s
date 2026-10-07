@@ -251,10 +251,12 @@ func main() {
 
 	// --- Leader-only periodic loops ---
 	go func() {
-		scaleTicker := time.NewTicker(30 * time.Second)
-		jobTicker := time.NewTicker(2 * time.Minute)
-		quotaTicker := time.NewTicker(5 * time.Minute)
-		healthTicker := time.NewTicker(3 * time.Minute)
+		// Intervals are configurable (ISS-015); the e2e shortens them so every
+		// detector runs within one test.
+		scaleTicker := time.NewTicker(durationEnv("SCALE_INTERVAL", 30*time.Second))
+		jobTicker := time.NewTicker(durationEnv("JOB_INTERVAL", 2*time.Minute))
+		quotaTicker := time.NewTicker(durationEnv("QUOTA_INTERVAL", 5*time.Minute))
+		healthTicker := time.NewTicker(durationEnv("HEALTH_INTERVAL", 3*time.Minute))
 		defer scaleTicker.Stop()
 		defer jobTicker.Stop()
 		defer quotaTicker.Stop()
@@ -337,4 +339,19 @@ func namespaceList(pol *policy.Policy) []string {
 		nss = append(nss, ns)
 	}
 	return nss
+}
+
+// durationEnv reads a positive duration such as "45s" from the environment,
+// falling back to def when unset or invalid.
+func durationEnv(name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		klog.Warningf("invalid %s %q, using %s", name, v, def)
+		return def
+	}
+	return d
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,11 +24,17 @@ func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 
 // checkCertExpiry scans TLS secrets for certificates expiring within 30 days.
 func checkCertExpiry(ctx context.Context, deps *Deps) {
+	// Reading secrets is an opt-in grant (chart rbac.readTLSSecrets sets
+	// TLS_CERT_CHECK); without it the check does not run at all (ISS-009).
+	if os.Getenv("TLS_CERT_CHECK") != "true" {
+		return
+	}
 	for ns := range deps.Policy().NamespaceAllow {
 		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "type=kubernetes.io/tls",
 		})
 		if err != nil {
+			countAPIError(err, "secrets", ns)
 			continue
 		}
 		for _, secret := range secrets.Items {
@@ -166,6 +173,7 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "events", ns)
 			continue
 		}
 		for _, ev := range events.Items {
@@ -200,6 +208,7 @@ func CheckRBACDenied(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "events", ns)
 			continue
 		}
 		for _, ev := range events.Items {

@@ -17,6 +17,7 @@ func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		stss, err := deps.Client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "statefulsets", ns)
 			continue
 		}
 		for _, sts := range stss.Items {
@@ -53,6 +54,7 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		dss, err := deps.Client.AppsV1().DaemonSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "daemonsets", ns)
 			continue
 		}
 		for _, ds := range dss.Items {
@@ -83,6 +85,7 @@ func CheckHPAIssues(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		hpas, err := deps.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "horizontalpodautoscalers", ns)
 			continue
 		}
 		for _, hpa := range hpas.Items {
@@ -128,6 +131,7 @@ func CheckCronJobMissed(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		crons, err := deps.Client.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "cronjobs", ns)
 			continue
 		}
 		for _, cj := range crons.Items {
@@ -164,6 +168,7 @@ func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "deployments", ns)
 			continue
 		}
 		for _, d := range deploys.Items {
@@ -190,6 +195,7 @@ func CheckReplicaSetFailure(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		rss, err := deps.Client.AppsV1().ReplicaSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "replicasets", ns)
 			continue
 		}
 		for _, rs := range rss.Items {

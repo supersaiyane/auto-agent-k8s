@@ -8,6 +8,7 @@ data:
   AUTO_MODE: "dry-run"
 
   # Namespaces to watch
+  TLS_CERT_CHECK: "false"            # true needs secrets list RBAC (chart rbac.readTLSSecrets)
   NAMESPACE_ALLOWLIST: "default,test1,test2"
 
   # Scaling

@@ -78,6 +78,7 @@ func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
 			FieldSelector: "status.phase=Failed",
 		})
 		if err != nil {
+			countAPIError(err, "pods", ns)
 			continue
 		}
 		for _, pod := range pods.Items {
@@ -112,6 +113,7 @@ func CheckEphemeralStorageFull(ctx context.Context, deps *Deps) {
 			FieldSelector: "status.phase=Failed",
 		})
 		if err != nil {
+			countAPIError(err, "pods", ns)
 			continue
 		}
 		for _, pod := range pods.Items {

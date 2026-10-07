@@ -123,6 +123,11 @@ echo ""
 echo "[5/6] Deploying auto-agent..."
 kubectl apply -f "$SCRIPT_DIR/00-namespace.yaml"
 kubectl apply -f "$SCRIPT_DIR/01-crds.yaml"
+# 02-rbac.yaml holds a write Role per allowlisted namespace (make manifests);
+# a Role needs its namespace to exist first.
+for ns in default test1 test2; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+done
 kubectl apply -f "$SCRIPT_DIR/02-rbac.yaml"
 kubectl apply -f "$SCRIPT_DIR/03-config.yaml"
 kubectl apply -f "$SCRIPT_DIR/04-daemonset.yaml"
@@ -151,7 +156,7 @@ kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
 echo ""
 kubectl get pods -n auto-agent -o wide
 
-# Dashboard access — NodePort 30080 (no port-forward needed)
+# Dashboard access: NodePort 30080 (no port-forward needed)
 echo ""
 echo "Dashboard access..."
 
@@ -191,7 +196,7 @@ echo "=========================================="
 echo " Deployment Complete!"
 echo "=========================================="
 echo ""
-echo "  Dashboard:     http://localhost:30080 (NodePort — survives pod restarts)"
+echo "  Dashboard:     http://localhost:30080 (NodePort, survives pod restarts)"
 echo "  Fallback:      http://localhost:8080  (port-forward)"
 echo "  Agent logs:    kubectl logs -n auto-agent -l app=auto-agent -f"
 echo "  Agent mode:    $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.AUTO_MODE}')"

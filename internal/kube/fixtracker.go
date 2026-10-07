@@ -150,6 +150,7 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 	// Fallback: check pods directly by owner name match
 	pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
+		countAPIError(err, "pods", ns)
 		return false, ""
 	}
 

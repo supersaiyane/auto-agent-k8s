@@ -137,3 +137,94 @@ func TestMutationsOnlyThroughGate(t *testing.T) {
 	}
 	t.Logf("checked %d mutating client call sites", found)
 }
+
+// isClientCall reports whether call is any typed client call, read or write.
+func isClientCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	for x := sel.X; ; {
+		c, ok := x.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		s, ok := c.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		if groupVersion.MatchString(s.Sel.Name) {
+			return true
+		}
+		x = s.X
+	}
+}
+
+func usesIdent(n ast.Node, name string) bool {
+	found := false
+	ast.Inspect(n, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Name == name {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// TestAPIErrorsAreNotSwallowed: after a client call, an `if err != nil`
+// block must use err (count it with countAPIError, log it, or return it).
+// A bare continue or return hides a forbidden error, which is how RBAC
+// drift went unnoticed (ISS-009, ISS-014).
+func TestAPIErrorsAreNotSwallowed(t *testing.T) {
+	fset := token.NewFileSet()
+	checked := 0
+	for _, root := range []string{"../../internal", "../../cmd"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				block, ok := n.(*ast.BlockStmt)
+				if !ok {
+					return true
+				}
+				for k := 0; k+1 < len(block.List); k++ {
+					assign, ok := block.List[k].(*ast.AssignStmt)
+					if !ok || len(assign.Rhs) != 1 {
+						continue
+					}
+					call, ok := assign.Rhs[0].(*ast.CallExpr)
+					if !ok || !isClientCall(call) {
+						continue
+					}
+					ifs, ok := block.List[k+1].(*ast.IfStmt)
+					if !ok || ifs.Init != nil {
+						continue
+					}
+					cond, ok := ifs.Cond.(*ast.BinaryExpr)
+					if !ok || cond.Op != token.NEQ || !usesIdent(cond.X, "err") {
+						continue
+					}
+					checked++
+					if !usesIdent(ifs.Body, "err") {
+						t.Errorf("%s: client call error dropped; use countAPIError(err, ...) or return it",
+							fset.Position(ifs.Pos()))
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("matched no client error checks; the matcher is broken")
+	}
+	t.Logf("checked %d client error checks", checked)
+}

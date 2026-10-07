@@ -13,6 +13,8 @@ IMAGE="auto-agent:e2e"
 NS_AGENT="kube-system"
 NS_TEST="default"
 WAIT_SECONDS="${WAIT_SECONDS:-240}"
+# CHART lets a broken copy of the chart prove the RBAC check can fail.
+CHART="${CHART:-charts/auto-agent}"
 # MODE=fix exists to prove this test can fail: in fix mode the agent deletes
 # the crasher, so the UID check below must report FAIL.
 MODE="${MODE:-dry-run}"
@@ -40,10 +42,12 @@ docker build -t "$IMAGE" .
 kind load docker-image "$IMAGE" --name "$CLUSTER"
 
 log "installing chart in $MODE mode"
-helm upgrade --install auto-agent charts/auto-agent --kube-context "$CTX" \
+helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" \
 	--set image.repository=auto-agent --set image.tag=e2e --set image.pullPolicy=Never \
 	--set "agent.mode=$MODE" --set "agent.namespaceAllowlist={$NS_TEST}" \
 	--set dashboard.token=e2e-token \
+	--set "env[0].name=JOB_INTERVAL" --set "env[0].value=30s" \
+	--set "env[1].name=QUOTA_INTERVAL" --set "env[1].value=40s" \
 	--wait --timeout 180s
 
 log "starting a crashlooping pod in $NS_TEST"
@@ -93,4 +97,17 @@ log "kubectl -n kube-system -> $KUBECTL"
 [ "$HEALTH" = "200" ] || fail "/healthz returned $HEALTH, want 200"
 echo "$KUBECTL" | grep -q "not in the namespace allowlist" || fail "kubectl endpoint read kube-system"
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped to allowlist"
+log "checking the pod runs non-root and RBAC covers every detector (ISS-009, ISS-010)"
+RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$AGENT_POD" -o jsonpath='{.spec.securityContext.runAsUser}')
+[ "$RUN_AS" = "65532" ] || fail "agent pod runAsUser is '$RUN_AS', want 65532"
+# JOB_INTERVAL=30s and QUOTA_INTERVAL=40s are set at install, so this wait
+# covers at least two passes of every leader loop.
+RBAC_SETTLE="${RBAC_SETTLE:-90}"
+log "waiting ${RBAC_SETTLE}s for the leader loops to run every detector once"
+sleep "$RBAC_SETTLE"
+AGENT_LOGS=$(kubectl --context "$CTX" -n "$NS_AGENT" logs "$AGENT_POD" -c agent --tail=-1)
+echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "agent never acquired the leader lease"
+FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
+[ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
+
+log "PASS: dry-run untouched, API requires token, kubectl scoped, non-root, RBAC complete"

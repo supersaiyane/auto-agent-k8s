@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	eventsvc "github.com/yourorg/auto-agent/internal/events"
@@ -18,6 +19,7 @@ func CheckStorageIssues(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "persistentvolumeclaims", ns)
 			continue
 		}
 		for _, pvc := range pvcs.Items {
@@ -41,6 +43,12 @@ func CheckStorageIssues(ctx context.Context, deps *Deps) {
 					scName := *pvc.Spec.StorageClassName
 					_, err := deps.Client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 					if err != nil {
+						// Only a real NotFound means the class is missing; a
+						// forbidden read must not be reported as one.
+						if !apierrors.IsNotFound(err) {
+							countAPIError(err, "storageclasses", "")
+							continue
+						}
 						key := dedupKey(ns, pvc.Name, "StorageClassNotFound")
 						if !deps.Dedup.Check(key) {
 							continue
@@ -66,6 +74,7 @@ func CheckVolumeAttachments(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "pods", ns)
 			continue
 		}
 		for _, pod := range pods.Items {
@@ -108,6 +117,7 @@ func checkDNSHealth(ctx context.Context, deps *Deps) {
 		LabelSelector: "k8s-app=kube-dns",
 	})
 	if err != nil {
+		countAPIError(err, "pods", "kube-system")
 		return
 	}
 	if pods == nil || len(pods.Items) == 0 {
@@ -161,6 +171,7 @@ func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		svcs, err := deps.Client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "services", ns)
 			continue
 		}
 		for _, svc := range svcs.Items {
@@ -192,6 +203,7 @@ func checkIngressBackends(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		ingresses, err := deps.Client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "ingresses", ns)
 			continue
 		}
 		for _, ing := range ingresses.Items {
@@ -207,6 +219,10 @@ func checkIngressBackends(ctx context.Context, deps *Deps) {
 					// Check if the backend service has endpoints
 					ep, err := deps.Client.CoreV1().Endpoints(ns).Get(ctx, svcName, metav1.GetOptions{})
 					if err != nil {
+						if !apierrors.IsNotFound(err) {
+							countAPIError(err, "endpoints", ns)
+							continue
+						}
 						key := dedupKey(ns, ing.Name, "IngressBackendMissing-"+svcName)
 						if deps.Dedup.Check(key) {
 							msg := fmt.Sprintf("*IngressBackendMissing* ingress `%s/%s` backend `%s` not found\n",

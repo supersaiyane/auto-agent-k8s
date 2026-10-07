@@ -4,7 +4,12 @@ image:
   pullPolicy: IfNotPresent
 
 namespace: kube-system
+# Kept on purpose (reviewed 2026-10-07, ISS-010): node actions are taken only
+# by the agent on that node (ISS-004), so it must run on every node and must
+# not be evicted by the node pressure it is handling.
 priorityClassName: system-node-critical
+# Init container that chowns the hostPath log directory. Pinned by digest.
+initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
 
 agent:
   mode: dry-run                    # observe|suggest|dry-run|fix (fix is an explicit opt-in)
@@ -13,7 +18,9 @@ agent:
   scaleWindow: 5m
   maxScaleStep: 2
   maxActionsPer10m: 10
-  namespaceAllowlist: ["default","prod"]
+  # Namespaces the agent reads and may act in. Each gets a write Role, so each
+  # must exist before install. Add production namespaces explicitly.
+  namespaceAllowlist: ["default"]
   excludedAnnotation: "auto-agent.io/disable"
   promQueryForSlo: ""              # optional promql for latency/queue
   logLevel: info
@@ -69,8 +76,10 @@ logs:
     path: /var/log/auto-agent
   retentionDays: 7
 
-namespacedRBAC:
-  enabled: false                   # per-namespace Role/RoleBinding instead of ClusterRole
+rbac:
+  # Lets the certificate expiry check list TLS secrets in allowlisted
+  # namespaces. Off by default: reading secrets is a large grant.
+  readTLSSecrets: false
 
 dashboard:
   # Bearer token for /api/ (dashboard and kubectl endpoint). Empty disables

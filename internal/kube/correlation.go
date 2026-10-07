@@ -93,6 +93,7 @@ func ScanDeployments(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "deployments", ns)
 			continue
 		}
 		for _, d := range deploys.Items {

@@ -222,6 +222,7 @@ func CheckServiceEndpoints(ctx context.Context, deps *Deps) {
 	for ns := range deps.Policy().NamespaceAllow {
 		endpoints, err := deps.Client.CoreV1().Endpoints(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
+			countAPIError(err, "endpoints", ns)
 			continue
 		}
 		for _, ep := range endpoints.Items {
