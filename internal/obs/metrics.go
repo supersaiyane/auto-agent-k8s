@@ -67,6 +67,15 @@ var (
 		[]string{"namespace"},
 	)
 
+	// EventsDroppedTotal counts events a node agent dropped because its
+	// forward buffer was full while the controller was unreachable (ADR-001).
+	EventsDroppedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "auto_agent_events_dropped_total",
+			Help: "Events dropped by a node agent because the forward buffer was full",
+		},
+	)
+
 	ScalingDecisionsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "auto_agent_scaling_decisions_total",
@@ -101,6 +110,7 @@ func init() {
 		LLMRequestsTotal,
 		HandlerErrorsTotal,
 		EvictionsBlockedTotal,
+		EventsDroppedTotal,
 		APIErrorsTotal,
 		ScalingDecisionsTotal,
 		AnomaliesDetectedTotal,

@@ -67,7 +67,7 @@ type Deps struct {
 	CRDStore      *crd.Store
 	GitOps        integrations.GitOps
 	Ticketer      integrations.Ticketer
-	Recorder      *events.Recorder
+	Recorder      events.Sink
 	Breaker       *ratelimit.CircuitBreaker
 	AlertManager  *alertmanager.Client
 	AuditLog      *AuditLog

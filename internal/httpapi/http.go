@@ -32,14 +32,16 @@ type Server struct {
 	srv      *http.Server
 	ready    int32
 	recorder *events.Recorder
-	meta     *AgentMeta
-	kc       kubernetes.Interface
-	token    string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
-	allowNS  func(string) bool // namespace allowlist for kubectl reads
-	cost     CostConfig        // Cost tab pricing (PLAN-002 9.3)
-	ext      ExtendedDeps      // extended endpoints (PLAN-002 9.4)
-	http     *http.Client      // outbound calls (Kubecost, OpenCost)
-	started  time.Time
+	// internalToken authenticates forwarded events (ADR-001).
+	internalToken string
+	meta          *AgentMeta
+	kc            kubernetes.Interface
+	token         string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
+	allowNS       func(string) bool // namespace allowlist for kubectl reads
+	cost          CostConfig        // Cost tab pricing (PLAN-002 9.3)
+	ext           ExtendedDeps      // extended endpoints (PLAN-002 9.4)
+	http          *http.Client      // outbound calls (Kubecost, OpenCost)
+	started       time.Time
 }
 
 type AgentMeta struct {
@@ -57,8 +59,11 @@ type Options struct {
 	Cost               config.Cost  // Cost tab pricing
 	Extended           ExtendedDeps // optional trackers for the extended endpoints
 	HTTPClient         *http.Client // outbound calls; nil means a 10s-timeout client
-	AllowNamespace     func(string) bool
-	IsLeader           func() bool
+	// InternalToken authenticates node agents forwarding events to the
+	// controller (ADR-001); empty disables the ingest endpoint.
+	InternalToken  string
+	AllowNamespace func(string) bool
+	IsLeader       func() bool
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
@@ -68,7 +73,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
-		allowNS: opts.AllowNamespace}
+		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken}
 	if opts.IsLeader != nil {
 		meta.IsLeaderFn = opts.IsLeader
 	}
@@ -98,6 +103,9 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 		h := rt.handler
 		mux.HandleFunc(rt.path, func(w http.ResponseWriter, r *http.Request) { h(s, w, r) })
 	}
+
+	// Events forwarded by node agents; outside /api/, with its own token.
+	mux.HandleFunc(events.IngestPath, s.handleIngest)
 
 	// Slack interactive actions callback
 	slackHandler := NewSlackActionHandler(opts.SlackSigningSecret)
