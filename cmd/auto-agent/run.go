@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -201,9 +204,13 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	// --- Leader election (cluster-wide loops; controller only) ---
 	var le *leader.Elector
 	isLeader := func() bool { return false }
+	var leaderTarget func() (string, error) // nil: never proxy
 	if rl.controller {
 		le = leader.Start(ctx, cl.Kube, conf.LeaderLeaseNamespace, "auto-agent-leader", conf.PodName)
 		isLeader = le.IsLeader
+		if !rl.node { // a standby controller serves the leader's view (ADR-001)
+			leaderTarget = newLeaderTarget(cl.Kube, conf.PodNamespace, httpPort(opts.HTTPAddr), le)
+		}
 	}
 
 	// --- HTTP server: built last, with everything it serves ---
@@ -219,6 +226,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		HTTPClient:         cl.HTTP,
 		AllowNamespace:     func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) },
 		IsLeader:           isLeader,
+		Leader:             leaderTarget,
 		HealthOnly:         onlyNode,
 		InternalToken:      conf.InternalToken,
 		Extended: httpapi.ExtendedDeps{
@@ -378,4 +386,50 @@ func namespaceList(pol *policy.Policy) []string {
 		nss = append(nss, ns)
 	}
 	return nss
+}
+
+// electorView is what the leader resolver needs from the elector.
+type electorView interface {
+	IsLeader() bool
+	Leader() string
+}
+
+// newLeaderTarget resolves the leader's base URL from its identity (its
+// pod name) and pod IP, caching the last answer by identity.
+func newLeaderTarget(kc kubernetes.Interface, ns, port string, el electorView) func() (string, error) {
+	var mu sync.Mutex
+	var cachedID, cachedURL string
+	return func() (string, error) {
+		if el.IsLeader() {
+			return "", nil
+		}
+		id := el.Leader()
+		if id == "" {
+			return "", fmt.Errorf("leader not elected yet")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if id == cachedID {
+			return cachedURL, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		p, err := kc.CoreV1().Pods(ns).Get(ctx, id, metav1.GetOptions{})
+		if err != nil {
+			return "", fmt.Errorf("leader pod %s/%s: %w", ns, id, err)
+		}
+		if p.Status.PodIP == "" {
+			return "", fmt.Errorf("leader pod %s/%s has no IP yet", ns, id)
+		}
+		cachedID, cachedURL = id, "http://"+net.JoinHostPort(p.Status.PodIP, port)
+		return cachedURL, nil
+	}
+}
+
+// httpPort is the port part of a listen address such as ":8080".
+func httpPort(addr string) string {
+	if _, port, err := net.SplitHostPort(addr); err == nil && port != "" {
+		return port
+	}
+	return "8080"
 }

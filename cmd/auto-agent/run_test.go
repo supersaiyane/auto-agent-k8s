@@ -250,3 +250,49 @@ func controllerEvents(t *testing.T, addr, token string) []events.Event {
 	}
 	return out
 }
+
+type fakeElector struct {
+	leads bool
+	id    string
+}
+
+func (f fakeElector) IsLeader() bool { return f.leads }
+func (f fakeElector) Leader() string { return f.id }
+
+// ADR-001: the standby finds the leader by its pod name and pod IP, and
+// caches the answer until the leader changes.
+func TestLeaderTarget(t *testing.T) {
+	kc := fake.NewClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ctrl-a", Namespace: "auto-agent"}, Status: corev1.PodStatus{PodIP: "10.1.2.3"}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "ctrl-new", Namespace: "auto-agent"}},
+	)
+	for _, tc := range []struct {
+		name    string
+		el      fakeElector
+		want    string
+		wantErr bool
+	}{
+		{"this pod leads", fakeElector{leads: true}, "", false},
+		{"no leader yet", fakeElector{}, "", true},
+		{"leader found", fakeElector{id: "ctrl-a"}, "http://10.1.2.3:9090", false},
+		{"leader has no IP", fakeElector{id: "ctrl-new"}, "", true},
+		{"leader pod missing", fakeElector{id: "ctrl-gone"}, "", true},
+	} {
+		got, err := newLeaderTarget(kc, "auto-agent", "9090", tc.el)()
+		if got != tc.want || (err != nil) != tc.wantErr {
+			t.Errorf("%s: got %q err %v", tc.name, got, err)
+		}
+	}
+
+	target := newLeaderTarget(kc, "auto-agent", "9090", fakeElector{id: "ctrl-a"})
+	if _, err := target(); err != nil {
+		t.Fatal(err)
+	}
+	reads := len(kc.Actions())
+	if got, _ := target(); got != "http://10.1.2.3:9090" || len(kc.Actions()) != reads {
+		t.Fatal("the same leader is answered from the cache")
+	}
+	if httpPort(":8080") != "8080" || httpPort("127.0.0.1:1234") != "1234" || httpPort("bad") != "8080" {
+		t.Fatal("httpPort")
+	}
+}

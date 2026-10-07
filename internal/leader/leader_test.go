@@ -47,3 +47,15 @@ func TestElection_IdentityFallsBackToHostname(t *testing.T) {
 	e := Start(ctx, fake.NewClientset(), "auto-agent", "lease", "")
 	waitFor(t, "the hostname identity to lead", 10*time.Second, e.IsLeader)
 }
+
+// ADR-001: a standby needs to know who leads, to proxy to it.
+func TestElection_ReportsTheLeaderIdentity(t *testing.T) {
+	kc := fake.NewClientset()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e := Start(ctx, kc, "auto-agent", "lease", "agent-a")
+	if (&Elector{}).Leader() != "" {
+		t.Fatal("no leader known before an election")
+	}
+	waitFor(t, "the leader identity", 10*time.Second, func() bool { return e.Leader() == "agent-a" })
+}
