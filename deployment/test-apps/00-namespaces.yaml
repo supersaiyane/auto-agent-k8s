@@ -1,9 +1,19 @@
+# Demo namespaces. The label lets remove-apps.sh and
+# teardown.sh --delete-demo-namespaces find them and nothing else.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: test1
+  labels: { auto-agent.io/demo: "true" }
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: test2
+  labels: { auto-agent.io/demo: "true" }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chaos
+  labels: { auto-agent.io/demo: "true" }

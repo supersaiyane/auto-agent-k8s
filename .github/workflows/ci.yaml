@@ -50,6 +50,10 @@ jobs:
       - name: make verify
         run: make verify BASE="$BASE"
 
+      # shellcheck ships with the GitHub Ubuntu runner (PLAN-002 11.4).
+      - name: make lint-shell
+        run: make lint-shell
+
       - name: Coverage report
         run: |
           go test -count=1 -coverprofile=coverage.out ./...

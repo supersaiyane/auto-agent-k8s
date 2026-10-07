@@ -1,200 +1,147 @@
 #!/bin/bash
+# Installs auto-agent from the manifests in this directory, which are
+# generated from the Helm chart (make manifests). For a real cluster prefer
+# the chart itself; this script is for kind, minikube and quick trials.
+#
+# It never kills a local process, never installs anything you did not ask
+# for, and never overwrites the Secret (PLAN-002 11.4, ISS-048, ISS-049).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
 
-echo "=========================================="
-echo " Auto-Agent Full Deployment"
-echo "=========================================="
+NS=auto-agent
+ALLOWLIST_NAMESPACES="test1 test2 chaos" # must match RAW_VALUES in the Makefile
+IMAGE="auto-agent:latest"
+BUILD=1
+COST=""
+CPU_PRICE="" MEM_PRICE="" CURRENCY=""
+FORWARD=1
 
-# 1. Verify cluster
-echo ""
-echo "[1/6] Verifying cluster..."
-kubectl cluster-info > /dev/null 2>&1 || { echo "ERROR: kubectl cannot connect"; exit 1; }
-echo "  Cluster OK"
-kubectl get nodes --no-headers | awk '{printf "  Node: %s (%s)\n", $1, $2}'
+usage() {
+	cat <<'USAGE'
+Usage: deployment/deploy.sh [flags]
 
-# 2. Build image
-echo ""
-echo "[2/6] Building auto-agent image..."
-cd "$ROOT_DIR"
-docker build -t auto-agent:latest .
-
-# 3. Load image into cluster
-echo ""
-echo "[3/6] Loading image into cluster nodes..."
-RUNTIME=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.containerRuntimeVersion}' 2>/dev/null || echo "")
-if echo "$RUNTIME" | grep -q "containerd"; then
-    while IFS= read -r NODE; do
-        [ -z "$NODE" ] && continue
-        echo "  Loading into $NODE..."
-        docker save auto-agent:latest | docker exec -i "$NODE" ctr -n k8s.io images import - 2>/dev/null || \
-            echo "  WARNING: Failed for $NODE"
-    done < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
-elif command -v kind &> /dev/null && kind get clusters 2>/dev/null | grep -q .; then
-    kind load docker-image auto-agent:latest --name "$(kind get clusters | head -1)"
-elif command -v minikube &> /dev/null; then
-    minikube image load auto-agent:latest
-else
-    echo "  Image built locally. If using remote cluster, push to registry."
-fi
-
-# 4. Install cost provider (Kubecost or OpenCost) if configured
-echo ""
-echo "[4/6] Checking cost provider..."
-# Optional: COST_PROVIDER=kubecost|opencost|manual ./deployment/deploy.sh
-COST_PROVIDER="${COST_PROVIDER:-}"
-
-install_kubecost() {
-    echo "  Installing Kubecost (free tier)..."
-    if ! command -v helm &> /dev/null; then
-        echo "  ERROR: helm required to install Kubecost"
-        return 1
-    fi
-    # Check if already installed
-    if kubectl get ns kubecost > /dev/null 2>&1 && kubectl get pods -n kubecost -l app=cost-analyzer --no-headers 2>/dev/null | grep -q "Running"; then
-        echo "  Kubecost already running"
-    else
-        helm repo add kubecost https://kubecost.github.io/cost-analyzer/ > /dev/null 2>&1 || true
-        helm repo update > /dev/null 2>&1
-        helm upgrade --install kubecost kubecost/cost-analyzer \
-            -n kubecost --create-namespace \
-            --set kubecostProductConfigs.clusterName="auto-agent" \
-            --set prometheus.server.persistentVolume.enabled=false \
-            --set prometheus.alertmanager.enabled=false \
-            --set grafana.enabled=false \
-            --wait --timeout=300s 2>&1 | sed 's/^/  /'
-        echo "  Kubecost installed"
-    fi
-    # Set the URL in config
-    KUBECOST_SVC="http://kubecost-cost-analyzer.kubecost:9090"
-    kubectl patch cm auto-agent-config -n auto-agent --type merge \
-        -p "{\"data\":{\"KUBECOST_URL\":\"$KUBECOST_SVC\"}}" 2>/dev/null || true
-    echo "  KUBECOST_URL=$KUBECOST_SVC"
+  --context NAME          kubectl context to use (default: current context)
+  --image REF             use an image already pushed to a registry, e.g.
+                          registry.example.com/auto-agent@sha256:...; skips the build
+  --no-build              do not build; load the existing auto-agent:latest
+  --with-opencost         also install OpenCost with Helm (labelled as installed by this script)
+  --with-kubecost         also install Kubecost with Helm (labelled as installed by this script)
+  --cost-manual CPU,MEM,CURRENCY
+                          manual prices, e.g. 0.05,0.005,USD
+  --no-port-forward       do not start a dashboard port-forward on localhost:8080
+  -h, --help              this help
+USAGE
 }
 
-install_opencost() {
-    echo "  Installing OpenCost..."
-    if ! command -v helm &> /dev/null; then
-        echo "  ERROR: helm required to install OpenCost"
-        return 1
-    fi
-    if kubectl get ns opencost > /dev/null 2>&1 && kubectl get pods -n opencost -l app.kubernetes.io/name=opencost --no-headers 2>/dev/null | grep -q "Running"; then
-        echo "  OpenCost already running"
-    else
-        helm repo add opencost https://opencost.github.io/opencost-helm-chart > /dev/null 2>&1 || true
-        helm repo update > /dev/null 2>&1
-        helm upgrade --install opencost opencost/opencost \
-            -n opencost --create-namespace \
-            --wait --timeout=300s 2>&1 | sed 's/^/  /'
-        echo "  OpenCost installed"
-    fi
-    OPENCOST_SVC="http://opencost.opencost:9003"
-    kubectl patch cm auto-agent-config -n auto-agent --type merge \
-        -p "{\"data\":{\"OPENCOST_URL\":\"$OPENCOST_SVC\"}}" 2>/dev/null || true
-    echo "  OPENCOST_URL=$OPENCOST_SVC"
-}
-
-case "$COST_PROVIDER" in
-    kubecost)
-        install_kubecost
-        ;;
-    opencost)
-        install_opencost
-        ;;
-    manual)
-        echo "  Using manual pricing"
-        read -p "  CPU price ($/vCPU/hour) [0.05]: " CPU_PRICE
-        read -p "  Memory price ($/GiB/hour) [0.005]: " MEM_PRICE
-        read -p "  Currency [USD]: " CURRENCY
-        CPU_PRICE=${CPU_PRICE:-0.05}
-        MEM_PRICE=${MEM_PRICE:-0.005}
-        CURRENCY=${CURRENCY:-USD}
-        # Will patch after applying config
-        ;;
-    *)
-        echo "  Using built-in instance-type pricing (40+ AWS/GCP/Azure types)"
-        echo "  Run with COST_PROVIDER=kubecost or COST_PROVIDER=opencost for real costs"
-        ;;
-esac
-
-# 5. Apply manifests
-echo ""
-echo "[5/6] Deploying auto-agent..."
-kubectl apply -f "$SCRIPT_DIR/00-namespace.yaml"
-kubectl apply -f "$SCRIPT_DIR/01-crds.yaml"
-# 02-rbac.yaml holds a write Role per allowlisted namespace (make manifests);
-# a Role needs its namespace to exist first.
-for ns in default test1 test2; do
-  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--context) KUBE_CONTEXT="$2"; shift 2 ;;
+	--image) IMAGE="$2"; BUILD=0; shift 2 ;;
+	--no-build) BUILD=0; shift ;;
+	--with-opencost) COST=opencost; shift ;;
+	--with-kubecost) COST=kubecost; shift ;;
+	--cost-manual) COST=manual; IFS=, read -r CPU_PRICE MEM_PRICE CURRENCY <<<"$2"; shift 2 ;;
+	--no-port-forward) FORWARD=0; shift ;;
+	-h | --help) usage; exit 0 ;;
+	*) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
+	esac
 done
-kubectl apply -f "$SCRIPT_DIR/02-rbac.yaml"
-kubectl apply -f "$SCRIPT_DIR/03-config.yaml"
-# The Secret is created once and never applied over (ISS-048).
-sh "$SCRIPT_DIR/ensure-secret.sh" auto-agent
-# Node agents (DaemonSet) and the controller (Deployment), ADR-001.
-kubectl apply -f "$SCRIPT_DIR/04-agent.yaml"
+export KUBE_CONTEXT="${KUBE_CONTEXT:-}"
 
-# Patch config with cost provider settings
-case "$COST_PROVIDER" in
-    kubecost)
-        kubectl patch cm auto-agent-config -n auto-agent --type merge \
-            -p '{"data":{"KUBECOST_URL":"http://kubecost-cost-analyzer.kubecost:9090"}}' > /dev/null 2>&1
-        ;;
-    opencost)
-        kubectl patch cm auto-agent-config -n auto-agent --type merge \
-            -p '{"data":{"OPENCOST_URL":"http://opencost.opencost:9003"}}' > /dev/null 2>&1
-        ;;
-    manual)
-        kubectl patch cm auto-agent-config -n auto-agent --type merge \
-            -p "{\"data\":{\"COST_CPU_PER_HOUR\":\"$CPU_PRICE\",\"COST_MEM_PER_GIB_HOUR\":\"$MEM_PRICE\",\"COST_CURRENCY\":\"$CURRENCY\"}}" > /dev/null 2>&1
-        ;;
+# Inputs end up in manifests and JSON patches, so they are checked first.
+[[ "$IMAGE" =~ ^[A-Za-z0-9./:@_-]+$ ]] || { echo "invalid --image: $IMAGE" >&2; exit 2; }
+if [ "$COST" = manual ]; then
+	[[ "$CPU_PRICE" =~ ^[0-9]+(\.[0-9]+)?$ && "$MEM_PRICE" =~ ^[0-9]+(\.[0-9]+)?$ && "$CURRENCY" =~ ^[A-Z]{3}$ ]] ||
+		{ echo "--cost-manual wants CPU,MEM,CURRENCY such as 0.05,0.005,USD" >&2; exit 2; }
+fi
+
+step() { printf '\n[%s] %s\n' "$1" "$2"; }
+
+step 1/6 "Checking the cluster"
+k cluster-info >/dev/null
+CTX="${KUBE_CONTEXT:-$(kubectl config current-context)}"
+echo "  context $CTX"
+
+step 2/6 "Image"
+if [ "$IMAGE" = "auto-agent:latest" ]; then
+	if [ "$BUILD" = 1 ]; then
+		docker build -t auto-agent:latest "$ROOT_DIR"
+	fi
+	case "$CTX" in
+	kind-*) kind load docker-image auto-agent:latest --name "${CTX#kind-}" ;;
+	minikube) minikube image load auto-agent:latest ;;
+	*)
+		echo "  $CTX is neither kind nor minikube, so a local image cannot reach it." >&2
+		echo "  Push the image and pass --image REGISTRY/auto-agent@sha256:..." >&2
+		exit 1
+		;;
+	esac
+else
+	echo "  using $IMAGE"
+fi
+
+step 3/6 "Namespaces, CRD, RBAC and configuration"
+k apply -f "$SCRIPT_DIR/00-namespace.yaml"
+k apply -f "$SCRIPT_DIR/01-crds.yaml"
+for ns in $ALLOWLIST_NAMESPACES; do
+	# Write Roles need the namespace; ones this script creates are labelled
+	# so teardown --delete-demo-namespaces can find them and nothing else.
+	if ! k get namespace "$ns" >/dev/null 2>&1; then
+		k create namespace "$ns"
+		k label namespace "$ns" auto-agent.io/demo=true
+	fi
+done
+k apply -f "$SCRIPT_DIR/02-rbac.yaml"
+k apply -f "$SCRIPT_DIR/03-config.yaml"
+KUBECTL="kubectl${KUBE_CONTEXT:+ --context $KUBE_CONTEXT}" sh "$SCRIPT_DIR/ensure-secret.sh" "$NS"
+
+step 4/6 "Cost source"
+install_cost_tool() { # name repo chart service-url key
+	command -v helm >/dev/null || { echo "  helm is required for --with-$1" >&2; exit 1; }
+	helm repo add "$1" "$2" >/dev/null
+	helm repo update >/dev/null
+	helm upgrade --install "$1" "$1/$3" ${KUBE_CONTEXT:+--kube-context "$KUBE_CONTEXT"} -n "$1" --create-namespace --wait --timeout=300s
+	k label namespace "$1" auto-agent.io/installed-by=deploy.sh --overwrite
+	k patch configmap auto-agent-config -n "$NS" --type merge -p "{\"data\":{\"$5\":\"$4\"}}"
+}
+case "$COST" in
+opencost) install_cost_tool opencost https://opencost.github.io/opencost-helm-chart opencost http://opencost.opencost:9003 OPENCOST_URL ;;
+kubecost) install_cost_tool kubecost https://kubecost.github.io/cost-analyzer/ cost-analyzer http://kubecost-cost-analyzer.kubecost:9090 KUBECOST_URL ;;
+manual)
+	k patch configmap auto-agent-config -n "$NS" --type merge \
+		-p "{\"data\":{\"COST_CPU_PER_HOUR\":\"$CPU_PRICE\",\"COST_MEM_PER_GIB_HOUR\":\"$MEM_PRICE\",\"COST_CURRENCY\":\"$CURRENCY\"}}"
+	;;
+*) echo "  built-in instance prices (pass --with-opencost, --with-kubecost or --cost-manual for others)" ;;
 esac
 
-# 6. Wait for ready
-echo ""
-echo "[6/6] Waiting for agent pods..."
-kubectl rollout status daemonset/auto-agent -n auto-agent --timeout=120s
-kubectl rollout status deployment/auto-agent-controller -n auto-agent --timeout=120s
-
-echo ""
-kubectl get pods -n auto-agent -o wide
-
-# Dashboard: served by the controllers behind a ClusterIP Service (ADR-001).
-echo ""
-echo "Dashboard access..."
-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-sleep 1
-kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
-sleep 2
-DASHBOARD_URL=""
-if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
-    DASHBOARD_URL="http://localhost:8080"
-fi
-if [ -n "$DASHBOARD_URL" ]; then
-    echo "  Dashboard: $DASHBOARD_URL"
+step 5/6 "Node agents and controller (ADR-001)"
+if [ "$IMAGE" = "auto-agent:latest" ]; then
+	k apply -f "$SCRIPT_DIR/04-agent.yaml"
 else
-    echo "  Dashboard not reachable yet. Try:"
-    echo "    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080"
+	sed "s#image: \"auto-agent:latest\"#image: \"$IMAGE\"#" "$SCRIPT_DIR/04-agent.yaml" | k apply -f -
 fi
+k rollout status daemonset/auto-agent -n "$NS" --timeout=180s
+k rollout status deployment/auto-agent-controller -n "$NS" --timeout=180s
+k get pods -n "$NS" -o wide
 
-echo ""
-echo "=========================================="
-echo " Deployment Complete!"
-echo "=========================================="
-echo ""
-echo "  Dashboard:     http://localhost:8080 (port-forward to svc/auto-agent)"
-echo "  Token:         kubectl get secret auto-agent-secrets -n auto-agent -o jsonpath='{.data.DASHBOARD_TOKEN}' | base64 -d"
-echo "  Node agents:   kubectl logs -n auto-agent -l app=auto-agent -f"
-echo "  Controller:    kubectl logs -n auto-agent -l app=auto-agent-controller -f"
-echo "  Agent mode:    $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.AUTO_MODE}')"
-echo "  Watching:      $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')"
-echo "  Cost provider: $(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.COST_PROVIDER}' 2>/dev/null || echo 'default')"
-echo ""
-echo "  To change config:"
-echo "    kubectl edit cm auto-agent-config -n auto-agent"
-echo ""
-echo "  To tear down:"
-echo "    ./deployment/teardown.sh"
-echo ""
+step 6/6 "Dashboard"
+if [ "$FORWARD" = 1 ] && dashboard_forward "$NS"; then
+	echo "  http://localhost:8080 (port-forward; stop it with teardown.sh or: kill \$(cat $PF_PIDFILE))"
+else
+	echo "  kubectl port-forward -n $NS svc/auto-agent 8080:8080"
+fi
+cat <<DONE
+
+Done.
+  Token:        kubectl get secret auto-agent-secrets -n $NS -o jsonpath='{.data.DASHBOARD_TOKEN}' | base64 -d
+  Node agents:  kubectl logs -n $NS -l app=auto-agent -f
+  Controller:   kubectl logs -n $NS -l app=auto-agent-controller -f
+  Mode:         $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.AUTO_MODE}')
+  Watching:     $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')
+  Change it:    kubectl edit configmap auto-agent-config -n $NS   (reloads without a restart)
+  Remove it:    deployment/teardown.sh
+DONE

@@ -67,8 +67,11 @@ kind create cluster
 ```
 
 `deploy.sh` builds the image, loads it into kind, applies the manifests in
-`deployment/` (namespace `auto-agent`, allowlist `default,test1,test2`) and
-waits for the pods. It prints the dashboard address when it is done.
+`deployment/` (namespace `auto-agent`, allowlist `test1,test2,chaos`),
+creates the Secret once with generated tokens and waits for the node agents
+and the controller. It prints the dashboard address and the command that
+reads the token. `deploy.sh --help` lists its flags; `teardown.sh` removes
+only what it installed (see `docs/wiki/09-deployment.md`).
 
 ### Option B: Helm, the way you would on a real cluster
 

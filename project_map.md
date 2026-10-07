@@ -21,13 +21,13 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | internal/obs/ | Prometheus metrics; CountAPIError (forbidden reads become a metric and one warning) |
 | internal/storage/, logging/, metrics/, events/ | Log sinks (S3/EFS), logging, observability |
 | charts/ | Helm chart, the deployment of record (ADR-001): controller.yaml (Deployment, 2 replicas, AGENT_ROLE=controller), daemonset.yaml (node agents, AGENT_ROLE=node), one ServiceAccount and ClusterRole per role, roles.yaml (write Roles per role per allowlisted namespace, lease Role for the controller), Service and webhook select controllers, NetworkPolicy per role, generated INTERNAL_TOKEN; RBAC checked per role by `TestRBAC_EachRoleMatchesItsCode` |
-| deployment/ | Raw manifests generated from the chart by `make manifests` (01 CRD, 02 RBAC per role, 03 ConfigMap, 04 node DaemonSet, controller Deployment, Service, NetworkPolicies); `make verify` fails on drift. `ensure-secret.sh` creates the Secret once; `deploy.sh`, `teardown.sh`, `test-apps/` |
+| deployment/ | Raw manifests generated from the chart by `make manifests` (01 CRD, 02 RBAC per role, 03 ConfigMap, 04 node DaemonSet, controller Deployment, Service, NetworkPolicies; allowlist test1,test2,chaos); `make verify` fails on drift. `ensure-secret.sh` creates the Secret once; `deploy.sh` and `teardown.sh` (flags, `--help`) share `lib.sh`; `test-apps/` demo apps in labelled namespaces |
 | dashboards/ | Grafana dashboards |
 | docs/CONFIGURATION.md | Every setting: env var, Helm value, allowed values, default, effect, reading file; checked by internal/policy/configref_test.go |
 | docs/plans/ | PLAN-001 (safety hardening, done, PR #1); PLAN-002 (config reload, weak features, fix ladder, coverage; owner decisions recorded 2026-10-07, phase 8 next) |
 | docs/GUIDE.md | Complete guide by reader level: concepts, local try-out, deploy, configuration, dashboard, API, operations, troubleshooting, architecture, security, developing |
 | README.md | Entry point: how it works, guarantees with their tests, install, develop, full feature table (kept in step with docs/wiki/23-feature-status.md) |
 | docs/wiki/ | Wiki docs (23-feature-status.md) |
-| scripts/ | check-writing.sh (dash ratchet), coverage-check.sh (floor and strict set), e2e-kind.sh (Helm install on kind: dry-run, API, node findings on every controller, RBAC), e2e-raw.sh (generated raw manifests on kind), ui-test.mjs (dashboard in headless Chrome over the DevTools protocol) |
+| scripts/ | check-writing.sh (dash ratchet), coverage-check.sh (floor and strict set), e2e-kind.sh (Helm install on kind: dry-run, API, node findings on every controller, RBAC), e2e-raw.sh (deploy.sh and teardown.sh on kind), ui-test.mjs (dashboard in headless Chrome over the DevTools protocol) |
 | Makefile | build, test, tools (pinned), lint, vuln, check-writing, helm-lint, verify, verify-full, e2e |
 | .github/workflows/ci.yaml | CI: build, test, lint, helm lint, docker push |

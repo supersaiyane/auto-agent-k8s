@@ -21,24 +21,10 @@ trap cleanup EXIT
 log "creating kind cluster $CLUSTER"
 kind create cluster --name "$CLUSTER" --wait 120s >/dev/null
 
-log "building and loading auto-agent:latest"
-docker build -t auto-agent:latest "$DIR" >/dev/null
-kind load docker-image auto-agent:latest --name "$CLUSTER" >/dev/null
-
-log "applying deployment/ as deploy.sh does"
+log "running deployment/deploy.sh against $CTX"
 k() { kubectl --context "$CTX" "$@"; }
-k apply -f "$DIR/deployment/00-namespace.yaml" >/dev/null
-k apply -f "$DIR/deployment/01-crds.yaml" >/dev/null
-for ns in default test1 test2; do
-	k create namespace "$ns" --dry-run=client -o yaml | k apply -f - >/dev/null
-done
-k apply -f "$DIR/deployment/02-rbac.yaml" >/dev/null
-k apply -f "$DIR/deployment/03-config.yaml" >/dev/null
-KUBECTL="kubectl --context $CTX" sh "$DIR/deployment/ensure-secret.sh" "$NS"
-k apply -f "$DIR/deployment/04-agent.yaml" >/dev/null
-
-k -n "$NS" rollout status daemonset/auto-agent --timeout=180s
-k -n "$NS" rollout status deployment/auto-agent-controller --timeout=180s
+k create namespace keepme >/dev/null # yours: no demo label; teardown must never touch it
+bash "$DIR/deployment/deploy.sh" --context "$CTX" --no-port-forward
 
 log "checking ensure-secret.sh never overwrites"
 k -n "$NS" patch secret auto-agent-secrets --type merge -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://hooks.example.test/kept"}}' >/dev/null
@@ -57,4 +43,16 @@ echo "$LOGS" | grep -q "role=node" || fail "no node agent started in the node ro
 FORBIDDEN=$(echo "$LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "forbidden API reads: generated RBAC does not match the code"; }
 
-log "PASS: generated manifests install both roles, secret kept, RBAC complete"
+log "checking teardown.sh removes only what deploy.sh installed"
+bash "$DIR/deployment/teardown.sh" --context "$CTX"
+k get crd autoremediationpolicies.autoagent.io >/dev/null || fail "plain teardown deleted the CRD and every policy"
+k get namespace test1 >/dev/null || fail "plain teardown deleted a demo namespace"
+bash "$DIR/deployment/teardown.sh" --context "$CTX" --delete-policies --delete-demo-namespaces
+k get crd autoremediationpolicies.autoagent.io >/dev/null 2>&1 && fail "--delete-policies kept the CRD"
+for ns in test1 test2 chaos; do
+	phase=$(k get namespace "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo gone)
+	[ "$phase" = "Terminating" ] || [ "$phase" = "gone" ] || fail "--delete-demo-namespaces left $ns ($phase)"
+done
+[ "$(k get namespace keepme -o jsonpath='{.status.phase}')" = "Active" ] || fail "teardown touched a namespace it did not create"
+
+log "PASS: deploy.sh installs both roles, secret kept, RBAC complete, teardown removes only its own"

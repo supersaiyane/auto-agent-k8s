@@ -1,5 +1,5 @@
 ##############################################################
-# APP 1: payment-service (namespace: default)
+# APP 1: payment-service (namespace: test1)
 # 3 pods: each fails in a different way
 #
 # Pod 1 (crash): CrashLoopBackOff: DB connection refused
@@ -12,7 +12,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: payment-config
-  namespace: default
+  namespace: test1
 data:
   APP_NAME: "payment-service"
   LOG_LEVEL: "info"
@@ -22,7 +22,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-api
-  namespace: default
+  namespace: test1
   labels:
     app: payment-api
     team: payments
@@ -67,7 +67,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-worker
-  namespace: default
+  namespace: test1
   labels:
     app: payment-worker
     team: payments
@@ -109,7 +109,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-gateway
-  namespace: default
+  namespace: test1
   labels:
     app: payment-gateway
     team: payments
@@ -145,7 +145,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: payment-api
-  namespace: default
+  namespace: test1
 spec:
   selector:
     app: payment-api

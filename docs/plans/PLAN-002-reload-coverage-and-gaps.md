@@ -400,6 +400,12 @@ computed from the event log (ISS-061); security headers (ISS-051); the UI
 rewritten as separate HTML, CSS and JS with no inline code, five new views,
 rungs, filters, refresh control and deep links (ISS-053, ISS-060);
 `make ui-test` runs it in headless Chrome and is part of `make e2e`.
+
+11.4 done 2026-10-08: deploy.sh and teardown.sh rewritten with flags, no
+process killing, opt-in cost tools and ownership labels; demo apps in
+labelled namespaces `test1`, `test2`, `chaos` (the raw allowlist); `make
+e2e-raw` runs both scripts on kind; shellcheck in CI (ISS-049, ISS-052).
+Next: 11.3 remainder (one namespace name, image digest), 11.5, 11.6.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

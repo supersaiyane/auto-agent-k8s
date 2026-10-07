@@ -132,37 +132,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: auto-agent-write
-  namespace: default
-rules:
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["patch", "update"]
-- apiGroups: ["batch"]
-  resources: ["jobs"]
-  verbs: ["delete"]
----
-# Source: auto-agent/templates/roles.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: auto-agent-node-write
-  namespace: default
-rules:
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["delete"]
-- apiGroups: [""]
-  resources: ["pods/eviction"]
-  verbs: ["create"]
----
-# Source: auto-agent/templates/roles.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: auto-agent-write
   namespace: test1
 rules:
 - apiGroups: [""]
@@ -212,6 +181,37 @@ kind: Role
 metadata:
   name: auto-agent-node-write
   namespace: test2
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+---
+# Source: auto-agent/templates/roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-write
+  namespace: chaos
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["patch", "update"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["delete"]
+---
+# Source: auto-agent/templates/roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-node-write
+  namespace: chaos
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -254,36 +254,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: auto-agent-write
-  namespace: default
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: auto-agent-write
-subjects:
-- kind: ServiceAccount
-  name: auto-agent
-  namespace: auto-agent
----
-# Source: auto-agent/templates/roles.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: auto-agent-node-write
-  namespace: default
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: auto-agent-node-write
-subjects:
-- kind: ServiceAccount
-  name: auto-agent-node
-  namespace: auto-agent
----
-# Source: auto-agent/templates/roles.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: auto-agent-write
   namespace: test1
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -330,6 +300,36 @@ kind: RoleBinding
 metadata:
   name: auto-agent-node-write
   namespace: test2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-node-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent-node
+  namespace: auto-agent
+---
+# Source: auto-agent/templates/roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-write
+  namespace: chaos
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: auto-agent
+---
+# Source: auto-agent/templates/roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-node-write
+  namespace: chaos
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

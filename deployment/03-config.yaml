@@ -17,7 +17,7 @@ data:
   LEADER_LEASE_NAMESPACE: "kube-system"
   CIRCUIT_BREAKER_THRESHOLD: "5"
   BLAST_RADIUS_MAX_NAMESPACES: "5"
-  NAMESPACE_ALLOWLIST: "default,test1,test2"
+  NAMESPACE_ALLOWLIST: "test1,test2,chaos"
   EXCLUDED_ANNOTATION: "auto-agent.io/disable"
   LOG_LEVEL: "info"
   COOLDOWN_UP: "2m"
