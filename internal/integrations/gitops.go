@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/yourorg/auto-agent/internal/redact"
 )
 
 // GitOpsChange describes a file change to propose via PR/MR.
@@ -46,6 +48,8 @@ func NewGitHub(token, repo, base string) GitOps {
 }
 
 func (g *githubClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, error) {
+	// PR text is redacted; the file content is the change itself and is not (ISS-011).
+	ch.Title, ch.Body = redact.String(ch.Title), redact.String(ch.Body)
 	if g.token == "" {
 		return "", fmt.Errorf("gitops/github: GIT_TOKEN not configured")
 	}
@@ -256,6 +260,8 @@ func NewGitLab(token, project, base string) GitOps {
 }
 
 func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, error) {
+	// PR text is redacted; the file content is the change itself and is not (ISS-011).
+	ch.Title, ch.Body = redact.String(ch.Title), redact.String(ch.Body)
 	if g.token == "" {
 		return "", fmt.Errorf("gitops/gitlab: GIT_TOKEN not configured")
 	}

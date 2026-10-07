@@ -10,15 +10,17 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/yourorg/auto-agent/internal/redact"
 )
 
 // Alert represents a Prometheus Alertmanager alert.
 type Alert struct {
-	Labels      map[string]string `json:"labels"`
-	Annotations map[string]string `json:"annotations"`
-	StartsAt    time.Time         `json:"startsAt,omitempty"`
-	EndsAt      time.Time         `json:"endsAt,omitempty"`
-	GeneratorURL string           `json:"generatorURL,omitempty"`
+	Labels       map[string]string `json:"labels"`
+	Annotations  map[string]string `json:"annotations"`
+	StartsAt     time.Time         `json:"startsAt,omitempty"`
+	EndsAt       time.Time         `json:"endsAt,omitempty"`
+	GeneratorURL string            `json:"generatorURL,omitempty"`
 }
 
 // Client sends alerts to Alertmanager.
@@ -45,7 +47,13 @@ func (c *Client) Fire(ctx context.Context, alerts ...Alert) error {
 		return nil
 	}
 
-	b, err := json.Marshal(alerts)
+	// Annotations carry incident text; labels are names and stay (ISS-011).
+	out := make([]Alert, len(alerts))
+	for i, a := range alerts {
+		a.Annotations = redact.Map(a.Annotations)
+		out[i] = a
+	}
+	b, err := json.Marshal(out)
 	if err != nil {
 		return fmt.Errorf("alertmanager: marshal: %w", err)
 	}

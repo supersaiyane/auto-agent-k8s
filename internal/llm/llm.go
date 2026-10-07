@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/yourorg/auto-agent/internal/redact"
 )
 
 type Client struct {
@@ -45,6 +47,9 @@ func (c *Client) Diagnose(ctx context.Context, title, diagContext string) string
 	if !c.Enabled() {
 		return ""
 	}
+
+	// Nothing leaves the cluster unredacted (ISS-011).
+	title, diagContext = redact.String(title), redact.String(diagContext)
 
 	// Truncate context to avoid excessive token usage
 	const maxCtxLen = 4000
