@@ -59,12 +59,33 @@ func insideGate(stack []ast.Node) bool {
 			if id, ok := parent.Fun.(*ast.Ident); ok && gateEntryPoints[id.Name] {
 				return true
 			}
+			if isRetryOnConflict(parent) {
+				continue // a retry closure inside the gate is still inside the gate
+			}
 		case *ast.KeyValueExpr:
 			if id, ok := parent.Key.(*ast.Ident); ok && id.Name == "Apply" {
 				return true
 			}
 		}
 		return false
+	}
+	return false
+}
+
+func isRetryOnConflict(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "RetryOnConflict"
+}
+
+// insideRetry reports whether a RetryOnConflict closure encloses the call.
+func insideRetry(stack []ast.Node) bool {
+	for i := len(stack) - 1; i > 0; i-- {
+		if _, ok := stack[i].(*ast.FuncLit); !ok {
+			continue
+		}
+		if call, ok := stack[i-1].(*ast.CallExpr); ok && isRetryOnConflict(call) {
+			return true
+		}
 	}
 	return false
 }
@@ -96,6 +117,10 @@ func TestMutationsOnlyThroughGate(t *testing.T) {
 					if !insideGate(stack) {
 						t.Errorf("%s: mutating client call outside the gate; wrap it in applyMutation or tryFixAction",
 							fset.Position(call.Pos()))
+					}
+					// Constraint 6: a full-object Update must re-read and retry on conflict.
+					if name := call.Fun.(*ast.SelectorExpr).Sel.Name; strings.HasPrefix(name, "Update") && !insideRetry(stack) {
+						t.Errorf("%s: %s outside retry.RetryOnConflict; use Patch or retry", fset.Position(call.Pos()), name)
 					}
 				}
 				return true

@@ -8,6 +8,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
 	"github.com/yourorg/auto-agent/internal/obs"
@@ -15,6 +16,13 @@ import (
 )
 
 func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev1.Node) {
+	// One actor per target (CLAUDE.md constraint 3): every DaemonSet pod sees
+	// every node event, so only the agent running on this node acts on it.
+	if deps.NodeName == "" || newNode.Name != deps.NodeName {
+		klog.V(4).Infof("handler: node %s is not ours (%q), skipping", newNode.Name, deps.NodeName)
+		return
+	}
+
 	var memP, diskP bool
 	for _, c := range newNode.Status.Conditions {
 		if c.Type == corev1.NodeMemoryPressure && c.Status == corev1.ConditionTrue {
@@ -28,14 +36,15 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 	// --- Pressure RESOLVED: uncordon the node, if we were the ones who cordoned it ---
 	if !(memP || diskP) {
 		if newNode.Spec.Unschedulable && newNode.Annotations["auto-agent.io/cordoned"] == "true" {
-			ncopy := newNode.DeepCopy()
-			ncopy.Spec.Unschedulable = false
-			delete(ncopy.Annotations, "auto-agent.io/cordoned")
+			patch := mergePatch(map[string]any{
+				"spec":     map[string]any{"unschedulable": false},
+				"metadata": map[string]any{"annotations": map[string]any{"auto-agent.io/cordoned": nil}},
+			})
 			_, gmsg := applyMutation(ctx, deps, mutation{
 				Workload: newNode.Name, Reason: "NodePressureResolved", ActionType: "uncordon_node",
 				SuccessMsg: "uncordoned node", SuggestMsg: "uncordon node",
 				Apply: func() error {
-					_, err := deps.Client.CoreV1().Nodes().Update(ctx, ncopy, metav1.UpdateOptions{})
+					_, err := deps.Client.CoreV1().Nodes().Patch(ctx, newNode.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 					return err
 				},
 			})
@@ -60,7 +69,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 	msg := fmt.Sprintf("*NodePressure* detected on `%s` (memory:%t disk:%t)\n", newNode.Name, memP, diskP)
 
 	// Observe and suggest never reach the gate per pod: one suggestion is enough.
-	if deps.Policy.Mode != policy.Fix && deps.Policy.Mode != policy.DryRun {
+	if deps.Policy().Mode != policy.Fix && deps.Policy().Mode != policy.DryRun {
 		msg += "_Suggest_: cordon node and evict non-critical pods.\n"
 		deps.Slack.Post(msg)
 		obs.IncidentsTotal.WithLabelValues("NodePressure", "", newNode.Name).Inc()
@@ -69,17 +78,15 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 
 	// Cordon the node with our annotation marker
 	if !newNode.Spec.Unschedulable {
-		ncopy := newNode.DeepCopy()
-		ncopy.Spec.Unschedulable = true
-		if ncopy.Annotations == nil {
-			ncopy.Annotations = map[string]string{}
-		}
-		ncopy.Annotations["auto-agent.io/cordoned"] = "true"
+		patch := mergePatch(map[string]any{
+			"spec":     map[string]any{"unschedulable": true},
+			"metadata": map[string]any{"annotations": map[string]any{"auto-agent.io/cordoned": "true"}},
+		})
 		_, gmsg := applyMutation(ctx, deps, mutation{
 			Workload: newNode.Name, Reason: "NodePressure", ActionType: "cordon_node",
 			SuccessMsg: "cordoned node (marked unschedulable)", SuggestMsg: "cordon node",
 			Apply: func() error {
-				_, err := deps.Client.CoreV1().Nodes().Update(ctx, ncopy, metav1.UpdateOptions{})
+				_, err := deps.Client.CoreV1().Nodes().Patch(ctx, newNode.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 				return err
 			},
 		})
@@ -97,7 +104,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 		evicted, simulated := 0, 0
 		for i := range pl.Items {
 			p := &pl.Items[i]
-			if isCriticalPod(p) {
+			if !deps.Policy().AllowedNamespace(p.Namespace) || isCriticalPod(p) {
 				continue
 			}
 			if isStatefulSetPod(p) {

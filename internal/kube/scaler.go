@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
 	eventsvc "github.com/yourorg/auto-agent/internal/events"
@@ -23,7 +24,7 @@ const (
 // EvaluateAndScale runs the scaling loop for all allowed namespaces.
 // Must be called only by the leader.
 func EvaluateAndScale(ctx context.Context, deps *Deps) {
-	pol := deps.Policy
+	pol := deps.Policy()
 
 	cooldownUp := parseDuration(pol.CooldownUp, "2m")
 	cooldownDown := parseDuration(pol.CooldownDown, "10m")
@@ -203,25 +204,22 @@ func inCooldown(annotations map[string]string, key string, cooldown time.Duratio
 	return time.Since(t) < cooldown
 }
 
-// scaleDeployment sets the replica count and cooldown annotation on a copy of
-// d and sends the update through the mutation gate.
+// scaleDeployment sets the replica count and cooldown annotation with one
+// merge patch sent through the mutation gate.
 func scaleDeployment(ctx context.Context, deps *Deps, d *appsv1.Deployment, from, to int32,
 	cooldownAnno, reason, actionType string) (gateOutcome, string) {
 
-	upd := d.DeepCopy()
-	upd.Spec.Replicas = &to
-	if upd.Annotations == nil {
-		upd.Annotations = map[string]string{}
-	}
-	upd.Annotations[cooldownAnno] = time.Now().UTC().Format(time.RFC3339)
-
+	patch := mergePatch(map[string]any{
+		"spec":     map[string]any{"replicas": to},
+		"metadata": map[string]any{"annotations": map[string]any{cooldownAnno: time.Now().UTC().Format(time.RFC3339)}},
+	})
 	return applyMutation(ctx, deps, mutation{
 		Namespace: d.Namespace, Workload: d.Name, Labels: d.Spec.Template.Labels,
 		Reason: reason, ActionType: actionType,
 		SuccessMsg: fmt.Sprintf("scaled %s/%s from %d to %d replicas", d.Namespace, d.Name, from, to),
 		SuggestMsg: fmt.Sprintf("scale %s/%s from %d to %d replicas", d.Namespace, d.Name, from, to),
 		Apply: func() error {
-			_, err := deps.Client.AppsV1().Deployments(d.Namespace).Update(ctx, upd, metav1.UpdateOptions{})
+			_, err := deps.Client.AppsV1().Deployments(d.Namespace).Patch(ctx, d.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 			return err
 		},
 	})

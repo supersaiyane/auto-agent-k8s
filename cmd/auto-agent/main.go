@@ -20,10 +20,10 @@ import (
 	"github.com/yourorg/auto-agent/internal/events"
 	"github.com/yourorg/auto-agent/internal/httpapi"
 	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/logging"
 	"github.com/yourorg/auto-agent/internal/kube"
 	"github.com/yourorg/auto-agent/internal/leader"
 	"github.com/yourorg/auto-agent/internal/llm"
+	"github.com/yourorg/auto-agent/internal/logging"
 	"github.com/yourorg/auto-agent/internal/metrics"
 	"github.com/yourorg/auto-agent/internal/obs"
 	"github.com/yourorg/auto-agent/internal/policy"
@@ -193,10 +193,11 @@ func main() {
 	}
 
 	// --- Dry-run log ---
-	var dryRunLog *kube.DryRunLog
+	// Always created: the mode can switch to dry-run by ConfigMap reload after
+	// startup, and SimulateAction records nothing without a log (ISS-013).
+	dryRunLog := kube.NewDryRunLog(200)
 	if pol.Mode == policy.DryRun {
-		dryRunLog = kube.NewDryRunLog(200)
-		klog.Infof("dry-run: mode enabled — no actions will be taken, simulations logged")
+		klog.Infof("dry-run: mode enabled, no actions will be taken, simulations logged")
 	}
 
 	// --- Fix tracker (verifies actions actually fixed the problem) ---
@@ -207,20 +208,21 @@ func main() {
 
 	// --- Build dependency struct ---
 	deps := &kube.Deps{
-		Client:       kc,
-		Metrics:      mp,
-		Policy:       pol,
-		Slack:        sl,
-		LLM:          ll,
-		Dedup:        dedup,
-		Limiter:      limiter,
-		Sink:         sink,
-		CRDStore:     crdStore,
-		GitOps:       gitOps,
-		Ticketer:     ticketer,
-		Recorder:     recorder,
-		Breaker:      breaker,
-		AlertManager: am,
+		Client:        kc,
+		NodeName:      os.Getenv("NODE_NAME"),
+		Metrics:       mp,
+		Policies:      hotReloader,
+		Slack:         sl,
+		LLM:           ll,
+		Dedup:         dedup,
+		Limiter:       limiter,
+		Sink:          sink,
+		CRDStore:      crdStore,
+		GitOps:        gitOps,
+		Ticketer:      ticketer,
+		Recorder:      recorder,
+		Breaker:       breaker,
+		AlertManager:  am,
 		AuditLog:      auditLog,
 		BlastRadius:   blastRadius,
 		QuietHours:    quietHours,
@@ -265,7 +267,6 @@ func main() {
 				if !le.IsLeader() {
 					continue
 				}
-				deps.Policy = hotReloader.Get()
 				kube.EvaluateAndScale(ctx, deps)
 				kube.CheckAnomalies(ctx, deps)
 				kube.VerifyFixes(ctx, deps)

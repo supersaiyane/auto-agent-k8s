@@ -23,7 +23,7 @@ func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 
 // checkCertExpiry scans TLS secrets for certificates expiring within 30 days.
 func checkCertExpiry(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "type=kubernetes.io/tls",
 		})
@@ -84,7 +84,7 @@ func checkCertExpiry(ctx context.Context, deps *Deps) {
 
 // checkLimitRangeViolations detects pods that violate namespace LimitRange defaults.
 func checkLimitRangeViolations(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		lrs, err := deps.Client.CoreV1().LimitRanges(ns).List(ctx, metav1.ListOptions{})
 		if err != nil || len(lrs.Items) == 0 {
 			continue
@@ -136,8 +136,8 @@ func checkAPIServerThrottling(ctx context.Context, deps *Deps) {
 		if !deps.Dedup.Check(key) {
 			return
 		}
-		msg := "*APIServerThrottled* — K8s API server is returning 429 Too Many Requests\n"
-		msg += fmt.Sprintf("Source: %s — %s\n", ev.InvolvedObject.Name, ev.Message)
+		msg := "*APIServerThrottled*: K8s API server is returning 429 Too Many Requests\n"
+		msg += fmt.Sprintf("Source: %s: %s\n", ev.InvolvedObject.Name, ev.Message)
 		msg += "_Check_: reduce API call frequency, check for controller loops.\n"
 		deps.Slack.Post(msg)
 		fireAlert(ctx, deps, "APIThrottled", "", "apiserver", "", msg, "warning")
@@ -163,7 +163,7 @@ func containsAny(s string, substrs ...string) bool {
 
 // detectWebhookBlocking checks events for admission webhook rejections.
 func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue
@@ -182,7 +182,7 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 			if !deps.Dedup.Check(key) {
 				continue
 			}
-			msg := fmt.Sprintf("*WebhookBlocking* in `%s` — admission webhook denied `%s/%s`\n",
+			msg := fmt.Sprintf("*WebhookBlocking* in `%s`: admission webhook denied `%s/%s`\n",
 				ns, ev.InvolvedObject.Kind, ev.InvolvedObject.Name)
 			msg += fmt.Sprintf("Message: %s\n", ev.Message)
 			msg += "_Check_: webhook configuration, or contact the webhook owner.\n"
@@ -197,7 +197,7 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 
 // CheckRBACDenied detects RBAC permission errors in events.
 func CheckRBACDenied(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue

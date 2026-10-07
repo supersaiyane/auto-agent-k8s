@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	eventsvc "github.com/yourorg/auto-agent/internal/events"
@@ -18,7 +19,7 @@ import (
 // CheckStuckRollouts scans deployments for ProgressDeadlineExceeded and optionally rolls back.
 // Must be called only by the leader.
 func CheckStuckRollouts(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		deployments, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(3).Infof("rollouts: failed to list deployments in %s: %v", ns, err)
@@ -121,21 +122,28 @@ func rollbackDeployment(ctx context.Context, deps *Deps, ns, name string, labels
 		return "_Action_: rollback skipped, no previous revision found.\n"
 	}
 
-	deploy, err := deps.Client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Sprintf("_Action_: rollback failed: %v\n", err)
-	}
-	deploy.Spec.Template = prevRS.Spec.Template
-	if deploy.Annotations == nil {
-		deploy.Annotations = map[string]string{}
-	}
-	deploy.Annotations["auto-agent.io/rollback-from"] = fmt.Sprintf("%d", maxRev)
-	deploy.Annotations["auto-agent.io/rollback-to"] = fmt.Sprintf("%d", prevRev)
+	// The template is replaced whole, as `kubectl rollout undo` does, minus
+	// the ReplicaSet's own pod-template-hash label.
+	template := *prevRS.Spec.Template.DeepCopy()
+	delete(template.Labels, appsv1.DefaultDeploymentUniqueLabelKey)
 
 	return tryFixAction(ctx, deps, ns, name, "", labels, "RolloutStuck", "rollback",
 		func() error {
-			_, err := deps.Client.AppsV1().Deployments(ns).Update(ctx, deploy, metav1.UpdateOptions{})
-			return err
+			// Re-read on every attempt so a concurrent change is never overwritten.
+			return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				deploy, err := deps.Client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return err
+				}
+				deploy.Spec.Template = template
+				if deploy.Annotations == nil {
+					deploy.Annotations = map[string]string{}
+				}
+				deploy.Annotations["auto-agent.io/rollback-from"] = fmt.Sprintf("%d", maxRev)
+				deploy.Annotations["auto-agent.io/rollback-to"] = fmt.Sprintf("%d", prevRev)
+				_, err = deps.Client.AppsV1().Deployments(ns).Update(ctx, deploy, metav1.UpdateOptions{})
+				return err
+			})
 		},
 		fmt.Sprintf("rolled back from revision %d to %d", maxRev, prevRev),
 		fmt.Sprintf("run `kubectl rollout undo deployment/%s -n %s` to roll back to revision %d", name, ns, prevRev))
@@ -160,7 +168,7 @@ var evictedReasons = map[string]bool{
 // once rather than once per dead pod.
 // Must be called only by the leader.
 func CleanupEvictedPods(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
@@ -211,7 +219,7 @@ func CleanupEvictedPods(ctx context.Context, deps *Deps) {
 // CheckServiceEndpoints detects services with 0 ready endpoints.
 // Must be called only by the leader.
 func CheckServiceEndpoints(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		endpoints, err := deps.Client.CoreV1().Endpoints(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue

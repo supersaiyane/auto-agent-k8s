@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"k8s.io/klog/v2"
@@ -40,7 +41,7 @@ type mutation struct {
 // then calls m.Apply. TestMutationsOnlyThroughGate fails if any mutating
 // client call in this package is made outside a closure handed to this gate.
 func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, string) {
-	switch deps.Policy.Mode {
+	switch deps.Policy().Mode {
 	case policy.Fix:
 	case policy.Suggest:
 		return gateSuggested, fmt.Sprintf("_Suggest_: %s.\n", m.SuggestMsg)
@@ -74,4 +75,16 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace, m.Workload).Inc()
 	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", "")
 	return gateApplied, fmt.Sprintf("_Action_: %s.\n", m.SuccessMsg)
+}
+
+// mergePatch encodes v as a JSON merge patch. Field-level writes use merge
+// patches so they never overwrite fields they did not mean to change
+// (CLAUDE.md constraint 6). A nil map value deletes the key.
+func mergePatch(v map[string]any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		// Only maps of strings, numbers, bools and nils reach here.
+		panic(fmt.Sprintf("mergePatch: %v", err))
+	}
+	return b
 }

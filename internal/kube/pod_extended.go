@@ -16,13 +16,13 @@ import (
 
 // additionalPodReasons lists extra waiting reasons we detect beyond the main handlers.
 var additionalPodReasons = map[string]struct{}{
-	"RunContainerError":     {},
-	"ContainerCannotRun":    {},
-	"PostStartHookError":    {},
-	"PreStopHookError":      {},
-	"InvalidImageName":      {},
-	"ErrImageNeverPull":     {},
-	"StartError":            {},
+	"RunContainerError":  {},
+	"ContainerCannotRun": {},
+	"PostStartHookError": {},
+	"PreStopHookError":   {},
+	"InvalidImageName":   {},
+	"ErrImageNeverPull":  {},
+	"StartError":         {},
 }
 
 // handleAdditionalPodIssue handles pod waiting states not covered by the main handlers.
@@ -55,7 +55,7 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 	case "PostStartHookError":
 		msg += "_Check_: postStart lifecycle hook command and timeout.\n"
 	case "InvalidImageName":
-		msg += "_Check_: image reference format — must be registry/repo:tag.\n"
+		msg += "_Check_: image reference format: must be registry/repo:tag.\n"
 	case "ErrImageNeverPull":
 		msg += "_Check_: image is pre-loaded on the node, or change imagePullPolicy from Never.\n"
 	}
@@ -73,7 +73,7 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 
 // CheckDeadlineExceeded detects pods that exceeded their activeDeadlineSeconds.
 func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
@@ -107,7 +107,7 @@ func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
 
 // CheckEphemeralStorageFull detects pods evicted due to ephemeral storage.
 func CheckEphemeralStorageFull(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})

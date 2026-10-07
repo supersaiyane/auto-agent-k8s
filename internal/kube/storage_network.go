@@ -15,7 +15,7 @@ import (
 
 // CheckStorageIssues detects PVC Lost, VolumeAttachment stuck, and StorageClass problems.
 func CheckStorageIssues(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue
@@ -27,7 +27,7 @@ func CheckStorageIssues(ctx context.Context, deps *Deps) {
 				if !deps.Dedup.Check(key) {
 					continue
 				}
-				msg := fmt.Sprintf("*PVCLost* `%s/%s` — underlying PersistentVolume was deleted\n", ns, pvc.Name)
+				msg := fmt.Sprintf("*PVCLost* `%s/%s`: underlying PersistentVolume was deleted\n", ns, pvc.Name)
 				msg += "_Action required_: data may be lost. Restore from backup or create new PV.\n"
 				deps.Slack.Post(msg)
 				fireAlert(ctx, deps, "PVCLost", ns, pvc.Name, "", msg, "critical")
@@ -63,7 +63,7 @@ func CheckStorageIssues(ctx context.Context, deps *Deps) {
 // CheckVolumeAttachments detects volumes stuck in attaching state.
 func CheckVolumeAttachments(ctx context.Context, deps *Deps) {
 	// Check pod events for volume-related failures
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue
@@ -135,7 +135,7 @@ func checkDNSHealth(ctx context.Context, deps *Deps) {
 		if !deps.Dedup.Check(key) {
 			return
 		}
-		msg := fmt.Sprintf("*DNSDown* — ALL CoreDNS pods are down (%d/%d ready)\n", readyDNS, totalDNS)
+		msg := fmt.Sprintf("*DNSDown*: ALL CoreDNS pods are down (%d/%d ready)\n", readyDNS, totalDNS)
 		msg += "_CRITICAL_: cluster DNS resolution will fail for all pods.\n"
 		deps.Slack.Post(msg)
 		fireAlert(ctx, deps, "DNSDown", "kube-system", "coredns", "", msg, "critical")
@@ -148,7 +148,7 @@ func checkDNSHealth(ctx context.Context, deps *Deps) {
 		if !deps.Dedup.Check(key) {
 			return
 		}
-		msg := fmt.Sprintf("*DNSDegraded* — CoreDNS partially down (%d/%d ready)\n", readyDNS, totalDNS)
+		msg := fmt.Sprintf("*DNSDegraded*: CoreDNS partially down (%d/%d ready)\n", readyDNS, totalDNS)
 		deps.Slack.Post(msg)
 		recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 			Namespace: "kube-system", Workload: "coredns", Reason: "DNSDegraded",
@@ -158,7 +158,7 @@ func checkDNSHealth(ctx context.Context, deps *Deps) {
 }
 
 func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		svcs, err := deps.Client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue
@@ -189,7 +189,7 @@ func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
 }
 
 func checkIngressBackends(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy.NamespaceAllow {
+	for ns := range deps.Policy().NamespaceAllow {
 		ingresses, err := deps.Client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			continue
@@ -230,7 +230,7 @@ func checkIngressBackends(ctx context.Context, deps *Deps) {
 						if deps.Dedup.Check(key) {
 							msg := fmt.Sprintf("*IngressNoBackends* ingress `%s/%s` backend `%s` has 0 ready endpoints\n",
 								ns, ing.Name, svcName)
-							msg += fmt.Sprintf("Host: %s — requests to this path will get 502/503.\n", rule.Host)
+							msg += fmt.Sprintf("Host: %s: requests to this path will get 502/503.\n", rule.Host)
 							deps.Slack.Post(msg)
 							recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 								Namespace: ns, Workload: ing.Name, Reason: "IngressNoBackends",

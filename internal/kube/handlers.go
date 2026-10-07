@@ -104,7 +104,7 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 		ns, name, cname, memLimit, url)
 
 	// GitOps PR for memory bump
-	if deps.GitOps != nil && deps.Policy.Mode == policy.Fix {
+	if deps.GitOps != nil && deps.Policy().Mode == policy.Fix {
 		bumpPct := 20
 		crdPolicies := deps.CRDStore.Match(ns, pod.Labels)
 		for _, cp := range crdPolicies {

@@ -183,3 +183,13 @@ func envInt(key string, fallback int) int {
 	}
 	return i
 }
+
+// StaticSource serves one fixed policy, for code paths with no hot reload
+// (tests and one-off tools). Production code reads through HotReloader.
+type StaticSource struct{ P *Policy }
+
+// Get returns the fixed policy.
+func (s StaticSource) Get() *Policy { return s.P }
+
+// Static wraps p as a policy source.
+func Static(p *Policy) StaticSource { return StaticSource{P: p} }

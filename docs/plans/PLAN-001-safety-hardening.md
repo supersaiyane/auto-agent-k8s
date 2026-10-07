@@ -95,7 +95,7 @@ shows no deletion and the dry-run log shows the simulated action.
 ## Open questions for the owner
 
 - ISS-020: rewrite git history to remove the Jira tenant URL, or accept it?
-- P2.1: own node only, or leader only, for node actions?
+- P2.1: decided 2026-10-07, own node only (each DaemonSet pod acts on the node it runs on; empty `NODE_NAME` disables node actions).
 - P3.1: token or OIDC for the dashboard?
 - P7.1: wire escalation and learning, or remove them?
 

@@ -36,17 +36,17 @@ type actionRecord struct {
 
 // ComplianceReport is the monthly compliance summary.
 type ComplianceReport struct {
-	Period            string  `json:"period"`
-	TotalIncidents    int     `json:"totalIncidents"`
-	AutoRemediated    int     `json:"autoRemediated"`
-	ManualRequired    int     `json:"manualRequired"`
-	Blocked           int     `json:"blocked"`
-	AvgMTTRSeconds    float64 `json:"avgMttrSeconds"`
+	Period            string         `json:"period"`
+	TotalIncidents    int            `json:"totalIncidents"`
+	AutoRemediated    int            `json:"autoRemediated"`
+	ManualRequired    int            `json:"manualRequired"`
+	Blocked           int            `json:"blocked"`
+	AvgMTTRSeconds    float64        `json:"avgMttrSeconds"`
 	IncidentsByReason map[string]int `json:"incidentsByReason"`
 	IncidentsByNs     map[string]int `json:"incidentsByNamespace"`
 	ActionsByType     map[string]int `json:"actionsByType"`
-	RemediationRate   float64 `json:"remediationRate"` // percentage
-	UptimeSeconds     float64 `json:"uptimeSeconds"`
+	RemediationRate   float64        `json:"remediationRate"` // percentage
+	UptimeSeconds     float64        `json:"uptimeSeconds"`
 }
 
 func NewComplianceTracker() *ComplianceTracker {

@@ -4,8 +4,9 @@ Last updated: 2026-10-07
 
 ## Active plan
 
-`docs/plans/PLAN-001-safety-hardening.md`: phases 0 and 1 in progress on
-branch `phase0-1-safety` (not committed, not pushed).
+`docs/plans/PLAN-001-safety-hardening.md`: phases 0 and 1 committed
+(3c3d99c, 4082923, 98bb754); phase 2 done on branch `phase0-1-safety`.
+Nothing pushed.
 
 ## Phase 0
 
@@ -31,6 +32,18 @@ branch `phase0-1-safety` (not committed, not pushed).
 - P1.4 done: `TestMutationsOnlyThroughGate` (AST, 11 call sites measured
   2026-10-07); falsified with a planted delete.
 - Exit check done 2026-10-07: kind e2e in dry-run, crasher detected, uid unchanged.
+
+## Phase 2
+
+- P2.1 done: node actions only by the agent on that node (`Deps.NodeName`),
+  node informer filtered to its own node, eviction skips namespaces outside
+  the allowlist. ISS-004.
+- P2.2 done: `Deps.Policy()` reads a snapshot from `Deps.Policies` (the hot
+  reloader); the reassignment in main.go is gone. ISS-007. Found and fixed
+  ISS-026 (reload ignored dry-run).
+- P2.3 done: scale and cordon/uncordon are merge patches; rollback re-reads
+  and retries on conflict; the AST guard rejects any Update outside
+  `RetryOnConflict`; the dry-run log always exists. ISS-013, ISS-027.
 
 ## Evidence (measured 2026-10-07)
 
