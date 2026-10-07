@@ -63,18 +63,96 @@ Project rules (definition of done, constraints) are in [CLAUDE.md](CLAUDE.md);
 the work plan is [docs/plans/PLAN-001-safety-hardening.md](docs/plans/PLAN-001-safety-hardening.md)
 and open issues are in [tasks/ISSUES.md](tasks/ISSUES.md).
 
-## Integrations
+## Features
+
+Built from the code (handlers, detectors, the gate, the chart), checked on
+2026-10-07. "Working" means the code path runs; the safety, security and
+tooling rows are also covered by tests or the kind e2e. Most detectors are not
+yet unit tested (ISS-021).
+
+### Detection
+
+| Area | What it detects | Notes |
+| --- | --- | --- |
+| Pods (per node, real time) | CrashLoopBackOff, OOMKilled, ImagePullBackOff / ErrImagePull, CreateContainerConfigError, init container failures, NotReady (failing readiness), Pending, restart storms, RunContainerError, ContainerCannotRun, InvalidImageName, ErrImageNeverPull, PostStartHookError | Pod informer on each node |
+| Workloads (leader, every 2 min) | Stuck rollouts, failed Jobs, missed CronJobs, deadline exceeded, StatefulSet stuck, DaemonSet missing pods, paused Deployments, ReplicaSet failures, HPA issues, services with no endpoints, pending PVCs, ephemeral storage full, Deployment best-practice scan | Interval: `JOB_INTERVAL` |
+| Nodes | Memory/disk pressure, PID pressure, network unavailable, node health, cordoned and forgotten, clock skew, container runtime issues | Pressure handled only by the agent on that node |
+| Storage and network (every 5 min) | Missing StorageClass, volume attachment issues, DNS health, LoadBalancer pending, Ingress backend missing | Only a real NotFound raises these, never a permission error |
+| Cluster and security (every 5 min) | Resource quota exhaustion, LimitRange violations, webhooks blocking, RBAC denials, API server throttling, TLS cert expiry | Cert expiry only with `rbac.readTLSSecrets` |
+| Anomalies | CPU anomalies against learned baselines | Baselines collected; thresholds are not auto-tuned |
+
+### Remediation (only in `fix` mode, all through the gate)
+
+| Action | Triggered by |
+| --- | --- |
+| Delete pod (restart) | CrashLoopBackOff, ImagePullBackOff, init container failure, NotReady |
+| Roll back Deployment | Stuck rollout (ProgressDeadlineExceeded) |
+| Scale Deployment up / down | CPU above / below threshold (skipped if an HPA exists) |
+| Cordon node, evict pods, uncordon | Node pressure starts / clears (allowlisted namespaces only, skips critical and StatefulSet pods) |
+| Clean up evicted / failed pods | Leader loop, per namespace |
+| Delete old failed Jobs | Failed CronJob runs older than 1 hour |
+| Open GitHub / GitLab PR to raise memory | OOMKilled |
+| Verify the fix worked | After every action |
+
+### Safety
+
+| Feature | Status |
+| --- | --- |
+| Modes: observe, suggest, dry-run, fix | Working; dry-run is the default |
+| Single mutation gate for every cluster write | Working; enforced by a source-parsing test |
+| Guardrails: quiet hours, blast radius, circuit breaker, CRD approval policies | Working on every action; limits configurable |
+| Rate limiter | Working; fails closed if missing |
+| Deduplication | Working |
+| Dry-run log of simulated actions | Working; does not spend the real budget |
+| One actor per node, leader-only cluster loops | Working |
+| Namespace allowlist on every read and write | Working, dashboard included |
+| Conflict-safe writes | Working: merge patches, rollback retries on conflict |
+| Policy hot reload from ConfigMap | Working, including switching to dry-run |
+
+### Security
+
+| Feature | Status |
+| --- | --- |
+| Dashboard API bearer token | Working; 503 if no token is set |
+| Slack callback signature check | Working |
+| Least-privilege RBAC, checked against the code | Working; writes only in allowlisted namespaces |
+| Forbidden API reads counted and logged | Working (`auto_agent_api_errors_total`) |
+| Secret and PII redaction on everything sent out | Working: LLM, Slack, tickets, PRs, alerts |
+| NetworkPolicy | Working (allows `monitoring` by default) |
+| Hardened container | Working: distroless, non-root, read-only root, pinned images |
+
+### Integrations
 
 | Integration | Status |
 | --- | --- |
-| Slack alerts | Working; text is redacted. Interactive buttons are not sent yet |
-| Alertmanager | Working; annotations are redacted |
-| GitHub / GitLab PRs (OOM memory bump) | Working; PR text is redacted |
-| GitHub Issues / Jira tickets | Working; redacted |
-| LLM diagnosis | Working, off by default (`llm.enabled`); prompts are redacted |
-| Prometheus metrics | Working |
-| PagerDuty, OpsGenie, email | **Not wired**: the escalation chain is built but never called (ISS-012) |
-| Learning mode threshold tuning | **Not wired**: baselines are collected, thresholds are not applied (ISS-012) |
+| Slack alerts | Working; interactive buttons are not sent yet |
+| Alertmanager | Working |
+| GitHub Issues / Jira tickets | Working |
+| GitHub / GitLab PRs | Working (memory bump on OOM) |
+| LLM diagnosis | Working, off by default (`llm.enabled`) |
+| Prometheus / metrics-server CPU | Working |
+| S3 / EFS log bundles, audit log | Working |
+| PagerDuty, OpsGenie, email | **Not wired**: escalation chain is built but never called (ISS-012) |
+| `gitops.mode`, `images.mirror` chart values | **Not wired**: nothing reads them (ISS-012) |
+
+### Dashboard and API
+
+| Feature | Status |
+| --- | --- |
+| Embedded web dashboard (events, fixes, cluster, nodes, resources, cost, dry-run, compliance, baselines) | Working |
+| Read-only kubectl panel (get, describe, logs, top) | Working; allowlisted namespaces only |
+| `/metrics`, `/healthz`, `/readyz` | Working; readiness waits for informer sync |
+| AutoRemediationPolicy CRD | Working |
+| Admission webhook | Working, off by default |
+
+### Engineering and tooling
+
+| Feature | Status |
+| --- | --- |
+| `make verify` (build, vet, race tests, lint, govulncheck, dash check, helm lint) | Working |
+| `make e2e` on kind (dry-run, token, scoping, non-root, RBAC) | Working |
+| CI: verify, e2e, image scan, SBOM, cosign signing, semver tags | Written; not yet run (needs a push) |
+| Known vulnerabilities (govulncheck) | 0 as of 2026-10-07 |
 
 Details: [docs/wiki/23-feature-status.md](docs/wiki/23-feature-status.md).
 
