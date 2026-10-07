@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -15,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
@@ -63,7 +66,8 @@ func boot(t *testing.T, extra map[string]string) *agent {
 	ready := make(chan struct{})
 	go func() {
 		a.done <- run(ctx, conf, Clients{Kube: a.kube, Dynamic: dyn, HTTP: &http.Client{Timeout: time.Second}},
-			RunOptions{HTTPAddr: a.addr, EventsPath: dir + "/events.jsonl", OnReady: func() { close(ready) }})
+			RunOptions{HTTPAddr: a.addr, EventsPath: dir + "/events.jsonl", OnReady: func() { close(ready) },
+				ForwardEvery: 100 * time.Millisecond})
 	}()
 	select {
 	case <-ready:
@@ -164,4 +168,85 @@ func TestIntegrationSelection(t *testing.T) {
 	if len(nss) != 2 {
 		t.Fatalf("namespaceList: %v", nss)
 	}
+}
+
+// ADR-001: an unknown role, or a node agent that cannot reach a controller,
+// stops at start instead of running half configured.
+func TestRun_RejectsBadRoleSettings(t *testing.T) {
+	for name, env := range map[string]map[string]string{
+		"unknown role":       {"AGENT_ROLE": "everything"},
+		"node without link":  {"AGENT_ROLE": "node", "INTERNAL_TOKEN": "x"},
+		"node without token": {"AGENT_ROLE": "node", "CONTROLLER_URL": "http://controller"},
+	} {
+		conf := config.Load(func(k string) string { return env[k] })
+		if err := run(context.Background(), conf, Clients{Kube: fake.NewClientset()}, RunOptions{}); err == nil {
+			t.Errorf("%s: run must refuse to start", name)
+		}
+	}
+}
+
+// ADR-001, PLAN-002 11.1: a finding made by a node agent appears in the
+// controller's event log, and the node agent serves no dashboard.
+func TestRun_NodeAgentForwardsToController(t *testing.T) {
+	controller := boot(t, map[string]string{"AGENT_ROLE": "controller", "INTERNAL_TOKEN": "node-secret", "DASHBOARD_TOKEN": "dash"})
+	node := boot(t, map[string]string{"AGENT_ROLE": "node", "INTERNAL_TOKEN": "node-secret",
+		"CONTROLLER_URL": "http://" + controller.addr, "NODE_NAME": "node-a", "POD_NAME": "agent-node-a"})
+
+	if resp, err := http.Get("http://" + node.addr + "/api/status"); err != nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("a node agent serves no API: %v %v", resp, err)
+	}
+
+	ctx := context.Background()
+	p := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "default"},
+		Spec:       corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "app", Image: "app:v1"}}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	if _, err := node.kube.CoreV1().Pods("default").Create(ctx, p, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "app", RestartCount: 5,
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}}}
+	if _, err := node.kube.CoreV1().Pods("default").UpdateStatus(ctx, p, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		evs := controllerEvents(t, controller.addr, "dash")
+		found := false
+		for _, e := range evs {
+			if e.Reason == "CrashLoopBackOff" && e.Node == "node-a" {
+				found = true
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the node agent's finding never reached the controller; controller has %+v", evs)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	node.stop(t)
+	controller.stop(t)
+}
+
+func controllerEvents(t *testing.T, addr, token string) []events.Event {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/api/events?limit=100", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var out []events.Event
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil
+	}
+	return out
 }

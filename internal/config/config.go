@@ -15,6 +15,13 @@ import (
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
+// Agent roles (ADR-001).
+const (
+	RoleAll        = "all"        // one process does everything (local runs, tests)
+	RoleNode       = "node"       // DaemonSet: own node only, forwards events
+	RoleController = "controller" // Deployment: cluster loops, event log, API
+)
+
 // Getenv looks up one variable; os.Getenv in production, a map in tests.
 type Getenv func(string) string
 
@@ -28,6 +35,11 @@ type Config struct {
 	NodeName     string
 	PodName      string
 	PodNamespace string
+
+	// Role and the node to controller link (ADR-001).
+	Role          string // all, node or controller
+	ControllerURL string // where a node agent sends its events
+	InternalToken string // shared by node agents and the controller
 
 	// Guardrails and leader election.
 	BlastRadiusMaxNamespaces int
@@ -162,6 +174,10 @@ func Load(get Getenv) Config {
 		NodeName:     r.str("NODE_NAME", ""),
 		PodName:      r.str("POD_NAME", ""),
 		PodNamespace: r.str("POD_NAMESPACE", ""),
+
+		Role:          r.str("AGENT_ROLE", RoleAll),
+		ControllerURL: r.str("CONTROLLER_URL", ""),
+		InternalToken: r.str("INTERNAL_TOKEN", ""),
 
 		BlastRadiusMaxNamespaces: r.positiveInt("BLAST_RADIUS_MAX_NAMESPACES", 5),
 		CircuitBreakerThreshold:  r.positiveInt("CIRCUIT_BREAKER_THRESHOLD", 5),

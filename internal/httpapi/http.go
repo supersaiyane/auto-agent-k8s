@@ -59,6 +59,8 @@ type Options struct {
 	Cost               config.Cost  // Cost tab pricing
 	Extended           ExtendedDeps // optional trackers for the extended endpoints
 	HTTPClient         *http.Client // outbound calls; nil means a 10s-timeout client
+	// HealthOnly serves only the probes and /metrics, for node agents.
+	HealthOnly bool
 	// InternalToken authenticates node agents forwarding events to the
 	// controller (ADR-001); empty disables the ingest endpoint.
 	InternalToken  string
@@ -77,7 +79,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	if opts.IsLeader != nil {
 		meta.IsLeaderFn = opts.IsLeader
 	}
-	if s.token == "" {
+	if s.token == "" && !opts.HealthOnly {
 		klog.Warningf("httpapi: DASHBOARD_TOKEN not set, /api/ is disabled")
 	}
 	mux := http.NewServeMux()
@@ -97,6 +99,11 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	})
 
 	mux.Handle("/metrics", promhttp.Handler())
+	if opts.HealthOnly {
+		s.srv = &http.Server{Addr: addr, Handler: mux, ReadTimeout: 5 * time.Second,
+			WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+		return s
+	}
 
 	// API endpoints
 	for _, rt := range apiRouteTable {

@@ -44,6 +44,23 @@ type RunOptions struct {
 	HTTPAddr   string // dashboard and probes; default ":8080"
 	EventsPath string // event persistence; default under /var/log/auto-agent
 	OnReady    func() // called once the agent is ready (tests)
+	// ForwardEvery is how often a node agent sends its events; default 5s.
+	ForwardEvery time.Duration
+}
+
+// roles says what this process runs (ADR-001).
+type roles struct{ node, controller bool }
+
+func rolesFor(role string) (roles, error) {
+	switch role {
+	case config.RoleAll:
+		return roles{node: true, controller: true}, nil
+	case config.RoleNode:
+		return roles{node: true}, nil
+	case config.RoleController:
+		return roles{controller: true}, nil
+	}
+	return roles{}, fmt.Errorf("AGENT_ROLE %q: want %s, %s or %s", role, config.RoleAll, config.RoleNode, config.RoleController)
 }
 
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
@@ -56,6 +73,17 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	if opts.EventsPath == "" {
 		opts.EventsPath = config.DefaultLogDir + "/events.jsonl"
 	}
+	if opts.ForwardEvery == 0 {
+		opts.ForwardEvery = 5 * time.Second
+	}
+	rl, err := rolesFor(conf.Role)
+	if err != nil {
+		return err
+	}
+	onlyNode := rl.node && !rl.controller
+	if onlyNode && (conf.ControllerURL == "" || conf.InternalToken == "") {
+		return fmt.Errorf("AGENT_ROLE=node needs CONTROLLER_URL and INTERNAL_TOKEN")
+	}
 
 	// --- Policy with ConfigMap hot reload ---
 	podNS := conf.PodNamespace
@@ -66,14 +94,26 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
 	go hotReloader.Start(ctx, cl.Kube)
 
-	klog.Infof("auto-agent %s starting (mode=%s, namespaces=%v)", version, pol.Mode, namespaceList(pol))
+	klog.Infof("auto-agent %s starting (role=%s, mode=%s, namespaces=%v)", version, conf.Role, pol.Mode, namespaceList(pol))
 	obs.InfoGauge.WithLabelValues(version, string(pol.Mode)).Set(1)
 
-	recorder := events.NewRecorder(500)
-	recorder.EnablePersistence(opts.EventsPath)
+	// The controller keeps the one event log; a node agent forwards to it.
+	var recorder *events.Recorder
+	var sink events.Sink
+	forwarded := make(chan struct{})
+	if onlyNode {
+		fwd := events.NewForwarder(conf.ControllerURL, conf.InternalToken, conf.NodeName, cl.HTTP)
+		go func() { fwd.Run(ctx, opts.ForwardEvery); close(forwarded) }()
+		sink = fwd
+	} else {
+		close(forwarded)
+		recorder = events.NewRecorder(500)
+		recorder.EnablePersistence(opts.EventsPath)
+		sink = recorder
+	}
 
-	// --- Admission webhook (optional, requires TLS certs) ---
-	if conf.Webhook.Enabled() {
+	// --- Admission webhook (optional, requires TLS certs; controller) ---
+	if rl.controller && conf.Webhook.Enabled() {
 		// An unset list is empty, not [""]; an empty prefix would block every
 		// image (ISS-041).
 		wh := webhook.NewValidator(webhook.Config{
@@ -144,7 +184,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		CRDStore:      crdStore,
 		GitOps:        gitOps,
 		Ticketer:      ticketer,
-		Recorder:      recorder,
+		Recorder:      sink,
 		Breaker:       breaker,
 		AlertManager:  am,
 		AuditLog:      auditLog,
@@ -158,8 +198,13 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		FixTracker:    fixTracker,
 	}
 
-	// --- Leader election (cluster-wide loops) ---
-	le := leader.Start(ctx, cl.Kube, conf.LeaderLeaseNamespace, "auto-agent-leader", conf.PodName)
+	// --- Leader election (cluster-wide loops; controller only) ---
+	var le *leader.Elector
+	isLeader := func() bool { return false }
+	if rl.controller {
+		le = leader.Start(ctx, cl.Kube, conf.LeaderLeaseNamespace, "auto-agent-leader", conf.PodName)
+		isLeader = le.IsLeader
+	}
 
 	// --- HTTP server: built last, with everything it serves ---
 	httpSrv := httpapi.NewServer(opts.HTTPAddr, recorder, &httpapi.AgentMeta{
@@ -173,7 +218,9 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		Cost:               conf.Cost,
 		HTTPClient:         cl.HTTP,
 		AllowNamespace:     func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) },
-		IsLeader:           le.IsLeader,
+		IsLeader:           isLeader,
+		HealthOnly:         onlyNode,
+		InternalToken:      conf.InternalToken,
 		Extended: httpapi.ExtendedDeps{
 			Compliance: complianceTracker,
 			Learning:   learningMode,
@@ -184,18 +231,21 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	})
 	go httpSrv.Start()
 
-	kube.StartWatchers(ctx, deps)
-	go kube.StartLogRetention(ctx, conf.Storage, conf.LogRetentionDays)
+	if rl.node {
+		kube.StartWatchers(ctx, deps)
+		go kube.StartLogRetention(ctx, conf.Storage, conf.LogRetentionDays)
+	}
 
 	httpSrv.SetReady()
 	if opts.OnReady != nil {
 		opts.OnReady()
 	}
-	if err := sl.Postf("auto-agent %s started on node `%s` (mode=%s)", version, hostname(), pol.Mode); err != nil {
-		klog.V(2).Infof("slack: start message not sent: %v", err)
+	if rl.controller { // node agents stay quiet: one notice per rollout, not per node (ISS-055)
+		if err := sl.Postf("auto-agent %s started on `%s` (mode=%s)", version, hostname(), pol.Mode); err != nil {
+			klog.V(2).Infof("slack: start message not sent: %v", err)
+		}
+		go leaderLoops(ctx, conf, deps, le)
 	}
-
-	go leaderLoops(ctx, conf, deps, le)
 
 	<-ctx.Done()
 	klog.Infof("shutting down...")
@@ -203,13 +253,18 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	defer shutdownCancel()
 
 	dedup.Stop()
-	recorder.Close()
+	<-forwarded // the node agent's last drain to the controller
+	if recorder != nil {
+		recorder.Close()
+	}
 	auditLog.Close()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		klog.Warningf("http shutdown: %v", err)
 	}
-	if err := sl.Post("auto-agent shutting down"); err != nil {
-		klog.V(2).Infof("slack: stop message not sent: %v", err)
+	if rl.controller {
+		if err := sl.Post("auto-agent shutting down"); err != nil {
+			klog.V(2).Infof("slack: stop message not sent: %v", err)
+		}
 	}
 	klog.Infof("auto-agent stopped")
 	return nil
