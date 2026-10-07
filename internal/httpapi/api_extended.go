@@ -11,18 +11,13 @@ import (
 // ExtendedDeps are the optional trackers behind the extended endpoints. They
 // are passed in Options at construction (PLAN-002 9.4); any may be nil.
 type ExtendedDeps struct {
-	Compliance *kube.ComplianceTracker
-	Learning   *kube.LearningMode
-	Deploys    *kube.DeployTracker
-	DryRun     *kube.DryRunLog
-	Fixes      *kube.FixTracker
+	Learning *kube.LearningMode
+	Deploys  *kube.DeployTracker
+	DryRun   *kube.DryRunLog
+	Fixes    *kube.FixTracker
 }
 
 func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
-	if s.ext.Compliance == nil {
-		writeJSON(w, map[string]string{"error": "not initialized"})
-		return
-	}
 	since := time.Now().Add(-30 * 24 * time.Hour)
 	if v := r.URL.Query().Get("days"); v != "" {
 		var days int
@@ -30,7 +25,8 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
 			since = time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 		}
 	}
-	writeJSON(w, s.ext.Compliance.GenerateReport(since))
+	// Computed from the event log, so node agents' forwarded events count (ISS-061).
+	writeJSON(w, kube.ComplianceFromEvents(s.recorder.Recent(0), since, time.Now(), s.started))
 }
 
 func (s *Server) handleBaselines(w http.ResponseWriter, r *http.Request) {

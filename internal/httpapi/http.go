@@ -142,12 +142,29 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 
 	s.srv = &http.Server{
 		Addr:         addr,
-		Handler:      s.toLeader(s.authorize(mux)),
+		Handler:      securityHeaders(s.toLeader(s.authorize(mux))),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 	return s
+}
+
+// contentSecurityPolicy allows only this origin's own scripts, styles and
+// API calls: no inline script or style, no framing (ISS-051, ISS-060).
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+	"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the browser protections on every response.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Start() {

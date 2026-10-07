@@ -159,7 +159,6 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	blastRadius := kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, 1*time.Hour)
 	quietHours := kube.NewQuietHours(conf.QuietHours)
 	deployTracker := kube.NewDeployTracker(100)
-	complianceTracker := kube.NewComplianceTracker()
 	var learningMode *kube.LearningMode
 	if conf.LearningEnabled {
 		learningMode = kube.NewLearningMode("", time.Duration(conf.LearningPeriodDays)*24*time.Hour)
@@ -207,7 +206,6 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		Escalation:    escChain,
 		DeployTracker: deployTracker,
 		LearningMode:  learningMode,
-		Compliance:    complianceTracker,
 		FixTracker:    fixTracker,
 	}
 
@@ -240,11 +238,10 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		Ingest:             sink,
 		InternalToken:      conf.InternalToken,
 		Extended: httpapi.ExtendedDeps{
-			Compliance: complianceTracker,
-			Learning:   learningMode,
-			Deploys:    deployTracker,
-			DryRun:     dryRunLog,
-			Fixes:      fixTracker,
+			Learning: learningMode,
+			Deploys:  deployTracker,
+			DryRun:   dryRunLog,
+			Fixes:    fixTracker,
 		},
 	})
 	go httpSrv.Start()

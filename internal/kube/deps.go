@@ -78,7 +78,6 @@ type Deps struct {
 	Escalation    *escalation.Chain
 	DeployTracker *DeployTracker
 	LearningMode  *LearningMode
-	Compliance    *ComplianceTracker
 }
 
 // PolicySource returns the current immutable policy snapshot. In production

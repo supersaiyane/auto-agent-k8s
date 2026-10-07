@@ -44,9 +44,12 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 	switch deps.Policy().Mode {
 	case policy.Fix:
 	case policy.Suggest:
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "suggested", m.SuggestMsg)
 		return gateSuggested, fmt.Sprintf("_Suggest_: %s.\n", m.SuggestMsg)
 	case policy.DryRun:
-		return gateSimulated, SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Reason, m.ActionType, m.SuccessMsg)
+		msg := SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Reason, m.ActionType, m.SuccessMsg)
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "simulated", m.SuccessMsg)
+		return gateSimulated, msg
 	default:
 		return gateSkipped, ""
 	}
