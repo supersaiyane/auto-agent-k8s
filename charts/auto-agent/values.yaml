@@ -45,7 +45,10 @@ metricsProvider:
   prometheusUrl: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
 gitops:
-  mode: pr                         # pr|live
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 14); the agent always
+  # opens a pull request. "live" will commit straight to the branch, skipping
+  # code review, and will stay off unless you set it.
+  mode: pr                         # pr | live (not implemented)
   provider: github                 # github|gitlab
   repo: "yourorg/helm-env"
   branch: "main"
@@ -152,6 +155,9 @@ learning:
   periodDays: 14
 
 images:
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 14). When built, the
+  # admission webhook will rewrite matching image references as pods are
+  # created. Off by default.
   mirror:
     enabled: false
     prefix: "registry.internal/"

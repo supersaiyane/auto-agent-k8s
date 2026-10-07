@@ -207,6 +207,13 @@ The chart sets these from the pod itself. Do not override them.
 The chart writes these into the ConfigMap, but no code reads them, so
 **changing them does nothing** (ISS-012, ISS-032).
 
+> **Warning: `gitops.mode` and `images.mirror.*` are not implemented.** By
+> owner decision (2026-10-07) they stay as flags, **off by default**, and will
+> be built in PLAN-002 phase 14. When built, `gitops.mode: live` commits fixes
+> straight to the branch and **skips code review**; `images.mirror` makes the
+> admission webhook **rewrite images as pods are created**. Both will log a
+> warning at startup when turned on.
+
 | Variable | Helm value |
 | --- | --- |
 | `ANOMALIES_POLL_INTERVAL` | `anomalies.pollInterval` |

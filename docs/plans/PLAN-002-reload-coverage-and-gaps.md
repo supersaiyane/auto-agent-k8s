@@ -93,7 +93,8 @@ some of these.
 | A2.2 | `reloadOn: auto` (skip in-place volume updates), debounce | Tests with a fake clock |
 | A2.3 | Rollout verification and automatic rollback | Test: stalled rollout rolls back once and alerts |
 | A3.1 | Staged reload for shared objects | Test: second workload waits for the first; a failure stops the wave |
-| A3.2 | Chart values `reload.enabled` (default true, still dry-run by mode), `reload.secrets` (default false), `reload.reloadOn`, `reload.debounce`; RBAC; docs in CONFIGURATION.md and GUIDE | Config reference test and RBAC test pass |
+| A3.2 | Chart values `reload.enabled` (default true, still dry-run by mode), `reload.secrets` (default **false**, owner decision), `reload.reloadOn`, `reload.debounce`; RBAC | Config reference test and RBAC test pass |
+| A3.2b | **Secret reload usage documentation** (owner requirement): a GUIDE section "Reloading on Secret changes" covering why it is off, the exact value to enable it, the RBAC it adds (Secret get/list/watch in allowlisted namespaces only), that only key hashes are kept and values are never logged, how to scope it with annotations, how to test it in dry-run, and how to turn it off again; CONFIGURATION.md rows for every `reload.*` value with a warning on `reload.secrets` | Docs reviewed against the code; every value appears in the config reference test |
 | A3.3 | Dashboard "Reloads" tab and `/api/reloads`, allowlist-scoped | Route covered by the auth and namespace sentinel tests automatically |
 | A3.4 | e2e: change a ConfigMap; in dry-run the reload is recorded and the pod is untouched; in fix mode the pod is replaced once, even after 3 quick edits | `make e2e` extended and falsified |
 | A4.1 | Argo Rollouts support when its CRD exists | Test with a fake dynamic client |
@@ -108,10 +109,10 @@ some of these.
 | ISS-034 | A Service whose selector matches no pods is never reported | `CheckServiceEndpoints` needs `len(Subsets) > 0` | New check: selector against pod labels; also `targetPort` not exposed by any selected container | Do |
 | ISS-035 | Endpoints API is deprecated | `CoreV1().Endpoints` reads | Move to `discovery.k8s.io` EndpointSlices; RBAC follows | Do |
 | ISS-036 | No network fault coverage beyond the above | n/a | Pod sandbox / CNI events (`FailedCreatePodSandBox`, `NetworkNotReady`); kube-proxy and CNI DaemonSet pod down per node; NetworkPolicy static analysis (Service port with no ingress allowed); opt-in TCP probe to allowlisted Service ClusterIPs; opt-in egress probe; conntrack usage from node-exporter; Ingress TLS secret missing (opt-in secret read) | Do |
-| ISS-012 | Escalation chain built but never called | `cmd/auto-agent/main.go` | **Wire it**: critical incidents and failed fixes escalate (PagerDuty, OpsGenie, email) after Slack, deduplicated, redacted. The code exists; leaving it dead is the worst option | Do (recommended; owner can veto) |
+| ISS-012 | Escalation chain built but never called | `cmd/auto-agent/main.go` | **Wire it**: critical incidents and failed fixes escalate (PagerDuty, OpsGenie, email) after Slack, deduplicated, redacted. The code exists; leaving it dead is the worst option | **Decided 2026-10-07: wire it** |
 | ISS-012 | Learning baselines collected, thresholds never applied | `GetThreshold` has no caller | Use the learned per-workload CPU baseline as the scale threshold once `minSamples` is reached, falling back to the global value; show which was used in the scaling event | Do |
 | ISS-012 | Slack buttons never sent; callbacks unwired | `BuildIncidentBlocks` no caller | Becomes the approval channel of Part C | Do (Part C) |
-| ISS-012 | `gitops.mode`, `images.mirror.*` read by nothing | CONFIGURATION.md | `gitops.mode: live` has no safe meaning (it would commit to a deploy branch); **remove** both values. Image mirroring belongs to the admission webhook if wanted later | Remove |
+| ISS-012 | `gitops.mode`, `images.mirror.*` read by nothing; no code implements either (checked 2026-10-07, enforced by `TestConfigReference_MatchesCodeAndChart`) | CONFIGURATION.md | **Keep both as flags, off by default, behind explicit warnings, and implement them** (phase 14). `gitops.mode: live`: commit the fix straight to the configured branch instead of opening a PR; warning in values, docs and the startup log that it skips code review, and it still goes through the gate. `images.mirror`: the admission webhook rewrites matching image references to the mirror prefix; warning that it changes pods as they are created, allowlist only. Until implemented, values and docs say "not implemented" | **Decided 2026-10-07: keep, off by default, warn, implement** |
 | ISS-037 | CRD fields parsed but unused: `restartStuckPods`, `scale.minReplicas`, `scale.step`, `scale.allowHPAOverride`, `safety.cooldown`, `safety.maxActionsPerHour`, `escalation.slackChannel`, `escalation.ticketing` | grep 2026-10-07 | Wire each into the gate or the action it names (per-policy cooldown and action budget into the guardrails, scaling fields into the scaler, Slack channel and ticketing into the notifier). A field that cannot be honoured is removed from the CRD schema | Do |
 | ISS-032 | `agent.logLevel` unused | `LogLevel` no reader | Map to klog verbosity at startup | Do |
 | ISS-032 | `webhook.enabled` registers a webhook the agent never serves | no cert env | Chart mounts a cert-manager Certificate (or a provided Secret) and sets `WEBHOOK_CERT_FILE` / `WEBHOOK_KEY_FILE`; e2e calls the webhook | Do |
@@ -224,17 +225,17 @@ with a reason each, so every uncovered line is a decision, not an accident.
 | 11 | Part B network (ISS-033, ISS-036) | Builds on phase 9 tests | 4 to 6 days |
 | 12 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
 | 13 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |
-| 14 | A4 (Argo Rollouts), floor raised to the final target | Optional extras last | 2 to 3 days |
+| 14 | A4 (Argo Rollouts); `gitops.mode: live` and `images.mirror` behind their flags, off by default, with warnings (ISS-012); floor raised to the final target | Optional extras last | 4 to 6 days |
 
-Total: about 33 to 51 engineer days (modelled). Each phase ends with
+Total: about 35 to 54 engineer days (modelled). Each phase ends with
 `make verify`, `make e2e`, a commit set, and the coverage floor raised to
 the measured value.
 
-## Open questions for the owner
+## Owner decisions (2026-10-07)
 
-- Part B: wire the escalation chain (recommended) or delete it?
-- Part B: remove `gitops.mode` and `images.mirror.*` (recommended)?
-- Part A: should `reload.secrets` stay off by default (recommended: yes, it
-  needs Secret read access)?
-- Part C: approval expiry (proposed 30 minutes) and who may approve (any
-  Slack user in the channel, or a configured group)?
+| Question | Decision | What it means for the work |
+| --- | --- | --- |
+| Escalation chain | **Wire it** | Phase 13: PagerDuty, OpsGenie and email fire for critical incidents and failed fixes, after Slack, deduplicated and redacted |
+| `gitops.mode`, `images.mirror` | **Keep, off by default, under a warning** | Phase 14: implement both behind their flags. Until then, values and docs mark them "not implemented"; once built, each logs a warning at startup when enabled and its docs carry a warning box |
+| Secret watching for reload | **Off by default; document its usage clearly** | Task A3.2b: a dedicated guide section on enabling, scoping, testing and disabling it, and what access it grants |
+| Approvals | **30 minutes; a named group only** | Task C1.1: approvals expire after 30 minutes (configurable); `approvals.groups` lists who may approve; with no group configured, approvals are disabled and R3 fixes stay suggestions; every approval records who clicked |

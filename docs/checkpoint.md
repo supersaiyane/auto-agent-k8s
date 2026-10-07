@@ -15,9 +15,9 @@
 | 2026-10-07 | Configuration reference | Done; verify and kind e2e passed, committed | docs/CONFIGURATION.md lists all 81 env vars (Helm value, options, default, effect, file) plus 8 chart values nothing reads; TestConfigReference_MatchesCodeAndChart keeps doc, code and chart in step (falsified twice); chart now wires learning, retention, webhook, escalation, quiet hours, Alertmanager, scaling gates, loop intervals, cost, log format; ISS-032 logged. | docs/CONFIGURATION.md, internal/policy/configref_test.go, charts/auto-agent/values.yaml, charts/auto-agent/templates/configmap.yaml, secret.yaml |
 | 2026-10-07 | Push and PR | Done | Branch phase0-1-safety pushed; PR https://github.com/supersaiyane/auto-agent-k8s/pull/1 opened against master (14 commits). First run of the rewritten CI pending. | .github/workflows/ci.yaml, tasks/ISSUES.md (ISS-017) |
 | 2026-10-07 | PLAN-002 written | Done, branch plan-002 | Plan: native config reload better than Reloader (Part A), weak features with fixes (Part B), fix ladder R0 to R4 with approve-to-fix (Part C), coverage 26.1 to 95+ percent with refactor, per-detector tests, floor and mutation testing (Part D). ISS-033 to ISS-038 logged. | docs/plans/PLAN-002-reload-coverage-and-gaps.md, tasks/ISSUES.md |
+| 2026-10-07 | PLAN-002 owner decisions | Recorded | Escalation: wire. gitops.mode and images.mirror: keep as flags, off by default, warnings now in values.yaml and CONFIGURATION.md, implement in phase 14 (no code exists today). Secret reload: off by default plus a dedicated usage doc (task A3.2b). Approvals: 30 minutes, named group only, disabled with no group. | docs/plans/PLAN-002-reload-coverage-and-gaps.md (## Owner decisions), charts/auto-agent/values.yaml (gitops.mode, images.mirror), docs/CONFIGURATION.md |
 
 ## Next action
 
-1. Owner answers to PLAN-002 open questions (escalation wire or delete, remove gitops.mode and images.mirror, reload.secrets default, approval expiry and approvers).
-2. Start PLAN-002 phase 8 (testability refactor and coverage floor) on a branch from plan-002 once PR #1 is merged or rebased.
-3. PR #1: read the first CI run (ISS-017).
+1. Start PLAN-002 phase 8: config struct (D1), injected clock (D2), injected HTTP clients and no globals (D3), run() out of main (D4), coverage floor in make verify (D7).
+2. PR #1: read the first CI run (ISS-017); merge PR #1, then rebase plan-002 on master.
