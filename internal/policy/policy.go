@@ -31,10 +31,10 @@ type Policy struct {
 	LogLevel           string
 
 	// Scaling
-	CooldownUp    string
-	CooldownDown  string
-	MaxReplicas   int32
-	MinReplicas   int32
+	CooldownUp   string
+	CooldownDown string
+	MaxReplicas  int32
+	MinReplicas  int32
 
 	// Deduplication
 	DedupTTLSeconds int
@@ -53,7 +53,7 @@ func LoadFromEnv() *Policy {
 		}
 	}
 
-	m := Mode(envOr("AUTO_MODE", "fix"))
+	m := Mode(envOr("AUTO_MODE", string(DryRun)))
 	switch m {
 	case Observe, Suggest, Fix, DryRun:
 	default:

@@ -5,7 +5,7 @@ metadata:
   namespace: auto-agent
 data:
   # Mode: observe | suggest | fix | dry-run
-  AUTO_MODE: "fix"
+  AUTO_MODE: "dry-run"
 
   # Namespaces to watch
   NAMESPACE_ALLOWLIST: "default,test1,test2"
@@ -69,7 +69,7 @@ metadata:
   namespace: auto-agent
 type: Opaque
 stringData:
-  # Set credentials via kubectl patch — DO NOT commit real values here
+  # Set credentials via kubectl patch: DO NOT commit real values here
   # kubectl patch secret auto-agent-secrets -n auto-agent --type merge \
   #   -p '{"stringData":{"SLACK_WEBHOOK_URL":"https://hooks.slack.com/..."}}'
   SLACK_WEBHOOK_URL: ""

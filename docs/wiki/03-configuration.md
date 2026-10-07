@@ -5,14 +5,19 @@ All configuration lives in `deployment/03-config.yaml` (ConfigMap + Secret).
 ## Agent Mode
 
 ```yaml
-AUTO_MODE: "fix"
+AUTO_MODE: "dry-run"   # the default since 2026-10-07; set "fix" explicitly to remediate
 ```
+
+Every change the agent makes to the cluster passes one gate (`internal/kube/gate.go`, `applyMutation`)
+that checks the mode, then quiet hours, blast radius, CRD approval and the circuit breaker, then the
+rate limiter. Outside `fix` nothing is written. Proven by `TestGate_NoMutationOutsideFixOrWhenBlocked`
+and `TestMutationsOnlyThroughGate` in `internal/kube`.
 
 | Mode | Behavior | When to use |
 |------|----------|-------------|
 | `observe` | Detect + alert only. No actions taken. | First deployment, gaining trust |
 | `suggest` | Detect + alert + recommend actions | Team review before enabling fix |
-| `fix` | Detect + alert + auto-remediate | Production — agent fixes issues |
+| `fix` | Detect + alert + auto-remediate | Production: agent fixes issues |
 | `dry-run` | Detect + simulate fixes + log what WOULD happen | Testing guardrails and policies |
 
 **Decision tree:**
@@ -48,7 +53,7 @@ Agent ONLY watches namespaces in this list. Everything else is ignored. Start na
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_ACTIONS_PER_10M` | `10` | Global rate limit — max actions per 10 min |
+| `MAX_ACTIONS_PER_10M` | `10` | Global rate limit: max actions per 10 min |
 | `DEDUP_TTL_SECONDS` | `300` | Don't re-process same workload within 5 min |
 | `EXCLUDED_ANNOTATION` | `auto-agent.io/disable` | Pods with this annotation are ignored |
 | `QUIET_HOURS` | _(empty)_ | UTC time windows. Example: `"02:00-06:00"` |
@@ -137,7 +142,7 @@ spec:
   safety:
     cooldown: "5m"
     maxActionsPerHour: 3
-    requireApproval: true        # Blocks automated fix — alert only
+    requireApproval: true        # Blocks automated fix, alert only
   anomalies:
     - name: high_error_rate
       promql: 'rate(http_errors_total{app="api"}[5m]) > 0.1'

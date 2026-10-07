@@ -7,7 +7,7 @@ namespace: kube-system
 priorityClassName: system-node-critical
 
 agent:
-  mode: fix                        # observe|suggest|fix
+  mode: dry-run                    # observe|suggest|dry-run|fix (fix is an explicit opt-in)
   hpaCoexistence: true             # skip scaling if HPA present
   cpuThreshold: 0.8                # avg CPU threshold for scale-up
   scaleWindow: 5m
