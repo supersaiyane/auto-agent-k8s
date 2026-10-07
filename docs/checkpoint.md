@@ -19,5 +19,5 @@
 
 ## Next action
 
-1. PLAN-002 now has Part E (full detector audit ISS-039, missing failure classes ISS-040). Start phase 8: config struct (D1), injected clock (D2), injected HTTP clients and no globals (D3), run() out of main (D4), coverage floor in make verify (D7).
+1. PLAN-002 now has Part E (full detector audit ISS-039, missing failure classes ISS-040). Phases renumbered 2026-10-07: 8 = config struct (D1), injected clock (D2), coverage floor (D7); 9 = injected HTTP clients and no globals (D3), run() out of main (D4); 10 = missing failure classes (Part E.2). Start phase 8.
 2. PR #1: read the first CI run (ISS-017); merge PR #1, then rebase plan-002 on master.
