@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -47,6 +48,10 @@ type Deps struct {
 	// Policies supplies the current policy snapshot. Read it through
 	// Deps.Policy(); never store a policy in a shared field (ISS-007).
 	Policies PolicySource
+
+	// Now is the clock detectors use for their time windows; nil means
+	// time.Now (PLAN-002 phase 10).
+	Now func() time.Time
 
 	// HTTPClient is used for runbook and self-check calls; nil means a
 	// default client (PLAN-002 9.2).
@@ -93,4 +98,12 @@ type SelfCheckEndpoints struct {
 	PrometheusURL   string
 	SlackWebhookURL string
 	AlertmanagerURL string
+}
+
+// clock returns the current time from Deps.Now, or time.Now.
+func (d *Deps) clock() time.Time {
+	if d.Now != nil {
+		return d.Now()
+	}
+	return time.Now()
 }

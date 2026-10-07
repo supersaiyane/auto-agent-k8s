@@ -258,6 +258,7 @@ func leaderLoops(ctx context.Context, conf config.Config, deps *kube.Deps, le *l
 			kube.CheckCronJobMissed(ctx, deps)
 			kube.CheckDeploymentPaused(ctx, deps)
 			kube.CheckReplicaSetFailure(ctx, deps)
+			kube.CheckPodStates(ctx, deps)
 		case <-quotaTicker.C:
 			if !le.IsLeader() {
 				continue
@@ -265,7 +266,6 @@ func leaderLoops(ctx context.Context, conf config.Config, deps *kube.Deps, le *l
 			kube.CheckResourceQuotas(ctx, deps)
 			kube.CollectBaselines(ctx, deps)
 			kube.CheckStorageIssues(ctx, deps)
-			kube.CheckVolumeAttachments(ctx, deps)
 			kube.CheckNetworkIssues(ctx, deps)
 			kube.CheckSecurityIssues(ctx, deps)
 			kube.CheckWebhookBlocking(ctx, deps)

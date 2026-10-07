@@ -181,6 +181,12 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	ns, name := pod.Namespace, pod.Name
 	wl := ownerName(pod)
+	if pod.Spec.NodeName == "" {
+		return // unschedulable: CheckPodStates on the leader names the constraint (ISS-043)
+	}
+	if len(volumeFailures(listObjectEvents(ctx, deps.Client, ns, name))) > 0 {
+		return // volume failures: CheckPodStates names the volume (PLAN-002 10.3)
+	}
 	klog.Infof("handler: Pending pod detected %s/%s (>5m)", ns, name)
 
 	events := collectEvents(ctx, deps.Client, ns, name)

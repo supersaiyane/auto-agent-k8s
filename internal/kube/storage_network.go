@@ -3,7 +3,6 @@ package kube
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -62,42 +61,6 @@ func CheckStorageIssues(ctx context.Context, deps *Deps) {
 							Message: fmt.Sprintf("StorageClass %s not found", scName)})
 						obs.IncidentsTotal.WithLabelValues("StorageClassNotFound", ns, pvc.Name).Inc()
 					}
-				}
-			}
-		}
-	}
-}
-
-// CheckVolumeAttachments detects volumes stuck in attaching state.
-func CheckVolumeAttachments(ctx context.Context, deps *Deps) {
-	// Check pod events for volume-related failures
-	for ns := range deps.Policy().NamespaceAllow {
-		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			countAPIError(err, "pods", ns)
-			continue
-		}
-		for _, pod := range pods.Items {
-			if pod.Status.Phase != corev1.PodPending {
-				continue
-			}
-			events := collectEvents(ctx, deps.Client, ns, pod.Name)
-			for _, ev := range events {
-				if strings.Contains(ev, "AttachVolume") && strings.Contains(ev, "failed") ||
-					strings.Contains(ev, "Multi-Attach error") {
-					key := dedupKey(ns, pod.Name, "VolumeAttachStuck")
-					if !deps.Dedup.Check(key) {
-						break
-					}
-					wl := ownerName(&pod)
-					msg := fmt.Sprintf("*VolumeAttachStuck* pod `%s/%s` cannot attach volume\n", ns, pod.Name)
-					msg += fmt.Sprintf("Event: %s\n", ev)
-					msg += "_Check_: volume may be attached to another node (multi-attach), or wrong AZ.\n"
-					deps.Slack.Post(msg)
-					recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-						Namespace: ns, Workload: wl, Pod: pod.Name, Reason: "VolumeAttachStuck", Message: ev})
-					obs.IncidentsTotal.WithLabelValues("VolumeAttachStuck", ns, wl).Inc()
-					break
 				}
 			}
 		}

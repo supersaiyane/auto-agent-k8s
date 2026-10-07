@@ -47,6 +47,8 @@ type Event struct {
 	LogURL    string    `json:"logUrl,omitempty"`
 	PRURL     string    `json:"prUrl,omitempty"`
 	TicketURL string    `json:"ticketUrl,omitempty"`
+	// Rung is how far the agent may go on this finding, R0 to R4 (PLAN-002 Part C).
+	Rung string `json:"rung,omitempty"`
 }
 
 // Recorder is a thread-safe in-memory ring buffer backed by a JSONL file on disk.
