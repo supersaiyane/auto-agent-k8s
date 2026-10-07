@@ -2,7 +2,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../lib.sh
+# shellcheck source-path=SCRIPTDIR source=../lib.sh
 . "$DIR/../lib.sh"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 pass=0; fail=0; skip=0; total=0
@@ -13,7 +13,7 @@ warn() { echo -e "  ${YELLOW}SKIP${NC} $1"; skip=$((skip+1)); total=$((total+1))
 
 check_log() {
     local pattern=$1 timeout=${2:-60}
-    for i in $(seq 1 $timeout); do
+    for i in $(seq 1 "$timeout"); do
         echo -ne "  \033[2m    ${i}s/${timeout}s\033[0m\r"
         if kubectl logs -n auto-agent -l app=auto-agent --tail=500 --since=20m 2>/dev/null | grep -iq "$pattern"; then
             echo -ne "\033[2K\r"

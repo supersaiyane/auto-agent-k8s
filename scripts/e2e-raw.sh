@@ -33,7 +33,9 @@ KUBECTL="kubectl --context $CTX" sh "$DIR/deployment/ensure-secret.sh" "$NS"
 KEPT=$(k -n "$NS" get secret auto-agent-secrets -o jsonpath='{.data.SLACK_WEBHOOK_URL}' | base64 -d)
 TOKEN_AFTER=$(k -n "$NS" get secret auto-agent-secrets -o jsonpath='{.data.INTERNAL_TOKEN}')
 [ "$KEPT" = "https://hooks.example.test/kept" ] || fail "a re-run lost the patched SLACK_WEBHOOK_URL"
-[ -n "$TOKEN_BEFORE" ] && [ "$TOKEN_BEFORE" = "$TOKEN_AFTER" ] || fail "a re-run changed INTERNAL_TOKEN"
+if [ -z "$TOKEN_BEFORE" ] || [ "$TOKEN_BEFORE" != "$TOKEN_AFTER" ]; then
+	fail "a re-run changed INTERNAL_TOKEN"
+fi
 
 log "waiting ${RBAC_SETTLE}s for the leader loops and node agents to run"
 sleep "$RBAC_SETTLE"
