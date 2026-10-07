@@ -13,6 +13,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // Ticket describes an issue/ticket to create or update.
@@ -38,11 +40,11 @@ type githubIssues struct {
 	client *http.Client
 }
 
-func NewGitHubIssues(token, repo string) Ticketer {
+func NewGitHubIssues(token, repo string, hc *http.Client) Ticketer {
 	return &githubIssues{
 		token:  token,
 		repo:   repo,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: httpx.Client(hc, 15*time.Second),
 	}
 }
 
@@ -204,13 +206,13 @@ type jiraClient struct {
 	client  *http.Client
 }
 
-func NewJira(token, baseURL, project, email string) Ticketer {
+func NewJira(token, baseURL, project, email string, hc *http.Client) Ticketer {
 	return &jiraClient{
 		token:   token,
 		email:   email,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		project: project,
-		client:  &http.Client{Timeout: 15 * time.Second},
+		client:  httpx.Client(hc, 15*time.Second),
 	}
 }
 

@@ -19,19 +19,24 @@ const (
 	handlerTimeout        = 60 * time.Second
 )
 
-// handlerSem limits the number of concurrent handler goroutines.
-var handlerSem = make(chan struct{}, maxConcurrentHandlers)
-
-// runHandler launches a handler with concurrency limiting and a timeout.
-func runHandler(parentCtx context.Context, fn func(ctx context.Context)) {
+// runHandler runs fn in a goroutine, at most maxConcurrentHandlers at a time
+// (the slots live on deps, PLAN-002 9.4). Without slots, which only happens
+// when a test calls a handler directly, fn runs inline.
+func runHandler(parentCtx context.Context, deps *Deps, fn func(ctx context.Context)) {
+	if deps.handlerSlots == nil {
+		ctx, cancel := context.WithTimeout(parentCtx, handlerTimeout)
+		defer cancel()
+		fn(ctx)
+		return
+	}
 	select {
-	case handlerSem <- struct{}{}:
+	case deps.handlerSlots <- struct{}{}:
 	default:
 		klog.V(2).Infof("watcher: handler pool full (%d), dropping event", maxConcurrentHandlers)
 		return
 	}
 	go func() {
-		defer func() { <-handlerSem }()
+		defer func() { <-deps.handlerSlots }()
 		ctx, cancel := context.WithTimeout(parentCtx, handlerTimeout)
 		defer cancel()
 		fn(ctx)
@@ -40,6 +45,7 @@ func runHandler(parentCtx context.Context, fn func(ctx context.Context)) {
 
 // StartWatchers initializes pod and node informers with event handlers.
 func StartWatchers(ctx context.Context, deps *Deps) {
+	deps.handlerSlots = make(chan struct{}, maxConcurrentHandlers)
 	// Pod informer: filter to local node only (NODE_NAME set via downward API)
 	nodeName := deps.NodeName
 	var factory informers.SharedInformerFactory
@@ -88,7 +94,7 @@ func StartWatchers(ctx context.Context, deps *Deps) {
 				return
 			}
 			if pressureChanged(oldNode, newNode) {
-				runHandler(ctx, func(hCtx context.Context) {
+				runHandler(ctx, deps, func(hCtx context.Context) {
 					handleNodePressure(hCtx, deps, oldNode, newNode)
 				})
 			}
@@ -123,7 +129,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 					obs.DedupSkippedTotal.WithLabelValues("InitContainerFailed").Inc()
 					return
 				}
-				runHandler(ctx, func(hCtx context.Context) {
+				runHandler(ctx, deps, func(hCtx context.Context) {
 					handleInitContainerFailure(hCtx, deps, newPod, ics.Name, r)
 				})
 				return
@@ -139,7 +145,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("CrashLoopBackOff").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleCrashLoop(hCtx, deps, newPod, cs.Name)
 			})
 			return
@@ -153,7 +159,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("ImagePullBackOff").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleImagePullBackOff(hCtx, deps, newPod, cs.Name)
 			})
 			return
@@ -167,7 +173,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("OOMKilled").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleOOM(hCtx, deps, newPod, cs.Name)
 			})
 			return
@@ -180,7 +186,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("ConfigError").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleConfigError(hCtx, deps, newPod, cs.Name, cs.State.Waiting.Message)
 			})
 			return
@@ -193,7 +199,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("RestartStorm").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleRestartStorm(hCtx, deps, newPod, cs.Name, cs.RestartCount)
 			})
 			return
@@ -207,7 +213,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues(reason).Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handleAdditionalPodIssue(hCtx, deps, newPod, cs.Name, reason, cs.State.Waiting.Message)
 			})
 			return
@@ -221,7 +227,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 					obs.DedupSkippedTotal.WithLabelValues("NotReady").Inc()
 					return
 				}
-				runHandler(ctx, func(hCtx context.Context) {
+				runHandler(ctx, deps, func(hCtx context.Context) {
 					handleNotReady(hCtx, deps, newPod, cs.Name)
 				})
 				return
@@ -237,7 +243,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 				obs.DedupSkippedTotal.WithLabelValues("Pending").Inc()
 				return
 			}
-			runHandler(ctx, func(hCtx context.Context) {
+			runHandler(ctx, deps, func(hCtx context.Context) {
 				handlePending(hCtx, deps, newPod)
 			})
 		}

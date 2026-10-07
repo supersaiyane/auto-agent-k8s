@@ -12,6 +12,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 type Client struct {
@@ -22,7 +24,7 @@ type Client struct {
 	client  *http.Client
 }
 
-func New(url, key, model string, enabled bool, timeoutSec int) *Client {
+func New(url, key, model string, enabled bool, timeoutSec int, hc *http.Client) *Client {
 	if timeoutSec <= 0 {
 		timeoutSec = 10
 	}
@@ -31,9 +33,7 @@ func New(url, key, model string, enabled bool, timeoutSec int) *Client {
 		key:     key,
 		model:   model,
 		enabled: enabled,
-		client: &http.Client{
-			Timeout: time.Duration(timeoutSec) * time.Second,
-		},
+		client:  httpx.Client(hc, time.Duration(timeoutSec)*time.Second),
 	}
 }
 

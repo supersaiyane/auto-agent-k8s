@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
@@ -35,6 +36,10 @@ type Server struct {
 	kc       kubernetes.Interface
 	token    string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
 	allowNS  func(string) bool // namespace allowlist for kubectl reads
+	cost     CostConfig        // Cost tab pricing (PLAN-002 9.3)
+	ext      ExtendedDeps      // extended endpoints (PLAN-002 9.4)
+	http     *http.Client      // outbound calls (Kubecost, OpenCost)
+	started  time.Time
 }
 
 type AgentMeta struct {
@@ -47,12 +52,26 @@ type AgentMeta struct {
 
 // Options carries the server's secrets (PLAN-002 8.3: no env reads here).
 type Options struct {
-	DashboardToken     string // bearer token for /api/; empty disables it (503)
-	SlackSigningSecret string // verifies Slack callbacks; empty rejects them (503)
+	DashboardToken     string       // bearer token for /api/; empty disables it (503)
+	SlackSigningSecret string       // verifies Slack callbacks; empty rejects them (503)
+	Cost               config.Cost  // Cost tab pricing
+	Extended           ExtendedDeps // optional trackers for the extended endpoints
+	HTTPClient         *http.Client // outbound calls; nil means a 10s-timeout client
+	AllowNamespace     func(string) bool
+	IsLeader           func() bool
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
-	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken}
+	hc := opts.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Timeout: 10 * time.Second}
+	}
+	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
+		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
+		allowNS: opts.AllowNamespace}
+	if opts.IsLeader != nil {
+		meta.IsLeaderFn = opts.IsLeader
+	}
 	if s.token == "" {
 		klog.Warningf("httpapi: DASHBOARD_TOKEN not set, /api/ is disabled")
 	}
@@ -166,8 +185,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"podName":    s.meta.PodName,
 		"isLeader":   isLeader,
 		"ready":      atomic.LoadInt32(&s.ready) == 1,
-		"uptime":     time.Since(startTime).String(),
-		"startedAt":  startTime.UTC().Format(time.RFC3339),
+		"uptime":     time.Since(s.started).String(),
+		"startedAt":  s.started.UTC().Format(time.RFC3339),
 		"eventCount": s.recorder.Count(),
 	})
 }
@@ -697,8 +716,6 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Cache-Control", "no-cache")
 	json.NewEncoder(w).Encode(data)
 }
-
-var startTime = time.Now()
 
 // apiRouteTable is every dashboard API route. Registration and the auth test
 // both read it, so a route added here is covered by the test automatically.

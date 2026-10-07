@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"io"
 	"math"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,48 +30,50 @@ type CostConfig struct {
 	OpenCostURL    string             `json:"-"`
 }
 
-var costCfg CostConfig
-
-func init() {
-	costCfg = CostConfig{
-		CPUPerHour:     envFloat("COST_CPU_PER_HOUR", 0.05),
-		MemPerGiBHour:  envFloat("COST_MEM_PER_GIB_HOUR", 0.005),
+// newCostConfig builds pricing from configuration (PLAN-002 9.3: no init()
+// and no env reads). Empty values mean the built-in defaults.
+func newCostConfig(c config.Cost) CostConfig {
+	cc := CostConfig{
+		CPUPerHour:     parseFloat(c.CPUPerHour, 0.05),
+		MemPerGiBHour:  parseFloat(c.MemPerGiBHour, 0.005),
 		HoursPerMonth:  730.0,
-		Currency:       envStr("COST_CURRENCY", "USD"),
-		KubecostURL:    envStr("KUBECOST_URL", ""), // e.g. http://kubecost-cost-analyzer.kubecost:9090
-		OpenCostURL:    envStr("OPENCOST_URL", ""), // e.g. http://opencost.opencost:9003
+		Currency:       orDefault(c.Currency, "USD"),
+		KubecostURL:    c.KubecostURL, // e.g. http://kubecost-cost-analyzer.kubecost:9090
+		OpenCostURL:    c.OpenCostURL, // e.g. http://opencost.opencost:9003
 		InstancePrices: make(map[string]float64),
 	}
 
 	// Determine source
-	if costCfg.KubecostURL != "" {
-		costCfg.Source = "kubecost"
-	} else if costCfg.OpenCostURL != "" {
-		costCfg.Source = "opencost"
-	} else if os.Getenv("COST_CPU_PER_HOUR") != "" {
-		costCfg.Source = "manual"
-	} else {
-		costCfg.Source = "default"
+	switch {
+	case cc.KubecostURL != "":
+		cc.Source = "kubecost"
+	case cc.OpenCostURL != "":
+		cc.Source = "opencost"
+	case c.CPUPerHour != "":
+		cc.Source = "manual"
+	default:
+		cc.Source = "default"
 	}
 
-	// Load instance-type prices from env: COST_INSTANCE_PRICES="t3.medium=0.0416,m5.xlarge=0.192"
-	if prices := envStr("COST_INSTANCE_PRICES", ""); prices != "" {
-		for _, pair := range strings.Split(prices, ",") {
+	// Instance-type prices: "t3.medium=0.0416,m5.xlarge=0.192"
+	if c.InstancePrices != "" {
+		for _, pair := range strings.Split(c.InstancePrices, ",") {
 			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
 			if len(parts) == 2 {
 				if v, err := strconv.ParseFloat(parts[1], 64); err == nil {
-					costCfg.InstancePrices[parts[0]] = v
+					cc.InstancePrices[parts[0]] = v
 				}
 			}
 		}
-		if len(costCfg.InstancePrices) > 0 {
-			costCfg.Source = "instance-type"
-			klog.Infof("cost: loaded %d instance-type prices", len(costCfg.InstancePrices))
+		if len(cc.InstancePrices) > 0 {
+			cc.Source = "instance-type"
+			klog.Infof("cost: loaded %d instance-type prices", len(cc.InstancePrices))
 		}
 	}
 
 	klog.Infof("cost: source=%s, cpu=$%.4f/hr, mem=$%.4f/GiB/hr, currency=%s",
-		costCfg.Source, costCfg.CPUPerHour, costCfg.MemPerGiBHour, costCfg.Currency)
+		cc.Source, cc.CPUPerHour, cc.MemPerGiBHour, cc.Currency)
+	return cc
 }
 
 type clusterCost struct {
@@ -137,22 +139,22 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Try Kubecost/OpenCost first if configured
-	if costCfg.KubecostURL != "" {
-		if data, err := fetchKubecostData(ctx); err == nil {
+	if s.cost.KubecostURL != "" {
+		if data, err := s.cost.fetchKubecostData(ctx, s.http); err == nil {
 			writeJSON(w, data)
 			return
 		}
 		klog.V(3).Infof("cost: kubecost fetch failed, falling back to computed")
 	}
-	if costCfg.OpenCostURL != "" {
-		if data, err := fetchOpenCostData(ctx); err == nil {
+	if s.cost.OpenCostURL != "" {
+		if data, err := s.cost.fetchOpenCostData(ctx, s.http); err == nil {
 			writeJSON(w, data)
 			return
 		}
 		klog.V(3).Infof("cost: opencost fetch failed, falling back to computed")
 	}
 
-	result := clusterCost{Config: costCfg}
+	result := clusterCost{Config: s.cost}
 
 	// --- Nodes ---
 	nodes, err := s.kc.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -172,7 +174,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 		if instanceType == "" {
 			instanceType = n.Labels["beta.kubernetes.io/instance-type"]
 		}
-		hourly, priceSource := nodeHourlyRate(instanceType, cpuCores, memGiB)
+		hourly, priceSource := s.cost.nodeHourlyRate(instanceType, cpuCores, memGiB)
 
 		// Count pods and resource usage
 		pods, err := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
@@ -192,7 +194,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		monthly := hourly * costCfg.HoursPerMonth
+		monthly := hourly * s.cost.HoursPerMonth
 		cpuPct := safePct(nodeCPUReq, cpuCores)
 		memPct := safePct(nodeMemReq/1024, memGiB)
 
@@ -234,7 +236,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 					nsCost.MemReqMiB += mem
 				}
 			}
-			nsCost.Monthly = round2(calcCost(nsCost.CPUReq, nsCost.MemReqMiB))
+			nsCost.Monthly = round2(s.cost.calcCost(nsCost.CPUReq, nsCost.MemReqMiB))
 			result.Namespaces = append(result.Namespaces, nsCost)
 			result.WorkloadCost += nsCost.Monthly
 
@@ -249,7 +251,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 						replicas = *d.Spec.Replicas
 					}
 					cpu, mem := templateResourceRequests(&d.Spec.Template.Spec)
-					monthly := calcCost(cpu*float64(replicas), mem*float64(replicas))
+					monthly := s.cost.calcCost(cpu*float64(replicas), mem*float64(replicas))
 					allWorkloads = append(allWorkloads, workloadCost{
 						Namespace: ns.Name, Name: d.Name, Kind: "Deployment",
 						Replicas: replicas, CPUReq: round3(cpu), MemReqMiB: round1(mem),
@@ -268,7 +270,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 						replicas = *sts.Spec.Replicas
 					}
 					cpu, mem := templateResourceRequests(&sts.Spec.Template.Spec)
-					monthly := calcCost(cpu*float64(replicas), mem*float64(replicas))
+					monthly := s.cost.calcCost(cpu*float64(replicas), mem*float64(replicas))
 					allWorkloads = append(allWorkloads, workloadCost{
 						Namespace: ns.Name, Name: sts.Name, Kind: "StatefulSet",
 						Replicas: replicas, CPUReq: round3(cpu), MemReqMiB: round1(mem),
@@ -313,10 +315,10 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 
 // nodeHourlyRate returns the hourly rate for a node.
 // Priority: instance-type lookup > computed from CPU+mem.
-func nodeHourlyRate(instanceType string, cpuCores, memGiB float64) (float64, string) {
+func (c CostConfig) nodeHourlyRate(instanceType string, cpuCores, memGiB float64) (float64, string) {
 	// Check instance-type price table
 	if instanceType != "" {
-		if price, ok := costCfg.InstancePrices[instanceType]; ok {
+		if price, ok := c.InstancePrices[instanceType]; ok {
 			return price, "instance-type"
 		}
 		// Well-known AWS instance types
@@ -325,7 +327,7 @@ func nodeHourlyRate(instanceType string, cpuCores, memGiB float64) (float64, str
 		}
 	}
 	// Compute from CPU + memory
-	return cpuCores*costCfg.CPUPerHour + memGiB*costCfg.MemPerGiBHour, "computed"
+	return cpuCores*c.CPUPerHour + memGiB*c.MemPerGiBHour, "computed"
 }
 
 // awsPricing, common AWS on-demand prices (us-east-1, USD/hour, approximate)
@@ -357,16 +359,15 @@ var awsPricing = map[string]float64{
 	"Standard_D2as_v4": 0.086, "Standard_D4as_v4": 0.172,
 }
 
-func calcCost(cpuCores, memMiB float64) float64 {
-	return (cpuCores*costCfg.CPUPerHour + (memMiB/1024)*costCfg.MemPerGiBHour) * costCfg.HoursPerMonth
+func (c CostConfig) calcCost(cpuCores, memMiB float64) float64 {
+	return (cpuCores*c.CPUPerHour + (memMiB/1024)*c.MemPerGiBHour) * c.HoursPerMonth
 }
 
 // --- Kubecost integration ---
 
-func fetchKubecostData(ctx context.Context) (*clusterCost, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+func (c CostConfig) fetchKubecostData(ctx context.Context, client *http.Client) (*clusterCost, error) {
 	// Kubecost allocation API: /model/allocation?window=1d&aggregate=namespace
-	url := costCfg.KubecostURL + "/model/allocation?window=30d&aggregate=namespace&accumulate=true"
+	url := c.KubecostURL + "/model/allocation?window=30d&aggregate=namespace&accumulate=true"
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -396,7 +397,7 @@ func fetchKubecostData(ctx context.Context) (*clusterCost, error) {
 	}
 
 	result := &clusterCost{
-		Config: costCfg,
+		Config: c,
 	}
 	result.Config.Source = "kubecost"
 
@@ -415,10 +416,9 @@ func fetchKubecostData(ctx context.Context) (*clusterCost, error) {
 
 // --- OpenCost integration ---
 
-func fetchOpenCostData(ctx context.Context) (*clusterCost, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+func (c CostConfig) fetchOpenCostData(ctx context.Context, client *http.Client) (*clusterCost, error) {
 	// OpenCost allocation API
-	url := costCfg.OpenCostURL + "/allocation/compute?window=30d&aggregate=namespace&accumulate=true"
+	url := c.OpenCostURL + "/allocation/compute?window=30d&aggregate=namespace&accumulate=true"
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -447,7 +447,7 @@ func fetchOpenCostData(ctx context.Context) (*clusterCost, error) {
 		return nil, fmt.Errorf("opencost: parse: %w", err)
 	}
 
-	result := &clusterCost{Config: costCfg}
+	result := &clusterCost{Config: c}
 	result.Config.Source = "opencost"
 
 	if len(ocResp.Data) > 0 {
@@ -517,8 +517,7 @@ func round2(f float64) float64 { return math.Round(f*100) / 100 }
 func round3(f float64) float64 { return math.Round(f*1000) / 1000 }
 func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
 
-func envFloat(key string, def float64) float64 {
-	v := os.Getenv(key)
+func parseFloat(v string, def float64) float64 {
 	if v == "" {
 		return def
 	}
@@ -529,8 +528,8 @@ func envFloat(key string, def float64) float64 {
 	return f
 }
 
-func envStr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
+func orDefault(v, def string) string {
+	if v != "" {
 		return v
 	}
 	return def

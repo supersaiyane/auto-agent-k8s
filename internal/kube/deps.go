@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"net/http"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -45,7 +46,14 @@ type Deps struct {
 	Metrics   metrics.Provider
 	// Policies supplies the current policy snapshot. Read it through
 	// Deps.Policy(); never store a policy in a shared field (ISS-007).
-	Policies      PolicySource
+	Policies PolicySource
+
+	// HTTPClient is used for runbook and self-check calls; nil means a
+	// default client (PLAN-002 9.2).
+	HTTPClient *http.Client
+
+	// handlerSlots bounds concurrent handlers; StartWatchers creates it.
+	handlerSlots  chan struct{}
 	Slack         SlackPoster
 	LLM           LLMDiagnoser
 	Dedup         *ratelimit.Deduplicator

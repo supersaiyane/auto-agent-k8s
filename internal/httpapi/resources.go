@@ -109,7 +109,7 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 				ov.Healthy++
 			}
 		}
-		ov.Monthly = round2(calcCost(ov.CPURequests, ov.MemRequestsMi))
+		ov.Monthly = round2(s.cost.calcCost(ov.CPURequests, ov.MemRequestsMi))
 		ov.CPURequests = round3(ov.CPURequests)
 		ov.CPULimits = round3(ov.CPULimits)
 		ov.MemRequestsMi = round1(ov.MemRequestsMi)
@@ -177,7 +177,7 @@ func (s *Server) handleResourcesNs(w http.ResponseWriter, r *http.Request) {
 			MemRequest:    fmtMem(memReq),
 			MemLimit:      fmtMem(memLim),
 			LimitReqRatio: round2(ratio),
-			Monthly:       round2(calcCost(cpuReq, memReq)),
+			Monthly:       round2(s.cost.calcCost(cpuReq, memReq)),
 			Advice:        advice,
 		}
 
@@ -226,7 +226,7 @@ func (s *Server) handleResourcesNs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	summary.Pods = len(pods.Items)
-	summary.Monthly = round2(calcCost(summary.CPURequests, summary.MemRequestsMi))
+	summary.Monthly = round2(s.cost.calcCost(summary.CPURequests, summary.MemRequestsMi))
 	detail.Summary = summary
 	writeJSON(w, detail)
 }

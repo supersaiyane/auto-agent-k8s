@@ -12,6 +12,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 type Provider interface {
@@ -21,7 +23,7 @@ type Provider interface {
 
 // NewProvider returns the CPU metrics source: "prometheus" (needs url) or the
 // metrics-server stub for anything else.
-func NewProvider(kind, url string) (Provider, error) {
+func NewProvider(kind, url string, hc *http.Client) (Provider, error) {
 	t := kind
 	switch t {
 	case "prometheus":
@@ -30,10 +32,8 @@ func NewProvider(kind, url string) (Provider, error) {
 			return nil, fmt.Errorf("PROMETHEUS_URL required for prometheus provider")
 		}
 		return &prom{
-			base: base,
-			client: &http.Client{
-				Timeout: 10 * time.Second,
-			},
+			base:   base,
+			client: httpx.Client(hc, 10*time.Second),
 		}, nil
 	default:
 		klog.Warningf("metrics: using stub provider (METRICS_PROVIDER=%s)", t)

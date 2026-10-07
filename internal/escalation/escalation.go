@@ -13,6 +13,8 @@ import (
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // Severity levels for escalation routing.
@@ -42,14 +44,14 @@ type Chain struct {
 }
 
 // NewChain builds the escalation targets that are configured.
-func NewChain(cfg config.Escalation) *Chain {
+func NewChain(cfg config.Escalation, hc *http.Client) *Chain {
 	c := &Chain{}
 	if key := cfg.PagerDutyRoutingKey; key != "" {
-		c.pagerduty = NewPagerDuty(key)
+		c.pagerduty = NewPagerDuty(key, hc)
 		klog.Infof("escalation: PagerDuty configured")
 	}
 	if key := cfg.OpsGenieAPIKey; key != "" {
-		c.opsgenie = NewOpsGenie(key)
+		c.opsgenie = NewOpsGenie(key, hc)
 		klog.Infof("escalation: OpsGenie configured")
 	}
 	if host := cfg.SMTPHost; host != "" {
@@ -89,8 +91,8 @@ type PagerDutyClient struct {
 	client     *http.Client
 }
 
-func NewPagerDuty(routingKey string) *PagerDutyClient {
-	return &PagerDutyClient{routingKey: routingKey, client: &http.Client{Timeout: 10 * time.Second}}
+func NewPagerDuty(routingKey string, hc *http.Client) *PagerDutyClient {
+	return &PagerDutyClient{routingKey: routingKey, client: httpx.Client(hc, 10*time.Second)}
 }
 
 func (p *PagerDutyClient) Trigger(ctx context.Context, inc Incident) error {
@@ -131,8 +133,8 @@ type OpsGenieClient struct {
 	client *http.Client
 }
 
-func NewOpsGenie(apiKey string) *OpsGenieClient {
-	return &OpsGenieClient{apiKey: apiKey, client: &http.Client{Timeout: 10 * time.Second}}
+func NewOpsGenie(apiKey string, hc *http.Client) *OpsGenieClient {
+	return &OpsGenieClient{apiKey: apiKey, client: httpx.Client(hc, 10*time.Second)}
 }
 
 func (o *OpsGenieClient) Create(ctx context.Context, inc Incident) error {
