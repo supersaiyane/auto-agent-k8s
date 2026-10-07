@@ -292,6 +292,65 @@ Total: about 42 to 64 engineer days (modelled). Each phase ends with
 `make verify`, `make e2e`, a commit set, and the coverage floor raised to
 the measured value.
 
+## Detailed subtasks: phases 8, 9 and 10
+
+Added 2026-10-07. Estimates are modelled.
+
+### Phase 8: testability, first half (2 to 3 days)
+
+| # | Subtask | What changes | Done when |
+| --- | --- | --- | --- |
+| 8.1 | Config package | New `internal/config` with one `Config` struct and a `Load()` that reads every variable in one place, with defaults and validation | Unit tests for every default, valid and invalid value |
+| 8.2 | Config test drives the docs | `TestConfigReference_MatchesCodeAndChart` takes variable names from `config` instead of scanning the code | The test still catches a missing or stale doc row (falsified once) |
+| 8.3 | Move env reads into config | Components receive values from `Config`; no `os.Getenv` in `scaler.go`, `security.go`, `retention.go`, `storage.go`, `metrics/provider.go`, `logging`, `main.go` and the rest | A guard test fails if `os.Getenv` appears outside `internal/config` (`cost.go` allowed until 9.3) |
+| 8.4 | Wire `agent.logLevel` | Maps to klog verbosity at startup (ISS-032) | Test shows the level changes verbosity |
+| 8.5 | Injectable clock | A `now` function in dedup, circuit breaker, blast radius, quiet hours, learning mode, fix tracker | Time branches tested without sleeping (for example a quiet-hours window that crosses midnight) |
+| 8.6 | Coverage floor | `.coverage-floor` set to the measured total; `make coverage-check` fails if total coverage drops; part of `make verify` and CI | Deleting a test makes `make verify` fail (falsified once) |
+| 8.7 | Per-package floor for safety code | 100 percent required for `gate.go`, `redact`, `ratelimit`, the API auth middleware | A planted untested branch in `gate.go` fails the check |
+| 8.8 | Records | ISSUES, STATUS, checkpoint, CONFIGURATION.md, GUIDE section 12 | `make verify` and `make e2e` pass; commit |
+
+### Phase 9: testability, second half (2 to 3 days)
+
+| # | Subtask | What changes | Done when |
+| --- | --- | --- | --- |
+| 9.1 | Injectable HTTP client: Slack, LLM, Alertmanager | Constructors take an `*http.Client` | `httptest` tests for success, error status, timeout |
+| 9.2 | Injectable HTTP client: tickets, GitOps, escalation, Prometheus | Same for GitHub and Jira tickets, GitHub and GitLab PRs, PagerDuty, OpsGenie, email, metrics provider | Tests per client; `TestOutboundClientsRedact` stops swapping `http.DefaultTransport` |
+| 9.3 | Remove `cost.go` `init()` | Cost settings move into the API server from `Config` | Cost tab tested for each source (default, manual, Kubecost, OpenCost) |
+| 9.4 | Remove package globals | `handlerSem`, `httpapi.SetExtendedDeps`, `storage.GlobalSink` become constructor dependencies (ISS-015) | No mutable package-level state in `internal` (guard test) |
+| 9.5 | Extract `run()` from `main` | `main` only loads config and calls `run(ctx, cfg, clients)` | `main.go` under 30 lines |
+| 9.6 | Boot smoke test | Starts the whole agent with a fake clientset, waits for ready, checks `/readyz`, shuts down cleanly | Passes under `-race`; `cmd` above 80 percent |
+| 9.7 | Leader and CRD tests | Leader election with a fake Lease (acquire, lose, re-acquire); CRD watcher with a fake dynamic client | `leader` and `crd` above 90 percent |
+| 9.8 | Floor raised, records | `.coverage-floor` set to the new measured total | `make verify` and `make e2e` pass; commit |
+
+### Phase 10: missing failure classes (5 to 8 days)
+
+Each row is one detector, written test first: a bad state plus a healthy
+control in a fake cluster, asserting the message, the metric and the rung.
+
+| # | Failure | How we detect it | Rung | Done when |
+| --- | --- | --- | --- | --- |
+| 10.1 | Pods stuck Terminating | `deletionTimestamp` older than grace period plus 5 min | R3 force delete after approval (R1 until phase 14) | Stuck pod found; pod still within its grace period ignored |
+| 10.2 | Objects or namespaces stuck on finalizers | Deleting, with finalizers, past a window | R1: names the finalizer and its owning controller | Namespace and PVC cases |
+| 10.3 | Volume mount failures | `FailedMount` / `FailedAttachVolume` events; ContainerCreating past a window | R1 | Message carries the volume and the reason |
+| 10.4 | Probes failing before a crashloop | `Unhealthy` event rate per pod | R1: suggests probe timing for slow starts | Liveness and readiness separated |
+| 10.5 | Why a pod cannot be scheduled | `FailedScheduling` parsed into the cause: taint, affinity, resources, PVC, topology spread | R1 with the exact constraint | One test per cause |
+| 10.6 | PodDisruptionBudget blocking evictions | Eviction refusals counted; PDB at 0 allowed disruptions for long | R1 | Covers our own node-pressure evictions being refused |
+| 10.7 | Job hit its retry limit | `BackoffLimitExceeded` reason in the failed-job message | R1 | Reason appears in the alert |
+| 10.8 | Pod preemption | `Preempted` events | R0 / R1 | Victim and preemptor named |
+| 10.9 | CPU throttling | Throttled-period ratio from Prometheus | R3 propose a higher CPU limit (R1 until phase 14) | No alert and no error without Prometheus |
+| 10.10 | PVC almost full | Used vs capacity bytes from Prometheus | R3 propose expansion when the StorageClass allows it | Expansion offered only when allowed |
+| 10.11 | Topology spread unsatisfiable | From the 10.5 parser | R1 | Covered by 10.5 tests |
+| 10.12 | Readiness gates never met | Unmet `readinessGates` past a window | R1 | Gate name in the message |
+| 10.13 | etcd health | Control plane metrics when exposed; skipped on managed clusters | R0 | No noise when the metrics do not exist |
+| 10.14 | Deprecated API use | `apiserver_requested_deprecated_apis` metric | R1: names the API and its replacement | One removed and one deprecated API |
+| 10.15 | HPA stuck at max replicas | Audit the existing check: at max with high utilisation for long | R3 propose a higher max within a ceiling | Logic reviewed; misses fixed |
+| 10.16 | Pull-secret and registry rate-limit errors | Audit the existing check: separate `unauthorized` and `toomanyrequests` | R1 | Two distinct messages |
+| 10.17 | Wiring, RBAC, docs | Called from the right loop; new reads granted (for example PodDisruptionBudgets); feature table, guide, configuration reference | RBAC, config and every-detector-has-a-test checks pass; `make e2e` passes |
+
+Rows 10.1, 10.9 and 10.10 reach their final rung when the approval queue
+lands in phase 14; until then they stop one rung lower and say so in the
+alert.
+
 ## Owner decisions (2026-10-07)
 
 | Question | Decision | What it means for the work |
