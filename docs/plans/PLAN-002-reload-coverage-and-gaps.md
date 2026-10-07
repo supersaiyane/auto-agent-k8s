@@ -284,6 +284,7 @@ Work: E.2 is phase 10 (new detectors, test first); E.1 runs inside phase 12 (exi
 | 11 | **Architect review fixes** (added 2026-10-07): one cluster-wide dashboard and a complete UI, deployment manifests generated from the chart, safe scripts, entry point and shutdown, docs with one owner per topic (ISS-047 to ISS-058) | The dashboard and the install path are what every user touches first; ISS-047 and ISS-048 mislead or lose data today | 14 to 23 days |
 | 12 | D5 tests for every existing detector with the E.1 audit (ISS-039); ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest existing code | 6 to 10 days |
 | 13 | Part A, config reload (A1 to A3), with tests at 100 percent | The headline feature | 6 to 9 days |
+| after 13 | **PLAN-003** (`docs/plans/PLAN-003-terminal.md`): read-only terminal with more commands, agent commands and a "can run / cannot run" panel | Owner decision 2026-10-08: after config reload, before the network work | 2 to 2.5 days |
 | 14 | Part B network (ISS-033, ISS-036) | Builds on phase 12 tests | 4 to 6 days |
 | 15 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
 | 16 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |

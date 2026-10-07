@@ -24,7 +24,7 @@ Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet
 | deployment/ | Raw manifests generated from the chart by `make manifests` (01 CRD, 02 RBAC per role, 03 ConfigMap, 04 node DaemonSet, controller Deployment, Service, NetworkPolicies; allowlist test1,test2,chaos); `make verify` fails on drift. `ensure-secret.sh` creates the Secret once; `deploy.sh` and `teardown.sh` (flags, `--help`) share `lib.sh`; `test-apps/` demo apps in labelled namespaces |
 | dashboards/ | Grafana dashboards |
 | docs/CONFIGURATION.md | Every setting: env var, Helm value, allowed values, default, effect, reading file; checked by internal/policy/configref_test.go |
-| docs/plans/ | PLAN-001 (safety hardening, done, PR #1); PLAN-002 (config reload, weak features, fix ladder, coverage; owner decisions recorded 2026-10-07, phase 8 next) |
+| docs/plans/ | PLAN-001 (safety hardening, done, PR #1); PLAN-002 (config reload, weak features, fix ladder, coverage; owner decisions recorded 2026-10-07, phase 8 next); PLAN-003 (read-only terminal, after PLAN-002 phase 13) |
 | docs/adr/ | ADR-001 (node and controller roles), ADR-002 (watch scope and fix scope, Settings tab; accepted 2026-10-08, not built yet: PLAN-002 11.8) |
 | docs/GUIDE.md | Complete guide by reader level: concepts, local try-out, deploy, configuration, dashboard, API, operations, troubleshooting, architecture, security, developing |
 | README.md | Entry point: how it works, guarantees with their tests, install, develop, full feature table (kept in step with docs/wiki/23-feature-status.md) |
