@@ -163,6 +163,23 @@ images:
     prefix: "registry.internal/"
     allowList: []
 
+# Controller (ADR-001): leader-elected cluster loops, event log, dashboard
+# and API. Node agents run as the DaemonSet and use tolerations/resources.
+controller:
+  replicas: 2
+  tolerations: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Token node agents use to reach the controller. Empty: generated once and
+# kept across upgrades.
+internalToken: ""
+
 env: []
 tolerations:
   - operator: "Exists"

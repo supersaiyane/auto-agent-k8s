@@ -245,8 +245,12 @@ These do not become variables; they change what the chart renders.
 | `namespace` | `kube-system` | Namespace the agent, ConfigMap and Secret live in |
 | `priorityClassName` | `system-node-critical` | Keeps the agent scheduled under node pressure |
 | `initImage` | `busybox:1.36` pinned by digest | Init container that chowns the log directory |
-| `tolerations` | tolerate everything | Run on every node, control plane included |
-| `resources` | requests 50m / 128Mi, limits 300m / 384Mi | Agent container resources |
+| `tolerations` | tolerate everything | Node agents run on every node, control plane included |
+| `controller.replicas` | `2` | Controller Deployment replicas (ADR-001); one leads, the other proxies to it |
+| `controller.tolerations` | `[]` | Tolerations for the controllers only; node agents use `tolerations` |
+| `controller.resources` | requests 50m / 128Mi, limits 500m / 512Mi | Controller container resources |
+| `internalToken` | empty: generated once, kept across upgrades | Sets `INTERNAL_TOKEN` in the Secret |
+| `resources` | requests 50m / 128Mi, limits 300m / 384Mi | Node agent container resources |
 | `env` | `[]` | Extra environment variables; win over the ConfigMap |
 | `logs.efs.path` | `/var/log/auto-agent` | Host directory mounted at `/var/log/auto-agent` |
 | `networkPolicy.enabled` | `true` | Render the NetworkPolicy |

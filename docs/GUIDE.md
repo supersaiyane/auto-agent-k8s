@@ -495,32 +495,37 @@ kubectl -n kube-system get configmap auto-agent-config -o yaml
 
 ### 10.1 Components
 
-```
-                      +-------------------- each node -------------------+
- pods on this node -->| pod informer --> handlers (crashloop, OOM, ...)   |
- this node ---------->| node informer --> node pressure (own node only)   |
-                      |                                                   |
-                      |   leader only: loops every 30s / 2m / 5m          |
-                      |   (scaling, jobs, rollouts, storage, network ...) |
-                      |                        |                          |
-                      |                        v                          |
-                      |   applyMutation: mode -> guardrails -> rate limit |
-                      |                        |                          |
-                      +------------------------|--------------------------+
-                                               v
-                                       Kubernetes API (patch / delete / evict)
+Two roles of one binary (ADR-001, `docs/adr/ADR-001-node-and-controller-roles.md`):
 
+```
+   +--------------- node agent (DaemonSet, every node) ----------------+
+   | pods on this node --> handlers (crashloop, OOM, image pull, ...)   |
+   | this node ----------> node pressure (own node only)                |
+   | events --> forwarder --(INTERNAL_TOKEN)--+                         |
+   | :8080 serves /healthz, /readyz, /metrics only                      |
+   +------------------------------------------|------------------------+
+                                              v
+   +--------------- controller (Deployment, 2 replicas) ---------------+
+   | leader: cluster loops (jobs, rollouts, HPAs, PDBs, pod states,     |
+   |         Prometheus checks, finalizers, ...) and the one event log  |
+   | standby: proxies /api/ and /internal/ to the leader                |
+   | :8080 dashboard + API (DASHBOARD_TOKEN), ingest, Slack callback    |
+   +-------------------------------------------------------------------+
+
+   every action, either role: applyMutation: mode -> guardrails -> rate limit
+                              --> Kubernetes API (patch / delete / evict)
    alerts, tickets, PRs, LLM prompts --> internal/redact --> Slack, Jira, GitHub, LLM, Alertmanager
-   dashboard + API (:8080, token)   --> allowlisted namespaces only
+   dashboard + API --> allowlisted namespaces only
 ```
 
 | Package | Responsibility |
 | --- | --- |
-| `cmd/auto-agent` | Wiring, leader loops, config from env |
+| `cmd/auto-agent` | Wiring per role (`AGENT_ROLE`), leader loops, leader proxy target |
 | `internal/kube` | Detectors, handlers, the mutation gate, guardrails, dry-run log, audit log |
 | `internal/policy` | Mode, allowlist, thresholds; ConfigMap hot reload with immutable snapshots |
 | `internal/crd` | AutoRemediationPolicy watcher and matching |
-| `internal/leader` | Lease-based leader election |
+| `internal/leader` | Lease-based leader election; reports who leads |
+| `internal/events` | Event log on the controller, forwarder on node agents |
 | `internal/httpapi` | Dashboard, API, kubectl panel, Slack callback, auth |
 | `internal/redact` | Masks secrets and personal data in everything sent out |
 | `internal/obs` | Prometheus metrics, API error counting |

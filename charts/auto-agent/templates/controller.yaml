@@ -1,56 +1,52 @@
+# The controller (ADR-001): leader-elected cluster loops, the one event log,
+# the dashboard, the API, Slack callbacks and the admission webhook. Node
+# agents (daemonset.yaml) forward their events here. The standby replica
+# proxies API and ingest requests to the leader.
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
-  name: auto-agent
+  name: auto-agent-controller
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "auto-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 spec:
+  replicas: {{ .Values.controller.replicas }}
   selector:
     matchLabels:
-      app: auto-agent
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
+      app: auto-agent-controller
   template:
     metadata:
       labels:
-        app: auto-agent
+        app: auto-agent-controller
         {{- include "auto-agent.labels" . | nindent 8 }}
-        app.kubernetes.io/component: node
+        app.kubernetes.io/component: controller
     spec:
       serviceAccountName: auto-agent
-      priorityClassName: {{ .Values.priorityClassName }}
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        fsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
-      tolerations: {{- toYaml .Values.tolerations | nindent 6 }}
+      {{- with .Values.controller.tolerations }}
+      tolerations: {{- toYaml . | nindent 6 }}
+      {{- end }}
+      affinity:
+        # Two replicas on two nodes, so one node failing leaves a controller.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: auto-agent-controller
       volumes:
-      # Host directory is configurable; inside the container the agent always
-      # writes /var/log/auto-agent, the only writable path (read-only root).
-      - name: efs-logs
-        hostPath:
-          path: {{ .Values.logs.efs.path }}
-          type: DirectoryOrCreate
-      initContainers:
-      # The hostPath log directory is created root-owned by the kubelet. This
-      # step only hands it to the agent's uid; it has CAP_CHOWN and nothing else.
-      - name: log-dir-owner
-        image: "{{ .Values.initImage }}"
-        command: ["chown", "65532:65532", "/var/log/auto-agent"]
-        securityContext:
-          runAsNonRoot: false
-          runAsUser: 0
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities: { drop: ["ALL"], add: ["CHOWN"] }
-        volumeMounts:
-        - name: efs-logs
-          mountPath: /var/log/auto-agent
+      # Event log and audit log. Each controller keeps its own (ISS-059).
+      - name: state
+        emptyDir: {}
       containers:
       - name: agent
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -59,11 +55,8 @@ spec:
           - configMapRef: { name: auto-agent-config }
           - secretRef:    { name: auto-agent-secrets }
         env:
-        # Node agent (ADR-001): its own node only; events go to the controller.
         - name: AGENT_ROLE
-          value: node
-        - name: CONTROLLER_URL
-          value: "http://auto-agent.{{ .Values.namespace }}.svc:8080"
+          value: controller
         - name: POD_NAME
           valueFrom: { fieldRef: { fieldPath: metadata.name } }
         - name: POD_NAMESPACE
@@ -74,11 +67,15 @@ spec:
         {{- toYaml .Values.env | nindent 8 }}
         {{- end }}
         volumeMounts:
-        - name: efs-logs
+        - name: state
           mountPath: /var/log/auto-agent
         ports:
         - name: http
           containerPort: 8080
+        {{- if .Values.webhook.enabled }}
+        - name: webhook
+          containerPort: 8443
+        {{- end }}
         livenessProbe:
           httpGet: { path: /healthz, port: 8080 }
           initialDelaySeconds: 10
@@ -90,7 +87,7 @@ spec:
           periodSeconds: 5
           failureThreshold: 3
         resources:
-          {{- toYaml .Values.resources | nindent 10 }}
+          {{- toYaml .Values.controller.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

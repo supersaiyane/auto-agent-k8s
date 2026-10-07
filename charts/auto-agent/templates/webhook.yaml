@@ -38,7 +38,7 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   selector:
-    app: auto-agent
+    app: auto-agent-controller
   ports:
     - port: 8443
       targetPort: 8443
