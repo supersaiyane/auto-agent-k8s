@@ -1,6 +1,25 @@
 # Dashboard & UI Guide
 
-The dashboard is embedded in the agent binary — no separate deployment needed. Access at `http://localhost:8080` via port-forward.
+The dashboard is embedded in the agent binary, no separate deployment needed. Access at `http://localhost:8080` via port-forward.
+
+## Access token
+
+Every `/api/` call needs a bearer token (since 2026-10-07, ISS-005). Set it in
+the chart (`dashboard.token`, stored in the `auto-agent-secrets` Secret as
+`DASHBOARD_TOKEN`); generate one with `openssl rand -hex 32`. With no token
+set, `/api/` returns 503. The UI asks for the token once per browser tab and
+keeps it in that tab's `sessionStorage`.
+
+```bash
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost:8080/api/status
+```
+
+`/healthz`, `/readyz` and `/metrics` need no token. The chart's NetworkPolicy
+(`networkPolicy.allowFromNamespaces`, default `monitoring`) limits which
+namespaces can reach port 8080; `kubectl port-forward` is not affected.
+
+The kubectl panel reads only namespaces in `NAMESPACE_ALLOWLIST`; `-A` and
+other namespaces are refused. Nodes and namespaces stay readable.
 
 ## Layout
 
@@ -22,11 +41,11 @@ Five boxes across the top. **Clicking any box filters the Events tab** to show o
 
 | Tab | What it shows |
 |-----|---------------|
-| **Events** | Filtered event feed — filtered by stat box selection |
+| **Events** | Filtered event feed: filtered by stat box selection |
 | **K8s Events** | Raw Kubernetes events with namespace + Warning/Normal filter |
-| **Actions** | Verified fixes, pending verification, not fixed — with clickable sub-filters |
-| **Charts** | 3 pie charts + 3 bar charts — visual cluster health |
-| **Report** | Incident report: by service, by issue type — clickable rows jump to filtered events |
+| **Actions** | Verified fixes, pending verification, not fixed: with clickable sub-filters |
+| **Charts** | 3 pie charts + 3 bar charts: visual cluster health |
+| **Report** | Incident report: by service, by issue type: clickable rows jump to filtered events |
 | **Cluster** | Namespace overview → click to drill into pods/deploys/services |
 | **Nodes** | Node health cards with CPU, memory, pod count, pressure |
 | **Cost** | Monthly cost: per-node, per-namespace, per-workload |
@@ -36,14 +55,14 @@ Five boxes across the top. **Clicking any box filters the Events tab** to show o
 ## Charts Tab
 
 ### Pie Charts
-- **Events by Type** — incidents (red) / actions (green) / scaling (purple) / info (blue)
-- **Remediation Status** — fixed (green) / pending (yellow) / failed (red)
-- **Pod Sizing** — right-sized / overuse / underuse / no-limits
+- **Events by Type**: incidents (red) / actions (green) / scaling (purple) / info (blue)
+- **Remediation Status**: fixed (green) / pending (yellow) / failed (red)
+- **Pod Sizing**: right-sized / overuse / underuse / no-limits
 
 ### Bar Charts
-- **Top 10 Issues by Reason** — CrashLoopBackOff, ImagePullBackOff, etc. ranked
-- **Events by Namespace** — which namespaces have the most issues
-- **Monthly Cost by Namespace** — dollar spend visualization
+- **Top 10 Issues by Reason**: CrashLoopBackOff, ImagePullBackOff, etc. ranked
+- **Events by Namespace**: which namespaces have the most issues
+- **Monthly Cost by Namespace**: dollar spend visualization
 
 ## Report Tab
 
@@ -83,7 +102,7 @@ $ kubectl version
 $ help
 ```
 
-Read-only only — no create/delete/apply from the terminal.
+Read-only only: no create/delete/apply from the terminal.
 
 ## API Reference
 

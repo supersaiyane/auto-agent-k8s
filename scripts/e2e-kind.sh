@@ -43,6 +43,7 @@ log "installing chart in $MODE mode"
 helm upgrade --install auto-agent charts/auto-agent --kube-context "$CTX" \
 	--set image.repository=auto-agent --set image.tag=e2e --set image.pullPolicy=Never \
 	--set "agent.mode=$MODE" --set "agent.namespaceAllowlist={$NS_TEST}" \
+	--set dashboard.token=e2e-token \
 	--wait --timeout 180s
 
 log "starting a crashlooping pod in $NS_TEST"
@@ -72,4 +73,24 @@ UID_AFTER=$(kubectl --context "$CTX" -n "$NS_TEST" get pod crasher -o jsonpath='
 kubectl --context "$CTX" -n "$NS_TEST" get pod crasher -o wide || true
 [ "$UID_BEFORE" = "$UID_AFTER" ] || fail "crasher was replaced or deleted in $MODE mode (uid $UID_BEFORE -> $UID_AFTER)"
 
-log "PASS: crashloop detected, pod untouched in $MODE mode"
+log "crashloop detected, pod untouched in $MODE mode"
+
+log "checking the dashboard API the way an operator reaches it (port-forward + curl)"
+AGENT_POD=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod -l app=auto-agent -o jsonpath='{.items[0].metadata.name}')
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$AGENT_POD" 18080:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+NO_TOKEN=$(code http://127.0.0.1:18080/api/status)
+WITH_TOKEN=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/status)
+HEALTH=$(code http://127.0.0.1:18080/healthz)
+KUBECTL=$(curl -s -H 'Authorization: Bearer e2e-token' -X POST -d '{"command":"get pods -n kube-system"}' http://127.0.0.1:18080/api/kubectl)
+kill "$PF" 2>/dev/null || true
+log "/api/status no token=$NO_TOKEN, with token=$WITH_TOKEN; /healthz=$HEALTH"
+log "kubectl -n kube-system -> $KUBECTL"
+[ "$NO_TOKEN" = "401" ] || fail "/api/status without token returned $NO_TOKEN, want 401"
+[ "$WITH_TOKEN" = "200" ] || fail "/api/status with token returned $WITH_TOKEN, want 200"
+[ "$HEALTH" = "200" ] || fail "/healthz returned $HEALTH, want 200"
+echo "$KUBECTL" | grep -q "not in the namespace allowlist" || fail "kubectl endpoint read kube-system"
+
+log "PASS: dry-run untouched, API requires token, kubectl scoped to allowlist"

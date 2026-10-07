@@ -156,6 +156,21 @@
   </div>
 
 <script>
+// Dashboard API token (ISS-005): kept in this tab's sessionStorage only and
+// sent as a bearer token on every /api/ request.
+(function(){
+  const KEY='autoAgentToken', orig=window.fetch.bind(window);
+  const token=()=>{let t=null;try{t=sessionStorage.getItem(KEY)}catch(e){}
+    if(!t){t=prompt('Dashboard token (DASHBOARD_TOKEN)')||'';try{sessionStorage.setItem(KEY,t)}catch(e){}}return t};
+  window.fetch=async function(url,opts){
+    const u=typeof url==='string'?url:url.url;
+    if(!u.startsWith('/api/'))return orig(url,opts);
+    opts=Object.assign({},opts);opts.headers=Object.assign({},opts.headers,{Authorization:'Bearer '+token()});
+    const r=await orig(url,opts);
+    if(r.status===401){try{sessionStorage.removeItem(KEY)}catch(e){}}
+    return r;
+  };
+})();
 let currentTab='events',currentFilter='',selectedNs=null,selectedResNs=null,startedAt=null,allEventsCache=[];
 
 // --- Stat box click filtering ---

@@ -32,6 +32,7 @@ llm:
 
 slack:
   webhookUrl: ""                   # put in secret or here for POC
+  signingSecret: ""                # Slack app signing secret; buttons are rejected without it
 
 metricsProvider:
   type: "prometheus"               # "metrics-server" or "prometheus"
@@ -70,6 +71,17 @@ logs:
 
 namespacedRBAC:
   enabled: false                   # per-namespace Role/RoleBinding instead of ClusterRole
+
+dashboard:
+  # Bearer token for /api/ (dashboard and kubectl endpoint). Empty disables
+  # the API (503). Generate one with: openssl rand -hex 32
+  token: ""
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the agent on 8080 (dashboard, /metrics, Slack
+  # callback). Add your Prometheus and ingress controller namespaces here.
+  allowFromNamespaces: ["monitoring"]
 
 webhook:
   enabled: false                   # enable admission webhook

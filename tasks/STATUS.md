@@ -45,6 +45,18 @@ Nothing pushed.
   and retries on conflict; the AST guard rejects any Update outside
   `RetryOnConflict`; the dry-run log always exists. ISS-013, ISS-027.
 
+## Phase 3
+
+- P3.1 done: bearer token (`DASHBOARD_TOKEN`) on every `/api/` route,
+  constant-time compare, 503 when unset; UI sends it from sessionStorage;
+  kubectl endpoint limited to allowlisted namespaces; chart Secret keys and
+  a NetworkPolicy (default allow from `monitoring`). ISS-005.
+- P3.2 done: Slack v0 signature with 5 minute replay window, 503 without a
+  signing secret; unwired buttons now say no action was taken (the agent never
+  sends them; wiring is P7.1). ISS-006.
+- Evidence: kind e2e 2026-10-07, port-forward + curl: no token 401, token
+  200, /healthz 200, kubectl -n kube-system refused.
+
 ## Evidence (measured 2026-10-07)
 
 `go build ./...` ok, `go vet ./...` ok, `go test -race ./...` ok,

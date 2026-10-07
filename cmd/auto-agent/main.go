@@ -84,6 +84,7 @@ func main() {
 		NodeName: os.Getenv("NODE_NAME"),
 		PodName:  os.Getenv("POD_NAME"),
 	}, kc)
+	httpSrv.SetNamespaceFilter(func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) })
 	go httpSrv.Start()
 
 	// --- Admission webhook (optional, requires TLS certs) ---
