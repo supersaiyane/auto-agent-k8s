@@ -45,7 +45,9 @@ data:
   LOG_STORE: "{{ .Values.logs.store }}"
   LOG_S3_BUCKET: "{{ .Values.logs.s3.bucket }}"
   LOG_S3_PREFIX: "{{ .Values.logs.s3.prefix }}"
-  LOG_EFS_PATH: "{{ .Values.logs.efs.path }}"
+  # Container path, not logs.efs.path: only /var/log/auto-agent is mounted
+  # and writable (read-only root); the host side is set in daemonset.yaml (ISS-031).
+  LOG_EFS_PATH: "/var/log/auto-agent"
   IMAGE_MIRROR_ENABLED: "{{ .Values.images.mirror.enabled }}"
   IMAGE_MIRROR_PREFIX: "{{ .Values.images.mirror.prefix }}"
   IMAGE_MIRROR_ALLOWLIST: "{{ join "," .Values.images.mirror.allowList }}"
