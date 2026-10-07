@@ -29,6 +29,7 @@ type FixRecord struct {
 
 // FixTracker monitors actions taken and verifies if the workload actually recovered.
 type FixTracker struct {
+	now     func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu      sync.Mutex
 	pending []FixRecord
 	fixed   []FixRecord
@@ -53,7 +54,7 @@ func (ft *FixTracker) RecordAction(ns, workload, pod, reason, action string) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	ft.pending = append(ft.pending, FixRecord{
-		Timestamp: time.Now().UTC(),
+		Timestamp: ft.clock().UTC(),
 		Namespace: ns,
 		Workload:  workload,
 		Pod:       pod,
@@ -80,9 +81,9 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 
 	for _, rec := range pending {
 		// Skip if too old (>15 min), give up
-		if time.Since(rec.Timestamp) > 15*time.Minute {
+		if deps.FixTracker.clock().Sub(rec.Timestamp) > 15*time.Minute {
 			rec.Status = "not-fixed"
-			rec.VerifiedAt = time.Now().UTC()
+			rec.VerifiedAt = deps.FixTracker.clock().UTC()
 			rec.Detail = "timed out: workload did not recover within 15 minutes"
 			deps.FixTracker.addFailed(rec)
 			klog.V(3).Infof("fixtracker: timed out %s/%s reason=%s", rec.Namespace, rec.Workload, rec.Reason)
@@ -90,7 +91,7 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 		}
 
 		// Don't check too early, wait at least 30s after action
-		if time.Since(rec.Timestamp) < 30*time.Second {
+		if deps.FixTracker.clock().Sub(rec.Timestamp) < 30*time.Second {
 			stillPending = append(stillPending, rec)
 			continue
 		}
@@ -99,7 +100,7 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 		healthy, detail := isWorkloadHealthy(ctx, deps, rec.Namespace, rec.Workload)
 		if healthy {
 			rec.Status = "fixed"
-			rec.VerifiedAt = time.Now().UTC()
+			rec.VerifiedAt = deps.FixTracker.clock().UTC()
 			rec.Detail = detail
 			deps.FixTracker.addFixed(rec)
 
@@ -110,11 +111,11 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 				Reason: rec.Reason,
 				Action: "verified-fix",
 				Message: fmt.Sprintf("Fixed: %s → %s (verified healthy after %s)",
-					rec.Reason, rec.Action, time.Since(rec.Timestamp).Round(time.Second)),
+					rec.Reason, rec.Action, deps.FixTracker.clock().Sub(rec.Timestamp).Round(time.Second)),
 			})
 			obs.ActionsTotal.WithLabelValues("verified_fix", rec.Namespace, rec.Workload).Inc()
 			klog.Infof("fixtracker: VERIFIED FIX %s/%s reason=%s action=%s recovery=%s",
-				rec.Namespace, rec.Workload, rec.Reason, rec.Action, time.Since(rec.Timestamp).Round(time.Second))
+				rec.Namespace, rec.Workload, rec.Reason, rec.Action, deps.FixTracker.clock().Sub(rec.Timestamp).Round(time.Second))
 		} else {
 			// Still not healthy, keep checking
 			stillPending = append(stillPending, rec)
@@ -255,4 +256,12 @@ func (ft *FixTracker) Stats() (pending, fixed, failed int) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	return len(ft.pending), len(ft.fixed), len(ft.failed)
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (ft *FixTracker) clock() time.Time {
+	if ft.now != nil {
+		return ft.now()
+	}
+	return time.Now()
 }

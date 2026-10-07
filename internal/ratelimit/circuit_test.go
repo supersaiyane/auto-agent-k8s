@@ -57,8 +57,8 @@ func TestCircuitBreaker_WindowExpiry(t *testing.T) {
 func TestCircuitBreaker_TrippedWorkloads(t *testing.T) {
 	cb := NewCircuitBreaker(1, 1*time.Hour)
 
-	cb.RecordAndCheck("default", "api")   // trips
-	cb.RecordAndCheck("prod", "worker")   // trips
+	cb.RecordAndCheck("default", "api") // trips
+	cb.RecordAndCheck("prod", "worker") // trips
 
 	tripped := cb.TrippedWorkloads()
 	if len(tripped) != 2 {
