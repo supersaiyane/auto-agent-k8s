@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
@@ -96,6 +97,7 @@ func NewPagerDuty(routingKey string, hc *http.Client) *PagerDutyClient {
 }
 
 func (p *PagerDutyClient) Trigger(ctx context.Context, inc Incident) error {
+	inc = inc.redacted()
 	payload := map[string]interface{}{
 		"routing_key":  p.routingKey,
 		"event_action": "trigger",
@@ -138,6 +140,7 @@ func NewOpsGenie(apiKey string, hc *http.Client) *OpsGenieClient {
 }
 
 func (o *OpsGenieClient) Create(ctx context.Context, inc Incident) error {
+	inc = inc.redacted()
 	payload := map[string]interface{}{
 		"message":     fmt.Sprintf("[auto-agent] %s", inc.Title),
 		"description": truncate(inc.Body, 1000),
@@ -192,6 +195,7 @@ func NewEmail(host, port, user, pass, from, to string) *EmailClient {
 }
 
 func (e *EmailClient) Send(inc Incident) error {
+	inc = inc.redacted()
 	subject := fmt.Sprintf("[auto-agent][%s] %s", strings.ToUpper(string(inc.Severity)), inc.Title)
 	body := fmt.Sprintf("Subject: %s\r\nFrom: %s\r\nTo: %s\r\nContent-Type: text/plain\r\n\r\n%s\n\nNamespace: %s\nWorkload: %s",
 		subject, e.from, e.to, inc.Body, inc.Namespace, inc.Workload)
@@ -205,6 +209,14 @@ func (e *EmailClient) Send(inc Incident) error {
 }
 
 // --- Helpers ---
+
+// redacted returns a copy whose free text has passed through redaction, so
+// no channel can send a secret off the cluster (ISS-042, constraint 8).
+func (inc Incident) redacted() Incident {
+	inc.Title = redact.String(inc.Title)
+	inc.Body = redact.String(inc.Body)
+	return inc
+}
 
 func postJSON(ctx context.Context, client *http.Client, url string, payload interface{}) error {
 	b, _ := json.Marshal(payload)
