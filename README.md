@@ -8,6 +8,31 @@ drains a node under pressure.
 It ships in **dry-run**: it detects and records what it would do, and changes
 nothing until you set `agent.mode: fix`.
 
+## Start here
+
+Everything is in **[docs/GUIDE.md](docs/GUIDE.md)**, the complete guide. Jump
+to what you need:
+
+| I want to... | Go to |
+| --- | --- |
+| Understand what this is (new to Kubernetes is fine) | [What it is](docs/GUIDE.md#1-what-it-is-in-plain-words), [Concepts](docs/GUIDE.md#2-concepts-you-need) |
+| Try it on my laptop in 10 minutes | [Try it locally](docs/GUIDE.md#3-try-it-locally-in-10-minutes) |
+| Deploy it to a real cluster | [Deploy](docs/GUIDE.md#4-deploy-to-a-real-cluster), [Configuration](docs/GUIDE.md#5-configuration) |
+| Use the dashboard and the kubectl panel | [Dashboard](docs/GUIDE.md#6-the-dashboard) |
+| Call the API or scrape metrics | [HTTP API and metrics](docs/GUIDE.md#7-the-http-api) |
+| Run it day to day (modes, pausing, per-workload policies) | [Day-2 operations](docs/GUIDE.md#8-day-2-operations) |
+| Fix a problem with it | [Troubleshooting](docs/GUIDE.md#9-troubleshooting) |
+| Review the design | [Architecture](docs/GUIDE.md#10-architecture), [Security model](docs/GUIDE.md#11-security-model) |
+| Change the code | [Developing](docs/GUIDE.md#12-developing), [CLAUDE.md](CLAUDE.md) |
+
+### Quick start (kind)
+
+```bash
+kind create cluster
+./deployment/deploy.sh                    # build, deploy, print the dashboard address
+./deployment/test-apps/deploy-apps.sh     # sample broken apps to watch it work
+```
+
 ## How it works
 
 ```
@@ -48,7 +73,8 @@ helm upgrade --install auto-agent charts/auto-agent -n kube-system \
   `agent.mode=fix` when the simulated actions look right.
 - Without `dashboard.token` the `/api/` endpoints return 503.
 
-Local quick start against a kind cluster: `./deployment/deploy.sh`.
+Full walkthrough, production values file and upgrade steps:
+[docs/GUIDE.md, section 4](docs/GUIDE.md#4-deploy-to-a-real-cluster).
 
 ## Develop
 

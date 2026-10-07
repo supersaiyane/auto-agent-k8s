@@ -1,5 +1,7 @@
 # Auto-Agent Wiki
 
+**New here?** Start with the complete guide: [docs/GUIDE.md](../GUIDE.md) (concepts, local try-out, deploy, dashboard, API, operations, troubleshooting, architecture, development).
+
 Complete documentation for the Kubernetes auto-remediation agent.
 
 ## Getting Started

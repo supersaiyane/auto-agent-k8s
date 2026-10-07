@@ -11,6 +11,7 @@
 | 2026-10-07 | PLAN-001 phases 4, 5, 6 | Done; 4 and 5 committed (2f25d06, 4c2b5b3), 6 committed next | Dependencies upgraded, toolchain go1.26.6, govulncheck clean, vuln in make verify; CI rewritten (verify, e2e, image with Trivy, SBOM, cosign, semver). e2e passed on k8s.io 0.37.1. | go.mod, Makefile (verify), .github/workflows/ci.yaml |
 | 2026-10-07 | PLAN-001 phase 7 | Done, e2e passed, committed | Dry-run blast radius (ISS-022), dashboard allowlist (ISS-028), configurable limits and lease ns (ISS-015 part), error discards 48 to 26 with guard (ISS-014), repo dash free (ISS-024), version ldflags, module path renamed, README rewritten, feature status corrected (ISS-012 docs). | internal/httpapi/http.go (nsAllowed), internal/obs/apierrors.go, internal/kube/auditlog.go (WouldAllow), cmd/auto-agent/main.go (intEnv, envOr), README.md |
 | 2026-10-07 | README feature table | Done, committed 817cab4 | README "Features" section: detection, remediation, safety, security, integrations, dashboard, tooling, built from code; not-wired integrations marked. | README.md (## Features), docs/wiki/23-feature-status.md |
+| 2026-10-07 | Complete guide for every reader | Done, committed | docs/GUIDE.md (concepts, local try-out, deploy, configuration, dashboard, API and metrics, day-2, troubleshooting, architecture, security, developing), README "Start here" table, wiki index link. Every claim checked against code; found and fixed ISS-031. | docs/GUIDE.md, README.md (## Start here), charts/auto-agent/templates/configmap.yaml (LOG_EFS_PATH) |
 
 ## Next action
 
