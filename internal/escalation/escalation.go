@@ -8,11 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/smtp"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // Severity levels for escalation routing.
@@ -41,20 +44,20 @@ type Chain struct {
 	email     *EmailClient
 }
 
-func NewChain() *Chain {
+// NewChain builds the escalation targets that are configured.
+func NewChain(cfg config.Escalation, hc *http.Client) *Chain {
 	c := &Chain{}
-	if key := os.Getenv("PAGERDUTY_ROUTING_KEY"); key != "" {
-		c.pagerduty = NewPagerDuty(key)
+	if key := cfg.PagerDutyRoutingKey; key != "" {
+		c.pagerduty = NewPagerDuty(key, hc)
 		klog.Infof("escalation: PagerDuty configured")
 	}
-	if key := os.Getenv("OPSGENIE_API_KEY"); key != "" {
-		c.opsgenie = NewOpsGenie(key)
+	if key := cfg.OpsGenieAPIKey; key != "" {
+		c.opsgenie = NewOpsGenie(key, hc)
 		klog.Infof("escalation: OpsGenie configured")
 	}
-	if host := os.Getenv("SMTP_HOST"); host != "" {
-		c.email = NewEmail(host, os.Getenv("SMTP_PORT"), os.Getenv("SMTP_USER"),
-			os.Getenv("SMTP_PASS"), os.Getenv("SMTP_FROM"), os.Getenv("ESCALATION_EMAIL_TO"))
-		klog.Infof("escalation: email configured (to: %s)", os.Getenv("ESCALATION_EMAIL_TO"))
+	if host := cfg.SMTPHost; host != "" {
+		c.email = NewEmail(host, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.EmailTo)
+		klog.Infof("escalation: email configured")
 	}
 	return c
 }
@@ -89,11 +92,12 @@ type PagerDutyClient struct {
 	client     *http.Client
 }
 
-func NewPagerDuty(routingKey string) *PagerDutyClient {
-	return &PagerDutyClient{routingKey: routingKey, client: &http.Client{Timeout: 10 * time.Second}}
+func NewPagerDuty(routingKey string, hc *http.Client) *PagerDutyClient {
+	return &PagerDutyClient{routingKey: routingKey, client: httpx.Client(hc, 10*time.Second)}
 }
 
 func (p *PagerDutyClient) Trigger(ctx context.Context, inc Incident) error {
+	inc = inc.redacted()
 	payload := map[string]interface{}{
 		"routing_key":  p.routingKey,
 		"event_action": "trigger",
@@ -131,11 +135,12 @@ type OpsGenieClient struct {
 	client *http.Client
 }
 
-func NewOpsGenie(apiKey string) *OpsGenieClient {
-	return &OpsGenieClient{apiKey: apiKey, client: &http.Client{Timeout: 10 * time.Second}}
+func NewOpsGenie(apiKey string, hc *http.Client) *OpsGenieClient {
+	return &OpsGenieClient{apiKey: apiKey, client: httpx.Client(hc, 10*time.Second)}
 }
 
 func (o *OpsGenieClient) Create(ctx context.Context, inc Incident) error {
+	inc = inc.redacted()
 	payload := map[string]interface{}{
 		"message":     fmt.Sprintf("[auto-agent] %s", inc.Title),
 		"description": truncate(inc.Body, 1000),
@@ -190,6 +195,7 @@ func NewEmail(host, port, user, pass, from, to string) *EmailClient {
 }
 
 func (e *EmailClient) Send(inc Incident) error {
+	inc = inc.redacted()
 	subject := fmt.Sprintf("[auto-agent][%s] %s", strings.ToUpper(string(inc.Severity)), inc.Title)
 	body := fmt.Sprintf("Subject: %s\r\nFrom: %s\r\nTo: %s\r\nContent-Type: text/plain\r\n\r\n%s\n\nNamespace: %s\nWorkload: %s",
 		subject, e.from, e.to, inc.Body, inc.Namespace, inc.Workload)
@@ -203,6 +209,14 @@ func (e *EmailClient) Send(inc Incident) error {
 }
 
 // --- Helpers ---
+
+// redacted returns a copy whose free text has passed through redaction, so
+// no channel can send a secret off the cluster (ISS-042, constraint 8).
+func (inc Incident) redacted() Incident {
+	inc.Title = redact.String(inc.Title)
+	inc.Body = redact.String(inc.Body)
+	return inc
+}
 
 func postJSON(ctx context.Context, client *http.Client, url string, payload interface{}) error {
 	b, _ := json.Marshal(payload)

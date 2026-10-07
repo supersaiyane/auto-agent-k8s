@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/metrics"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
@@ -24,6 +25,8 @@ type mockMetrics struct {
 	cpu    float64
 	cpuErr error
 	gate   float64
+	// vector answers QueryVector; nil means no Prometheus.
+	vector func(q string) ([]metrics.Sample, error)
 }
 
 func (m *mockMetrics) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, _ string) (float64, error) {
@@ -31,6 +34,12 @@ func (m *mockMetrics) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, 
 }
 func (m *mockMetrics) QueryInstant(_ context.Context, _ string) (float64, error) {
 	return m.gate, nil
+}
+func (m *mockMetrics) QueryVector(_ context.Context, q string) ([]metrics.Sample, error) {
+	if m.vector == nil {
+		return nil, metrics.ErrNoPromQL
+	}
+	return m.vector(q)
 }
 
 // mockSlack collects posted messages.
@@ -221,8 +230,8 @@ func TestEvaluateAndScale_ScaleDown(t *testing.T) {
 	deps, kc := newTestDeps(t)
 	deps.Metrics = &mockMetrics{cpu: 0.1}
 
-	// Set env so gates are configured but inactive
-	t.Setenv("PROM_QUEUE_DEPTH", "some_metric")
+	// Gates configured but inactive
+	deps.ScalingGates.QueueDepth = "some_metric"
 
 	rep := int32(5)
 	deploy := &appsv1.Deployment{
@@ -279,7 +288,7 @@ func TestEvaluateAndScale_LowCPU_NoScaleDown_WhenGatesActive(t *testing.T) {
 	// Low CPU but gate returns positive value (load still present)
 	deps.Metrics = &mockMetrics{cpu: 0.1, gate: 5.0}
 
-	t.Setenv("PROM_QUEUE_DEPTH", "queue_depth_total")
+	deps.ScalingGates.QueueDepth = "queue_depth_total"
 
 	rep := int32(5)
 	deploy := &appsv1.Deployment{

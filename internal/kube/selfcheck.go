@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"k8s.io/klog/v2"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // SelfCheck verifies the agent's own dependencies are reachable.
@@ -19,18 +20,18 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	var issues []string
 
 	// Check Prometheus connectivity
-	promURL := os.Getenv("PROMETHEUS_URL")
+	promURL := deps.Endpoints.PrometheusURL
 	if promURL != "" {
-		if err := httpCheck(ctx, promURL+"/-/healthy"); err != nil {
+		if err := httpCheck(ctx, deps.HTTPClient, promURL+"/-/healthy"); err != nil {
 			issues = append(issues, fmt.Sprintf("Prometheus unreachable (%s): %v", promURL, err))
 		}
 	}
 
 	// Check Slack connectivity
-	slackURL := os.Getenv("SLACK_WEBHOOK_URL")
+	slackURL := deps.Endpoints.SlackWebhookURL
 	if slackURL != "" {
 		// Don't POST to slack, just check DNS/TCP
-		if err := httpCheck(ctx, slackURL); err != nil {
+		if err := httpCheck(ctx, deps.HTTPClient, slackURL); err != nil {
 			// Slack webhooks return 400 for GET but connection succeeding is enough
 			if err.Error() != "status 400" && err.Error() != "status 404" && err.Error() != "status 405" {
 				issues = append(issues, fmt.Sprintf("Slack webhook unreachable: %v", err))
@@ -39,9 +40,9 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	}
 
 	// Check Alertmanager connectivity
-	amURL := os.Getenv("ALERTMANAGER_URL")
+	amURL := deps.Endpoints.AlertmanagerURL
 	if amURL != "" {
-		if err := httpCheck(ctx, amURL+"/-/healthy"); err != nil {
+		if err := httpCheck(ctx, deps.HTTPClient, amURL+"/-/healthy"); err != nil {
 			issues = append(issues, fmt.Sprintf("Alertmanager unreachable (%s): %v", amURL, err))
 		}
 	}
@@ -62,8 +63,8 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	}
 }
 
-func httpCheck(ctx context.Context, url string) error {
-	client := &http.Client{Timeout: 5 * time.Second}
+func httpCheck(ctx context.Context, hc *http.Client, url string) error {
+	client := httpx.Client(hc, 5*time.Second)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err

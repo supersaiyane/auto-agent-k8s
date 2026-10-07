@@ -3,8 +3,10 @@
 Every setting the agent reads, with its Helm value, allowed values, default
 and effect. Built from the code on 2026-10-07.
 
-`TestConfigReference_MatchesCodeAndChart` (in `internal/policy`) keeps this
-file honest: it fails if the code reads a variable that is not listed here,
+All variables are read in one place, `config.Load` in `internal/config`
+(no other code calls `os.Getenv`; `TestNoEnvReadsOutsideConfig` enforces it).
+`TestConfigReference_MatchesCodeAndChart` (in `internal/config`) keeps this
+file honest: it fails if `config.Load` reads a variable that is not listed here,
 if a variable listed here is no longer read, or if the chart sets a variable
 that is neither read nor listed under
 [Set by the chart but not read](#set-by-the-chart-but-not-read).
@@ -53,9 +55,9 @@ env:
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
 | `MAX_ACTIONS_PER_10M` | `agent.maxActionsPer10m` | positive integer | `10` | Global rate limit: actions per 10 minutes, all workloads. Needs a restart | `internal/policy/policy.go` |
-| `BLAST_RADIUS_MAX_NAMESPACES` | `guardrails.blastRadiusMaxNamespaces` | positive integer | `5` | Distinct namespaces acted on per hour before further actions are blocked | `cmd/auto-agent/main.go` |
-| `CIRCUIT_BREAKER_THRESHOLD` | `guardrails.circuitBreakerThreshold` | positive integer | `5` | Actions per workload per hour before the breaker trips and alerts | `cmd/auto-agent/main.go` |
-| `QUIET_HOURS` | `guardrails.quietHours` | comma-separated `HH:MM-HH:MM` in UTC; windows may cross midnight | empty (none) | No actions inside these windows; detection and alerts continue | `cmd/auto-agent/main.go` |
+| `BLAST_RADIUS_MAX_NAMESPACES` | `guardrails.blastRadiusMaxNamespaces` | positive integer | `5` | Distinct namespaces acted on per hour before further actions are blocked | `cmd/auto-agent/run.go` |
+| `CIRCUIT_BREAKER_THRESHOLD` | `guardrails.circuitBreakerThreshold` | positive integer | `5` | Actions per workload per hour before the breaker trips and alerts | `cmd/auto-agent/run.go` |
+| `QUIET_HOURS` | `guardrails.quietHours` | comma-separated `HH:MM-HH:MM` in UTC; windows may cross midnight | empty (none) | No actions inside these windows; detection and alerts continue | `cmd/auto-agent/run.go` |
 
 ## Scaling
 
@@ -84,41 +86,41 @@ env:
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `SCALE_INTERVAL` | `loops.scaleInterval` | Go duration, e.g. `30s` | `30s` | Leader loop: scaling, anomalies, fix verification | `cmd/auto-agent/main.go` |
-| `JOB_INTERVAL` | `loops.jobInterval` | Go duration | `2m` | Leader loop: jobs, rollouts, workloads, node checks | `cmd/auto-agent/main.go` |
-| `QUOTA_INTERVAL` | `loops.quotaInterval` | Go duration | `5m` | Leader loop: quotas, baselines, storage, network, security, webhooks, RBAC | `cmd/auto-agent/main.go` |
-| `HEALTH_INTERVAL` | `loops.healthInterval` | Go duration | `3m` | Self check on every pod | `cmd/auto-agent/main.go` |
+| `SCALE_INTERVAL` | `loops.scaleInterval` | Go duration, e.g. `30s` | `30s` | Leader loop: scaling, anomalies, fix verification | `cmd/auto-agent/run.go` |
+| `JOB_INTERVAL` | `loops.jobInterval` | Go duration | `2m` | Leader loop: jobs, rollouts, workloads, node checks | `cmd/auto-agent/run.go` |
+| `QUOTA_INTERVAL` | `loops.quotaInterval` | Go duration | `5m` | Leader loop: quotas, baselines, storage, network, security, webhooks, RBAC | `cmd/auto-agent/run.go` |
+| `HEALTH_INTERVAL` | `loops.healthInterval` | Go duration | `3m` | Self check on every pod | `cmd/auto-agent/run.go` |
 
 ## Notifications and diagnosis
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` (Secret) | Slack incoming webhook URL | empty (Slack off) | Incident messages, redacted | `cmd/auto-agent/main.go`, `internal/kube/selfcheck.go` |
+| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` (Secret) | Slack incoming webhook URL | empty (Slack off) | Incident messages, redacted | `cmd/auto-agent/run.go`, `internal/kube/selfcheck.go` |
 | `SLACK_TIMEOUT_SEC` | `agent.slackTimeoutSec` | positive integer | `5` | Timeout for Slack calls | `internal/policy/policy.go` |
 | `SLACK_SIGNING_SECRET` | `slack.signingSecret` (Secret) | Slack app signing secret | empty | Verifies Slack button callbacks; without it they get 503 | `internal/httpapi/http.go` |
-| `ALERTMANAGER_URL` | `alertmanager.url` | URL | empty (off) | Sends `AutoAgentIncident` and `AutoAgentCircuitBreaker` alerts, annotations redacted | `cmd/auto-agent/main.go`, `internal/kube/selfcheck.go` |
+| `ALERTMANAGER_URL` | `alertmanager.url` | URL | empty (off) | Sends `AutoAgentIncident` and `AutoAgentCircuitBreaker` alerts, annotations redacted | `cmd/auto-agent/run.go`, `internal/kube/selfcheck.go` |
 | `LLM_ENABLED` | `llm.enabled` | `true`, `false` | `false` | Adds an LLM diagnosis to incidents; prompts are redacted | `internal/policy/policy.go` |
-| `LLM_API_URL` | `llm.apiUrl` | OpenAI-compatible chat completions URL | chart: `https://llm-gateway.internal/v1/chat/completions` | LLM endpoint | `cmd/auto-agent/main.go` |
-| `LLM_API_KEY` | none (Secret key, set it in the Secret) | API key | empty (LLM off) | LLM credential; the LLM is used only when enabled, URL and key are all set | `cmd/auto-agent/main.go` |
-| `LLM_MODEL` | `llm.model` | model name | chart: `gpt-4o-mini` | Model to ask | `cmd/auto-agent/main.go` |
+| `LLM_API_URL` | `llm.apiUrl` | OpenAI-compatible chat completions URL | chart: `https://llm-gateway.internal/v1/chat/completions` | LLM endpoint | `cmd/auto-agent/run.go` |
+| `LLM_API_KEY` | none (Secret key, set it in the Secret) | API key | empty (LLM off) | LLM credential; the LLM is used only when enabled, URL and key are all set | `cmd/auto-agent/run.go` |
+| `LLM_MODEL` | `llm.model` | model name | chart: `gpt-4o-mini` | Model to ask | `cmd/auto-agent/run.go` |
 | `LLM_TIMEOUT_SEC` | `agent.llmTimeoutSec` | positive integer | `10` | Timeout for LLM calls | `internal/policy/policy.go` |
 
 ## Tickets and GitOps
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `TICKETS_ENABLED` | `tickets.enabled` | `true`, anything else is off | `false` | Create or update one ticket per incident key | `cmd/auto-agent/main.go` |
-| `TICKETS_PROVIDER` | `tickets.provider` | `github`, `jira` | chart: `github` | Ticket backend; any other value means no tickets | `cmd/auto-agent/main.go` |
-| `GITHUB_REPO` | `tickets.github.repo` | `owner/repo` | empty | Repository for GitHub issues | `cmd/auto-agent/main.go` |
-| `GITHUB_TOKEN` | none (Secret key) | GitHub token | empty | Credential for GitHub issues | `cmd/auto-agent/main.go` |
-| `JIRA_BASE_URL` | `tickets.jira.baseUrl` | URL | empty | Jira site | `cmd/auto-agent/main.go` |
-| `JIRA_PROJECT_KEY` | `tickets.jira.projectKey` | project key, e.g. `OPS` | empty | Jira project | `cmd/auto-agent/main.go` |
-| `JIRA_TOKEN` | none (Secret key) | Jira API token | empty | Jira credential | `cmd/auto-agent/main.go` |
-| `JIRA_EMAIL` | none (Secret key) | email | empty | Jira user for the token | `cmd/auto-agent/main.go` |
-| `GIT_TOKEN` | none (Secret key) | GitHub or GitLab token | empty (PRs off) | Credential for OOM memory-bump pull requests | `cmd/auto-agent/main.go` |
-| `GITOPS_REPO` | `gitops.repo` | `owner/repo` or GitLab project | chart: placeholder | Repository for those pull requests; PRs need both token and repo | `cmd/auto-agent/main.go` |
-| `GITOPS_BRANCH` | `gitops.branch` | branch name | chart: `main` | Base branch for the pull requests | `cmd/auto-agent/main.go` |
-| `GITOPS_PROVIDER` | `gitops.provider` | `github`, `gitlab` | `github` (anything but `gitlab`) | Pull request host | `cmd/auto-agent/main.go` |
+| `TICKETS_ENABLED` | `tickets.enabled` | `true`, anything else is off | `false` | Create or update one ticket per incident key | `cmd/auto-agent/run.go` |
+| `TICKETS_PROVIDER` | `tickets.provider` | `github`, `jira` | chart: `github` | Ticket backend; any other value means no tickets | `cmd/auto-agent/run.go` |
+| `GITHUB_REPO` | `tickets.github.repo` | `owner/repo` | empty | Repository for GitHub issues | `cmd/auto-agent/run.go` |
+| `GITHUB_TOKEN` | none (Secret key) | GitHub token | empty | Credential for GitHub issues | `cmd/auto-agent/run.go` |
+| `JIRA_BASE_URL` | `tickets.jira.baseUrl` | URL | empty | Jira site | `cmd/auto-agent/run.go` |
+| `JIRA_PROJECT_KEY` | `tickets.jira.projectKey` | project key, e.g. `OPS` | empty | Jira project | `cmd/auto-agent/run.go` |
+| `JIRA_TOKEN` | none (Secret key) | Jira API token | empty | Jira credential | `cmd/auto-agent/run.go` |
+| `JIRA_EMAIL` | none (Secret key) | email | empty | Jira user for the token | `cmd/auto-agent/run.go` |
+| `GIT_TOKEN` | none (Secret key) | GitHub or GitLab token | empty (PRs off) | Credential for OOM memory-bump pull requests | `cmd/auto-agent/run.go` |
+| `GITOPS_REPO` | `gitops.repo` | `owner/repo` or GitLab project | chart: placeholder | Repository for those pull requests; PRs need both token and repo | `cmd/auto-agent/run.go` |
+| `GITOPS_BRANCH` | `gitops.branch` | branch name | chart: `main` | Base branch for the pull requests | `cmd/auto-agent/run.go` |
+| `GITOPS_PROVIDER` | `gitops.provider` | `github`, `gitlab` | `github` (anything but `gitlab`) | Pull request host | `cmd/auto-agent/run.go` |
 
 ## Logs, audit and retention
 
@@ -129,9 +131,9 @@ env:
 | `LOG_S3_BUCKET` | `logs.s3.bucket` | bucket name | empty | S3 bucket for log bundles | `internal/storage/storage.go` |
 | `LOG_S3_PREFIX` | `logs.s3.prefix` | key prefix | empty | Key prefix in the bucket | `internal/storage/storage.go` |
 | `LOG_RETENTION_DAYS` | `logs.retentionDays` | positive integer | `7` | Hourly cleanup deletes filesystem log bundles older than this | `internal/kube/retention.go` |
-| `AUDIT_LOG_PATH` | env only | path under `/var/log/auto-agent` | `/var/log/auto-agent/audit.jsonl` | Audit log of every action, block and failure (JSON lines) | `cmd/auto-agent/main.go` |
-| `LOG_FORMAT` | `logging.format` | `json`, anything else is off | `text` | `json` adds structured JSON incident logs alongside the normal log | `internal/logging/json.go` |
-| `LOG_LEVEL` | `agent.logLevel` | any | `info` | **No effect**: read into the policy but never used (ISS-032) | `internal/policy/policy.go` |
+| `AUDIT_LOG_PATH` | env only | path under `/var/log/auto-agent` | `/var/log/auto-agent/audit.jsonl` | Audit log of every action, block and failure (JSON lines) | `cmd/auto-agent/run.go` |
+| `LOG_FORMAT` | `logging.format` | `json`, anything else is off | `text` | **Almost no effect yet**: `json` only prints one startup line; the JSON logger is never used, so normal logs stay in klog format (ISS-032) | `internal/config/config.go` |
+| `LOG_LEVEL` | `agent.logLevel` | `error`, `warn`, `info` (klog -v 0), `debug` (-v 4), `trace` (-v 6), or a number 0 to 10 | `info` | Sets klog verbosity at startup; anything else keeps the default and logs a warning | `internal/config/config.go` |
 
 ## Cost tab
 
@@ -150,7 +152,7 @@ env:
 | --- | --- | --- | --- | --- | --- |
 | `DASHBOARD_TOKEN` | `dashboard.token` (Secret) | any string; use `openssl rand -hex 32` | empty | Bearer token for every `/api/` route. Empty means `/api/` returns 503 | `internal/httpapi/http.go` |
 | `TLS_CERT_CHECK` | `rbac.readTLSSecrets` | `true`, anything else is off | `false` | Runs the TLS certificate expiry check; the same value grants the secret-list RBAC it needs | `internal/kube/security.go` |
-| `LEADER_LEASE_NAMESPACE` | `leaderElection.namespace` | namespace | `kube-system` | Where the `auto-agent-leader` Lease lives; the chart's lease Role follows it | `cmd/auto-agent/main.go` |
+| `LEADER_LEASE_NAMESPACE` | `leaderElection.namespace` | namespace | `kube-system` | Where the `auto-agent-leader` Lease lives; the chart's lease Role follows it | `cmd/auto-agent/run.go` |
 
 ## Admission webhook
 
@@ -161,11 +163,11 @@ set both with `env:` (ISS-032).
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `WEBHOOK_CERT_FILE` | env only | path to a mounted TLS certificate | empty (webhook off) | Server certificate | `cmd/auto-agent/main.go` |
-| `WEBHOOK_KEY_FILE` | env only | path to the matching key | empty (webhook off) | Server key | `cmd/auto-agent/main.go` |
-| `WEBHOOK_REQUIRE_LIMITS` | `webhook.requireLimits` | `true`, `false` | on unless `false` | Reject workloads without resource limits | `cmd/auto-agent/main.go` |
-| `WEBHOOK_REQUIRE_READINESS` | `webhook.requireReadiness` | `true`, `false` | on unless `false` | Reject workloads without readiness probes | `cmd/auto-agent/main.go` |
-| `WEBHOOK_BLOCKED_IMAGES` | `webhook.blockedImages` | comma-separated list of images | empty | Reject workloads using these images | `cmd/auto-agent/main.go` |
+| `WEBHOOK_CERT_FILE` | env only | path to a mounted TLS certificate | empty (webhook off) | Server certificate | `cmd/auto-agent/run.go` |
+| `WEBHOOK_KEY_FILE` | env only | path to the matching key | empty (webhook off) | Server key | `cmd/auto-agent/run.go` |
+| `WEBHOOK_REQUIRE_LIMITS` | `webhook.requireLimits` | `true`, `false` | on unless `false` | Reject workloads without resource limits | `cmd/auto-agent/run.go` |
+| `WEBHOOK_REQUIRE_READINESS` | `webhook.requireReadiness` | `true`, `false` | on unless `false` | Reject workloads without readiness probes | `cmd/auto-agent/run.go` |
+| `WEBHOOK_BLOCKED_IMAGES` | `webhook.blockedImages` | comma-separated list of images | empty | Reject workloads using these images | `cmd/auto-agent/run.go` |
 
 ## Escalation (not wired)
 
@@ -187,8 +189,16 @@ is never called, so **none of them has any effect yet** (ISS-012).
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/main.go` |
-| `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/main.go` |
+| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/run.go` |
+| `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/run.go` |
+
+## Roles (ADR-001)
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `AGENT_ROLE` | set per workload by the chart | `all`, `node`, `controller` | `all` | `node`: watches its own node, forwards events, serves only probes and metrics. `controller`: cluster loops, the event log, dashboard and API. `all`: both in one process, for local runs. Anything else stops the agent at start | `cmd/auto-agent/run.go` |
+| `CONTROLLER_URL` | set by the chart | URL of the controller Service | empty | Where a node agent sends its events; required for `node` | `cmd/auto-agent/run.go` |
+| `INTERNAL_TOKEN` | generated by the chart (Secret) | any string; use `openssl rand -hex 32` | empty | Authenticates node agents to the controller's event ingest; required for `node`, and the controller refuses forwarded events without it | `cmd/auto-agent/run.go`, `internal/httpapi/ingest.go` |
 
 ## Set by Kubernetes (downward API)
 
@@ -196,9 +206,9 @@ The chart sets these from the pod itself. Do not override them.
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `NODE_NAME` | none (`spec.nodeName`) | node name | empty | The pod informer and node actions cover only this node; empty disables node actions | `cmd/auto-agent/main.go`, `internal/kube/watcher.go` |
-| `POD_NAME` | none (`metadata.name`) | pod name | empty | Leader election identity, dashboard top bar | `cmd/auto-agent/main.go`, `internal/leader/leader.go` |
-| `POD_NAMESPACE` | none (`metadata.namespace`) | namespace | empty | Namespace of the ConfigMap that is hot reloaded | `cmd/auto-agent/main.go` |
+| `NODE_NAME` | none (`spec.nodeName`) | node name | empty | The pod informer and node actions cover only this node; empty disables node actions | `cmd/auto-agent/run.go`, `internal/kube/watcher.go` |
+| `POD_NAME` | none (`metadata.name`) | pod name | empty | Leader election identity, dashboard top bar | `cmd/auto-agent/run.go`, `internal/leader/leader.go` |
+| `POD_NAMESPACE` | none (`metadata.namespace`) | namespace | empty | Namespace of the ConfigMap that is hot reloaded | `cmd/auto-agent/run.go` |
 
 ---
 
@@ -206,6 +216,13 @@ The chart sets these from the pod itself. Do not override them.
 
 The chart writes these into the ConfigMap, but no code reads them, so
 **changing them does nothing** (ISS-012, ISS-032).
+
+> **Warning: `gitops.mode` and `images.mirror.*` are not implemented.** By
+> owner decision (2026-10-07) they stay as flags, **off by default**, and will
+> be built in PLAN-002 phase 17. When built, `gitops.mode: live` commits fixes
+> straight to the branch and **skips code review**; `images.mirror` makes the
+> admission webhook **rewrite images as pods are created**. Both will log a
+> warning at startup when turned on.
 
 | Variable | Helm value |
 | --- | --- |
@@ -228,8 +245,12 @@ These do not become variables; they change what the chart renders.
 | `namespace` | `kube-system` | Namespace the agent, ConfigMap and Secret live in |
 | `priorityClassName` | `system-node-critical` | Keeps the agent scheduled under node pressure |
 | `initImage` | `busybox:1.36` pinned by digest | Init container that chowns the log directory |
-| `tolerations` | tolerate everything | Run on every node, control plane included |
-| `resources` | requests 50m / 128Mi, limits 300m / 384Mi | Agent container resources |
+| `tolerations` | tolerate everything | Node agents run on every node, control plane included |
+| `controller.replicas` | `2` | Controller Deployment replicas (ADR-001); one leads, the other proxies to it |
+| `controller.tolerations` | `[]` | Tolerations for the controllers only; node agents use `tolerations` |
+| `controller.resources` | requests 50m / 128Mi, limits 500m / 512Mi | Controller container resources |
+| `internalToken` | empty: generated once, kept across upgrades | Sets `INTERNAL_TOKEN` in the Secret |
+| `resources` | requests 50m / 128Mi, limits 300m / 384Mi | Node agent container resources |
 | `env` | `[]` | Extra environment variables; win over the ConfigMap |
 | `logs.efs.path` | `/var/log/auto-agent` | Host directory mounted at `/var/log/auto-agent` |
 | `networkPolicy.enabled` | `true` | Render the NetworkPolicy |

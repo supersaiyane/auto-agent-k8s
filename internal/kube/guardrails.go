@@ -2,6 +2,8 @@ package kube
 
 import (
 	"context"
+
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 )
 
 // checkGuardrails runs all safety checks before an action.
@@ -39,4 +41,15 @@ func auditAction(deps *Deps, action, ns, wl, pod, reason, result, detail string)
 	if deps.AuditLog != nil {
 		deps.AuditLog.RecordAction(action, ns, wl, pod, reason, result, detail, string(deps.Policy().Mode))
 	}
+	// The same decision as an event, so it reaches the controller and the
+	// dashboard from node agents too (ISS-061).
+	sev := eventsvc.SevInfo
+	switch result {
+	case "blocked":
+		sev = eventsvc.SevWarning
+	case "failed":
+		sev = eventsvc.SevCritical
+	}
+	recordEvent(deps, eventsvc.Event{Type: eventsvc.Audit, Severity: sev, Namespace: ns, Workload: wl, Pod: pod,
+		Node: deps.NodeName, Reason: reason, Action: action, Result: result, Message: detail})
 }

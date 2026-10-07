@@ -80,11 +80,16 @@ kubectl --context "$CTX" -n "$NS_TEST" get pod crasher -o wide || true
 log "crashloop detected, pod untouched in $MODE mode"
 
 log "checking the dashboard API the way an operator reaches it (port-forward + curl)"
-AGENT_POD=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod -l app=auto-agent -o jsonpath='{.items[0].metadata.name}')
+# ADR-001: the API lives on the controllers; node agents serve only probes.
+CONTROLLERS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod -l app=auto-agent-controller -o jsonpath='{.items[*].metadata.name}')
+AGENT_POD=${CONTROLLERS%% *}
+NODE_POD=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod -l app=auto-agent -o jsonpath='{.items[0].metadata.name}')
+[ -n "$AGENT_POD" ] || fail "no controller pod"
+[ -n "$NODE_POD" ] || fail "no node agent pod"
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$AGENT_POD" 18080:8080 >/dev/null 2>&1 &
 PF=$!
 sleep 3
-code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 NO_TOKEN=$(code http://127.0.0.1:18080/api/status)
 WITH_TOKEN=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/status)
 HEALTH=$(code http://127.0.0.1:18080/healthz)
@@ -97,17 +102,75 @@ log "kubectl -n kube-system -> $KUBECTL"
 [ "$HEALTH" = "200" ] || fail "/healthz returned $HEALTH, want 200"
 echo "$KUBECTL" | grep -q "not in the namespace allowlist" || fail "kubectl endpoint read kube-system"
 
-log "checking the pod runs non-root and RBAC covers every detector (ISS-009, ISS-010)"
-RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$AGENT_POD" -o jsonpath='{.spec.securityContext.runAsUser}')
-[ "$RUN_AS" = "65532" ] || fail "agent pod runAsUser is '$RUN_AS', want 65532"
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$NODE_POD" 18081:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+NODE_API=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18081/api/status)
+kill "$PF" 2>/dev/null || true
+[ "$NODE_API" = "404" ] || fail "a node agent served /api/status ($NODE_API); only controllers may"
+
+log "checking every controller shows the node agent's finding (ADR-001, PLAN-002 11.1)"
+port=18090
+for c in $CONTROLLERS; do
+	kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$c" "$port:8080" >/dev/null 2>&1 &
+	PF=$!
+	sleep 3
+	seen=0
+	for _ in 1 2 3 4 5 6; do
+		if curl -s -H 'Authorization: Bearer e2e-token' "http://127.0.0.1:$port/api/events?limit=500" | grep -q "crasher"; then
+			seen=1
+			break
+		fi
+		sleep 5
+	done
+	kill "$PF" 2>/dev/null || true
+	[ "$seen" = "1" ] || fail "controller $c does not show the crasher finding from the node agent"
+	log "controller $c shows the crasher finding"
+	port=$((port + 1))
+done
+
+log "checking the history survives two leader changes in a row (ISS-059)"
+# Deleting the leader also starts a replacement pod, which may win the lease;
+# it must already hold the history. Two rounds make that case likely.
+for round in 1 2; do
+	LEADER=$(kubectl --context "$CTX" -n "$NS_AGENT" get lease auto-agent-leader -o jsonpath='{.spec.holderIdentity}')
+	[ -n "$LEADER" ] || fail "no lease holder"
+	kubectl --context "$CTX" -n "$NS_AGENT" delete pod "$LEADER" --wait=false >/dev/null
+	deadline=$(( $(date +%s) + 90 ))
+	NEW_LEADER="$LEADER"
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		NEW_LEADER=$(kubectl --context "$CTX" -n "$NS_AGENT" get lease auto-agent-leader -o jsonpath='{.spec.holderIdentity}')
+		[ -n "$NEW_LEADER" ] && [ "$NEW_LEADER" != "$LEADER" ] && break
+		sleep 3
+	done
+	[ "$NEW_LEADER" != "$LEADER" ] || fail "round $round: no controller took over after $LEADER was deleted"
+	kubectl --context "$CTX" -n "$NS_AGENT" wait --for=condition=Ready "pod/$NEW_LEADER" --timeout=90s >/dev/null
+	log "round $round: leader moved from $LEADER to $NEW_LEADER"
+	kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$NEW_LEADER" 18099:8080 >/dev/null 2>&1 &
+	PF=$!
+	sleep 3
+	HISTORY=$(curl -s -H 'Authorization: Bearer e2e-token' "http://127.0.0.1:18099/api/events?limit=500")
+	kill "$PF" 2>/dev/null || true
+	echo "$HISTORY" | grep -q "crasher" || fail "round $round: the new leader $NEW_LEADER lost the crasher finding"
+	log "round $round: new leader $NEW_LEADER still shows the crasher finding"
+	# Let the replacement controller start and backfill before the next round.
+	kubectl --context "$CTX" -n "$NS_AGENT" rollout status deployment/auto-agent-controller --timeout=120s >/dev/null
+done
+AGENT_POD="$NEW_LEADER"
+
+log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
+for pod in "$AGENT_POD" "$NODE_POD"; do
+	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
+	[ "$RUN_AS" = "65532" ] || fail "pod $pod runAsUser is '$RUN_AS', want 65532"
+done
 # JOB_INTERVAL=30s and QUOTA_INTERVAL=40s are set at install, so this wait
 # covers at least two passes of every leader loop.
 RBAC_SETTLE="${RBAC_SETTLE:-90}"
 log "waiting ${RBAC_SETTLE}s for the leader loops to run every detector once"
 sleep "$RBAC_SETTLE"
-AGENT_LOGS=$(kubectl --context "$CTX" -n "$NS_AGENT" logs "$AGENT_POD" -c agent --tail=-1)
-echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "agent never acquired the leader lease"
+AGENT_LOGS=$(kubectl --context "$CTX" -n "$NS_AGENT" logs -l 'app in (auto-agent,auto-agent-controller)' -c agent --tail=-1 --prefix)
+echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acquired the leader lease"
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"

@@ -8,6 +8,7 @@ import (
 // Deduplicator prevents the same event from being processed multiple times
 // within a TTL window. Key format: "namespace/pod/reason".
 type Deduplicator struct {
+	now  func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu   sync.Mutex
 	seen map[string]time.Time
 	ttl  time.Duration
@@ -28,10 +29,10 @@ func NewDeduplicator(ttl time.Duration) *Deduplicator {
 func (d *Deduplicator) Check(key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if t, ok := d.seen[key]; ok && time.Since(t) < d.ttl {
+	if t, ok := d.seen[key]; ok && d.clock().Sub(t) < d.ttl {
 		return false
 	}
-	d.seen[key] = time.Now()
+	d.seen[key] = d.clock()
 	return true
 }
 
@@ -55,7 +56,7 @@ func (d *Deduplicator) cleanup() {
 			return
 		case <-ticker.C:
 			d.mu.Lock()
-			now := time.Now()
+			now := d.clock()
 			for k, t := range d.seen {
 				if now.Sub(t) >= d.ttl {
 					delete(d.seen, k)
@@ -68,6 +69,7 @@ func (d *Deduplicator) cleanup() {
 
 // ActionLimiter enforces a maximum number of actions within a sliding window.
 type ActionLimiter struct {
+	now    func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu     sync.Mutex
 	events []time.Time
 	max    int
@@ -91,7 +93,7 @@ func (l *ActionLimiter) Allow() bool {
 	if len(l.events) >= l.max {
 		return false
 	}
-	l.events = append(l.events, time.Now())
+	l.events = append(l.events, l.clock())
 	return true
 }
 
@@ -116,10 +118,26 @@ func (l *ActionLimiter) Remaining() int {
 }
 
 func (l *ActionLimiter) prune() {
-	cutoff := time.Now().Add(-l.window)
+	cutoff := l.clock().Add(-l.window)
 	i := 0
 	for i < len(l.events) && l.events[i].Before(cutoff) {
 		i++
 	}
 	l.events = l.events[i:]
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (d *Deduplicator) clock() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (l *ActionLimiter) clock() time.Time {
+	if l.now != nil {
+		return l.now()
+	}
+	return time.Now()
 }

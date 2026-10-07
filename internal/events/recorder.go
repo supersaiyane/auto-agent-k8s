@@ -20,6 +20,9 @@ const (
 	Scaling  EventType = "scaling"
 	Anomaly  EventType = "anomaly"
 	Info     EventType = "info"
+	// Audit is a decision of the mutation gate: applied, simulated,
+	// suggested, blocked or failed (ISS-061).
+	Audit EventType = "audit"
 )
 
 // Severity levels for display.
@@ -47,6 +50,11 @@ type Event struct {
 	LogURL    string    `json:"logUrl,omitempty"`
 	PRURL     string    `json:"prUrl,omitempty"`
 	TicketURL string    `json:"ticketUrl,omitempty"`
+	// Result is the outcome of an audit event: success, simulated, suggested,
+	// blocked or failed.
+	Result string `json:"result,omitempty"`
+	// Rung is how far the agent may go on this finding, R0 to R4 (PLAN-002 Part C).
+	Rung string `json:"rung,omitempty"`
 }
 
 // Recorder is a thread-safe in-memory ring buffer backed by a JSONL file on disk.

@@ -71,19 +71,26 @@ func getLastLogs(ctx context.Context, kc kubernetes.Interface, ns, pod, containe
 
 // collectEvents fetches Kubernetes events for a specific object, limited to 100.
 func collectEvents(ctx context.Context, kc kubernetes.Interface, ns, name string) []string {
+	evs := listObjectEvents(ctx, kc, ns, name)
+	out := make([]string, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, fmt.Sprintf("[%s] %s %s: %s", e.LastTimestamp.Format(time.RFC3339), e.Type, e.Reason, e.Message))
+	}
+	return out
+}
+
+// listObjectEvents returns up to 100 events for one object; a failed read
+// is counted and gives none.
+func listObjectEvents(ctx context.Context, kc kubernetes.Interface, ns, name string) []corev1.Event {
 	evs, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", name).String(),
 		Limit:         100,
 	})
 	if err != nil {
-		klog.V(3).Infof("events: failed to list for %s/%s: %v", ns, name, err)
+		countAPIError(err, "events", ns)
 		return nil
 	}
-	out := make([]string, 0, len(evs.Items))
-	for _, e := range evs.Items {
-		out = append(out, fmt.Sprintf("[%s] %s %s: %s", e.LastTimestamp.Format(time.RFC3339), e.Type, e.Reason, e.Message))
-	}
-	return out
+	return evs.Items
 }
 
 // persistLogBundle saves logs + events to the configured storage sink.

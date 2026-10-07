@@ -1,24 +1,13 @@
 package policy
 
 import (
-	"os"
 	"testing"
 )
 
-func TestLoadFromEnv_Defaults(t *testing.T) {
-	// Clear env
-	for _, k := range []string{"AUTO_MODE", "NAMESPACE_ALLOWLIST", "SCALE_CPU_THRESHOLD",
-		"MAX_SCALE_STEP", "MAX_ACTIONS_PER_10M", "HPA_COEXISTENCE", "LLM_ENABLED",
-		"COOLDOWN_UP", "COOLDOWN_DOWN", "MAX_REPLICAS", "MIN_REPLICAS",
-		"DEDUP_TTL_SECONDS", "LLM_TIMEOUT_SEC", "SLACK_TIMEOUT_SEC",
-		"EXCLUDED_ANNOTATION", "LOG_LEVEL", "SCALE_WINDOW"} {
-		os.Unsetenv(k)
-	}
-	// Set minimum required
-	os.Setenv("NAMESPACE_ALLOWLIST", "default")
-	defer os.Unsetenv("NAMESPACE_ALLOWLIST")
+func env(m map[string]string) Getenv { return func(k string) string { return m[k] } }
 
-	p := LoadFromEnv()
+func TestLoad_Defaults(t *testing.T) {
+	p := Load(env(nil))
 
 	if p.Mode != DryRun {
 		t.Errorf("expected default mode DryRun (CLAUDE.md constraint 2), got %s", p.Mode)
@@ -43,41 +32,35 @@ func TestLoadFromEnv_Defaults(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnv_CustomValues(t *testing.T) {
-	os.Setenv("AUTO_MODE", "observe")
-	os.Setenv("NAMESPACE_ALLOWLIST", "prod,staging")
-	os.Setenv("SCALE_CPU_THRESHOLD", "0.7")
-	os.Setenv("MAX_SCALE_STEP", "3")
-	os.Setenv("MAX_ACTIONS_PER_10M", "5")
-	os.Setenv("MAX_REPLICAS", "100")
-	os.Setenv("MIN_REPLICAS", "2")
-
-	defer func() {
-		for _, k := range []string{"AUTO_MODE", "NAMESPACE_ALLOWLIST", "SCALE_CPU_THRESHOLD",
-			"MAX_SCALE_STEP", "MAX_ACTIONS_PER_10M", "MAX_REPLICAS", "MIN_REPLICAS"} {
-			os.Unsetenv(k)
-		}
-	}()
-
-	p := LoadFromEnv()
+func TestLoad_CustomValues(t *testing.T) {
+	p := Load(env(map[string]string{
+		"AUTO_MODE": "observe", "NAMESPACE_ALLOWLIST": "prod,staging", "SCALE_CPU_THRESHOLD": "0.7",
+		"MAX_SCALE_STEP": "3", "MAX_ACTIONS_PER_10M": "5", "MAX_REPLICAS": "100", "MIN_REPLICAS": "2",
+	}))
 
 	if p.Mode != Observe {
 		t.Errorf("expected mode Observe, got %s", p.Mode)
 	}
-	if !p.AllowedNamespace("prod") {
-		t.Error("expected 'prod' in allowed namespaces")
-	}
-	if !p.AllowedNamespace("staging") {
-		t.Error("expected 'staging' in allowed namespaces")
+	if !p.AllowedNamespace("prod") || !p.AllowedNamespace("staging") {
+		t.Error("expected 'prod' and 'staging' in allowed namespaces")
 	}
 	if p.CPUThreshold != 0.7 {
 		t.Errorf("expected CPU threshold 0.7, got %f", p.CPUThreshold)
 	}
-	if p.MaxReplicas != 100 {
-		t.Errorf("expected max replicas 100, got %d", p.MaxReplicas)
+	if p.MaxReplicas != 100 || p.MinReplicas != 2 {
+		t.Errorf("expected replicas 2..100, got %d..%d", p.MinReplicas, p.MaxReplicas)
 	}
-	if p.MinReplicas != 2 {
-		t.Errorf("expected min replicas 2, got %d", p.MinReplicas)
+}
+
+func TestLoad_InvalidValuesFallBack(t *testing.T) {
+	p := Load(env(map[string]string{
+		"AUTO_MODE": "bogus", "HPA_COEXISTENCE": "maybe", "SCALE_CPU_THRESHOLD": "high", "MAX_SCALE_STEP": "two",
+	}))
+	if p.Mode != Observe {
+		t.Errorf("invalid AUTO_MODE must fall back to observe, got %s", p.Mode)
+	}
+	if !p.HPACoexistence || p.CPUThreshold != 0.8 || p.MaxScaleStep != 2 {
+		t.Errorf("invalid values must fall back to defaults, got hpa=%v cpu=%v step=%d", p.HPACoexistence, p.CPUThreshold, p.MaxScaleStep)
 	}
 }
 

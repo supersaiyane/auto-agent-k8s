@@ -3,9 +3,13 @@ package kube
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
@@ -82,48 +86,73 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 
 // CheckHPAIssues detects HPAs at max replicas or unable to scale.
 func CheckHPAIssues(ctx context.Context, deps *Deps) {
+	now := deps.clock()
 	for ns := range deps.Policy().NamespaceAllow {
 		hpas, err := deps.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "horizontalpodautoscalers", ns)
 			continue
 		}
-		for _, hpa := range hpas.Items {
-			// HPA maxed out
-			if hpa.Status.CurrentReplicas >= hpa.Spec.MaxReplicas && hpa.Status.CurrentReplicas > 0 {
-				key := dedupKey(ns, hpa.Name, "HPAMaxedOut")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*HPAMaxedOut* `%s/%s` at max replicas (%d/%d)\n",
-					ns, hpa.Name, hpa.Status.CurrentReplicas, hpa.Spec.MaxReplicas)
-				msg += fmt.Sprintf("Target: %s\n", hpa.Spec.ScaleTargetRef.Name)
-				msg += "_Warning_: workload at maximum scale. Consider increasing maxReplicas or optimizing.\n"
-				deps.Slack.Post(msg)
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-					Namespace: ns, Workload: hpa.Spec.ScaleTargetRef.Name, Reason: "HPAMaxedOut",
-					Message: fmt.Sprintf("At max replicas %d", hpa.Spec.MaxReplicas)})
-				obs.IncidentsTotal.WithLabelValues("HPAMaxedOut", ns, hpa.Name).Inc()
-			}
-
-			// HPA unable to compute metrics
-			for _, c := range hpa.Status.Conditions {
-				if c.Type == "ScalingActive" && c.Status == "False" {
-					key := dedupKey(ns, hpa.Name, "HPAScalingFailed")
-					if !deps.Dedup.Check(key) {
-						continue
-					}
-					msg := fmt.Sprintf("*HPAScalingFailed* `%s/%s` cannot compute metrics\n", ns, hpa.Name)
-					msg += fmt.Sprintf("Reason: %s: %s\n", c.Reason, c.Message)
-					msg += "_Check_: metrics-server running, resource metrics available.\n"
-					deps.Slack.Post(msg)
-					recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-						Namespace: ns, Workload: hpa.Name, Reason: "HPAScalingFailed", Message: c.Message})
-					obs.IncidentsTotal.WithLabelValues("HPAScalingFailed", ns, hpa.Name).Inc()
-				}
-			}
+		for i := range hpas.Items {
+			checkHPA(ctx, deps, &hpas.Items[i], now)
 		}
 	}
+}
+
+// hpaLimitedFor is how long an HPA must be capped before it is reported.
+const hpaLimitedFor = 15 * time.Minute
+
+// checkHPA reports an HPA held at its maximum while load asks for more,
+// and one that cannot compute its metrics (PLAN-002 10.15, ISS-046).
+func checkHPA(ctx context.Context, deps *Deps, hpa *autoscalingv2.HorizontalPodAutoscaler, now time.Time) {
+	target := strings.ToLower(hpa.Spec.ScaleTargetRef.Kind) + "/" + hpa.Spec.ScaleTargetRef.Name
+	max := hpa.Spec.MaxReplicas
+	fixedSize := hpa.Spec.MinReplicas != nil && *hpa.Spec.MinReplicas >= max
+	if c := hpaCondition(hpa, autoscalingv2.ScalingLimited); c != nil && !fixedSize &&
+		c.Status == corev1.ConditionTrue && c.Reason == "TooManyReplicas" && now.Sub(c.LastTransitionTime.Time) >= hpaLimitedFor {
+		ceiling := deps.Policy().MaxReplicas
+		proposed := proposeMaxReplicas(max, ceiling)
+		fix := fmt.Sprintf("raise maxReplicas from %d to %d (half again, within the policy ceiling of %d), or make each replica handle more load", max, proposed, ceiling)
+		if proposed <= max {
+			fix = fmt.Sprintf("maxReplicas is already at the policy ceiling of %d; make each replica handle more load, or raise the ceiling deliberately", ceiling)
+		}
+		report(ctx, deps, finding{
+			Reason: "HPAMaxedOut", Namespace: hpa.Namespace, Workload: target,
+			Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove, Subject: hpa.Name,
+			Summary: fmt.Sprintf("autoscaler `%s` held at maxReplicas %d for %s while load asks for more",
+				hpa.Name, max, now.Sub(c.LastTransitionTime.Time).Round(time.Minute)),
+			Details: []string{fmt.Sprintf("Current %d, desired %d. %s", hpa.Status.CurrentReplicas, hpa.Status.DesiredReplicas, c.Message)},
+			Fix:     fix,
+		})
+	}
+	if c := hpaCondition(hpa, autoscalingv2.ScalingActive); c != nil && c.Status == corev1.ConditionFalse && c.Reason != "ScalingDisabled" {
+		report(ctx, deps, finding{
+			Reason: "HPAScalingFailed", Namespace: hpa.Namespace, Workload: target,
+			Severity: eventsvc.SevWarning, Rung: RungGuided, Subject: hpa.Name,
+			Summary: fmt.Sprintf("autoscaler `%s` cannot compute its metrics", hpa.Name),
+			Details: []string{fmt.Sprintf("%s: %s", c.Reason, c.Message)},
+			Fix:     "check that metrics-server (or the custom metrics adapter) is running and that the target pods set resource requests",
+		})
+	}
+}
+
+// proposeMaxReplicas suggests half again the current maximum, never above
+// the policy ceiling; a ceiling of zero means none.
+func proposeMaxReplicas(max, ceiling int32) int32 {
+	p := max + (max+1)/2
+	if ceiling > 0 && p > ceiling {
+		p = ceiling
+	}
+	return p
+}
+
+func hpaCondition(h *autoscalingv2.HorizontalPodAutoscaler, t autoscalingv2.HorizontalPodAutoscalerConditionType) *autoscalingv2.HorizontalPodAutoscalerCondition {
+	for i := range h.Status.Conditions {
+		if h.Status.Conditions[i].Type == t {
+			return &h.Status.Conditions[i]
+		}
+	}
+	return nil
 }
 
 // CheckCronJobMissed detects CronJobs that missed their schedule.

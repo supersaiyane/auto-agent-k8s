@@ -12,6 +12,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // Alert represents a Prometheus Alertmanager alert.
@@ -29,15 +31,13 @@ type Client struct {
 	client *http.Client
 }
 
-func New(url string) *Client {
+func New(url string, hc *http.Client) *Client {
 	if url == "" {
 		return nil
 	}
 	return &Client{
-		url: url,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		url:    url,
+		client: httpx.Client(hc, 10*time.Second),
 	}
 }
 

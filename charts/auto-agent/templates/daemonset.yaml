@@ -18,8 +18,9 @@ spec:
       labels:
         app: auto-agent
         {{- include "auto-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: node
     spec:
-      serviceAccountName: auto-agent
+      serviceAccountName: auto-agent-node
       priorityClassName: {{ .Values.priorityClassName }}
       terminationGracePeriodSeconds: 30
       securityContext:
@@ -58,6 +59,11 @@ spec:
           - configMapRef: { name: auto-agent-config }
           - secretRef:    { name: auto-agent-secrets }
         env:
+        # Node agent (ADR-001): its own node only; events go to the controller.
+        - name: AGENT_ROLE
+          value: node
+        - name: CONTROLLER_URL
+          value: "http://auto-agent.{{ .Values.namespace }}.svc:8080"
         - name: POD_NAME
           valueFrom: { fieldRef: { fieldPath: metadata.name } }
         - name: POD_NAMESPACE

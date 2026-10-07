@@ -4,6 +4,27 @@ Last updated: 2026-10-07
 
 ## Active plan
 
+`docs/plans/PLAN-002-reload-coverage-and-gaps.md`: phase 8 done 2026-10-07
+(config package, no env reads outside it, log level, injected clock, coverage
+floor 27.9 percent and 100 percent strict set). Phase 9 done 2026-10-07
+(injected HTTP clients with httptest tests, no mutable globals, `run()`
+extracted with a boot test, leader and CRD tests, ISS-042 fixed; total
+coverage 44.6 percent measured). Phase 10 done 2026-10-08: all 17
+rows, ISS-040 and ISS-043 to ISS-046 fixed, every new detector tested,
+coverage 51.5 percent measured. Phase 11 added from an architect review
+(ISS-047 to ISS-058); owner chose option A for 11.1 on 2026-10-08. Next:
+11.1 (ADR-001, node and controller roles), then 11.2 to 11.7.
+11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
+done and passing the kind e2e; per-role ServiceAccounts and generated raw
+manifests done 2026-10-08; ISS-059 fixed. 11.1, 11.2 and 11.4 are
+complete. Next: 11.8 (ADR-002: watch every namespace, fix inside a Helm
+ceiling, Settings tab to change the fix scope, namespace dropdown), then
+11.3 remainder, 11.5, 11.6. Old phases 11 to 16
+are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
+95 percent. PLAN-001 is complete (PR #1).
+
+## Previous plan
+
 `docs/plans/PLAN-001-safety-hardening.md`: phases 0 and 1 committed
 (3c3d99c, 4082923, 98bb754); phase 2 done on branch `phase0-1-safety`.
 Nothing pushed.

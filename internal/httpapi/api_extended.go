@@ -8,29 +8,16 @@ import (
 	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
 )
 
-// Extended API dependencies, set after construction.
-var (
-	complianceTracker *kube.ComplianceTracker
-	learningMode      *kube.LearningMode
-	deployTracker     *kube.DeployTracker
-	dryRunLog         *kube.DryRunLog
-	fixTracker        *kube.FixTracker
-)
-
-// SetExtendedDeps wires optional dependencies for extended API endpoints.
-func SetExtendedDeps(ct *kube.ComplianceTracker, lm *kube.LearningMode, dt *kube.DeployTracker, dr *kube.DryRunLog, ft *kube.FixTracker) {
-	complianceTracker = ct
-	learningMode = lm
-	deployTracker = dt
-	dryRunLog = dr
-	fixTracker = ft
+// ExtendedDeps are the optional trackers behind the extended endpoints. They
+// are passed in Options at construction (PLAN-002 9.4); any may be nil.
+type ExtendedDeps struct {
+	Learning *kube.LearningMode
+	Deploys  *kube.DeployTracker
+	DryRun   *kube.DryRunLog
+	Fixes    *kube.FixTracker
 }
 
 func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
-	if complianceTracker == nil {
-		writeJSON(w, map[string]string{"error": "not initialized"})
-		return
-	}
 	since := time.Now().Add(-30 * 24 * time.Hour)
 	if v := r.URL.Query().Get("days"); v != "" {
 		var days int
@@ -38,34 +25,35 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
 			since = time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 		}
 	}
-	writeJSON(w, complianceTracker.GenerateReport(since))
+	// Computed from the event log, so node agents' forwarded events count (ISS-061).
+	writeJSON(w, kube.ComplianceFromEvents(s.recorder.Recent(0), since, time.Now(), s.started))
 }
 
 func (s *Server) handleBaselines(w http.ResponseWriter, r *http.Request) {
-	if learningMode == nil {
+	if s.ext.Learning == nil {
 		writeJSON(w, map[string]interface{}{"learning": false, "baselines": map[string]interface{}{}})
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"learning":  learningMode.IsLearning(),
-		"baselines": learningMode.AllBaselines(),
+		"learning":  s.ext.Learning.IsLearning(),
+		"baselines": s.ext.Learning.AllBaselines(),
 	})
 }
 
 func (s *Server) handleDeploys(w http.ResponseWriter, r *http.Request) {
-	if deployTracker == nil {
+	if s.ext.Deploys == nil {
 		writeJSON(w, []interface{}{})
 		return
 	}
-	writeJSON(w, deployTracker.All())
+	writeJSON(w, s.ext.Deploys.All())
 }
 
 func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
-	if dryRunLog == nil {
+	if s.ext.DryRun == nil {
 		writeJSON(w, []interface{}{})
 		return
 	}
-	writeJSON(w, dryRunLog.Recent(100))
+	writeJSON(w, s.ext.DryRun.Recent(100))
 }
 
 // handleFixes returns verified fixes, pending verifications, and failed fixes.
@@ -85,14 +73,14 @@ func (s *Server) handleFixes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pull pending/failed from fix tracker (in-memory, leader only)
-	if fixTracker != nil {
-		for _, p := range fixTracker.Pending() {
+	if s.ext.Fixes != nil {
+		for _, p := range s.ext.Fixes.Pending() {
 			pendingList = append(pendingList, map[string]interface{}{
 				"timestamp": p.Timestamp, "namespace": p.Namespace, "workload": p.Workload,
 				"reason": p.Reason, "action": p.Action, "status": "pending",
 			})
 		}
-		for _, f := range fixTracker.Failed() {
+		for _, f := range s.ext.Fixes.Failed() {
 			failedList = append(failedList, map[string]interface{}{
 				"timestamp": f.Timestamp, "namespace": f.Namespace, "workload": f.Workload,
 				"reason": f.Reason, "action": f.Action, "status": "not-fixed", "detail": f.Detail,

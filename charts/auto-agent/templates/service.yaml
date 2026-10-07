@@ -4,8 +4,10 @@ metadata:
   name: auto-agent
   namespace: {{ .Values.namespace }}
 spec:
+  # Controllers only: they serve the dashboard, the API and event ingest
+  # (ADR-001). Node agents serve probes and metrics on their own pods.
   selector:
-    app: auto-agent
+    app: auto-agent-controller
   ports:
   - name: http
     port: 8080

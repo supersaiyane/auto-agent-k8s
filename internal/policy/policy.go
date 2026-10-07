@@ -2,7 +2,6 @@ package policy
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -44,16 +43,23 @@ type Policy struct {
 	SlackTimeoutSec int
 }
 
-func LoadFromEnv() *Policy {
+// Getenv looks up one variable. internal/config passes os.Getenv; tests pass
+// a map lookup.
+type Getenv func(string) string
+
+// Load builds the policy from variables read through get. Only
+// internal/config calls it with the real environment (PLAN-002 task 8.3).
+func Load(get Getenv) *Policy {
+	g := envReader{get}
 	ns := map[string]struct{}{}
-	for _, n := range strings.Split(envOr("NAMESPACE_ALLOWLIST", "default"), ",") {
+	for _, n := range strings.Split(g.str("NAMESPACE_ALLOWLIST", "default"), ",") {
 		n = strings.TrimSpace(n)
 		if n != "" {
 			ns[n] = struct{}{}
 		}
 	}
 
-	m := Mode(envOr("AUTO_MODE", string(DryRun)))
+	m := Mode(g.str("AUTO_MODE", string(DryRun)))
 	switch m {
 	case Observe, Suggest, Fix, DryRun:
 	default:
@@ -63,22 +69,22 @@ func LoadFromEnv() *Policy {
 
 	p := &Policy{
 		Mode:               m,
-		HPACoexistence:     envBool("HPA_COEXISTENCE", true),
-		CPUThreshold:       envFloat("SCALE_CPU_THRESHOLD", 0.8),
-		ScaleWindow:        envOr("SCALE_WINDOW", "5m"),
-		MaxScaleStep:       envInt("MAX_SCALE_STEP", 2),
-		MaxActionsPer10m:   envInt("MAX_ACTIONS_PER_10M", 10),
+		HPACoexistence:     g.bool("HPA_COEXISTENCE", true),
+		CPUThreshold:       g.float("SCALE_CPU_THRESHOLD", 0.8),
+		ScaleWindow:        g.str("SCALE_WINDOW", "5m"),
+		MaxScaleStep:       g.int("MAX_SCALE_STEP", 2),
+		MaxActionsPer10m:   g.int("MAX_ACTIONS_PER_10M", 10),
 		NamespaceAllow:     ns,
-		ExcludedAnnotation: envOr("EXCLUDED_ANNOTATION", "auto-agent.io/disable"),
-		LLMEnabled:         envBool("LLM_ENABLED", false),
-		LogLevel:           envOr("LOG_LEVEL", "info"),
-		CooldownUp:         envOr("COOLDOWN_UP", "2m"),
-		CooldownDown:       envOr("COOLDOWN_DOWN", "10m"),
-		MaxReplicas:        int32(envInt("MAX_REPLICAS", 50)),
-		MinReplicas:        int32(envInt("MIN_REPLICAS", 1)),
-		DedupTTLSeconds:    envInt("DEDUP_TTL_SECONDS", 300),
-		LLMTimeoutSec:      envInt("LLM_TIMEOUT_SEC", 10),
-		SlackTimeoutSec:    envInt("SLACK_TIMEOUT_SEC", 5),
+		ExcludedAnnotation: g.str("EXCLUDED_ANNOTATION", "auto-agent.io/disable"),
+		LLMEnabled:         g.bool("LLM_ENABLED", false),
+		LogLevel:           g.str("LOG_LEVEL", "info"),
+		CooldownUp:         g.str("COOLDOWN_UP", "2m"),
+		CooldownDown:       g.str("COOLDOWN_DOWN", "10m"),
+		MaxReplicas:        int32(g.int("MAX_REPLICAS", 50)),
+		MinReplicas:        int32(g.int("MIN_REPLICAS", 1)),
+		DedupTTLSeconds:    g.int("DEDUP_TTL_SECONDS", 300),
+		LLMTimeoutSec:      g.int("LLM_TIMEOUT_SEC", 10),
+		SlackTimeoutSec:    g.int("SLACK_TIMEOUT_SEC", 5),
 	}
 	if err := p.Validate(); err != nil {
 		klog.Fatalf("invalid policy: %v", err)
@@ -138,15 +144,17 @@ func envFloatVal(s string, fallback float64) float64 {
 	return f
 }
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
+type envReader struct{ get Getenv }
+
+func (r envReader) str(key, fallback string) string {
+	if v := r.get(key); v != "" {
 		return v
 	}
 	return fallback
 }
 
-func envBool(key string, fallback bool) bool {
-	v := os.Getenv(key)
+func (r envReader) bool(key string, fallback bool) bool {
+	v := r.get(key)
 	if v == "" {
 		return fallback
 	}
@@ -158,8 +166,8 @@ func envBool(key string, fallback bool) bool {
 	return b
 }
 
-func envFloat(key string, fallback float64) float64 {
-	v := os.Getenv(key)
+func (r envReader) float(key string, fallback float64) float64 {
+	v := r.get(key)
 	if v == "" {
 		return fallback
 	}
@@ -171,8 +179,8 @@ func envFloat(key string, fallback float64) float64 {
 	return f
 }
 
-func envInt(key string, fallback int) int {
-	v := os.Getenv(key)
+func (r envReader) int(key string, fallback int) int {
+	v := r.get(key)
 	if v == "" {
 		return fallback
 	}

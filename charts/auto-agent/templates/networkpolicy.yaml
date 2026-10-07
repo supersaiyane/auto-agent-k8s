@@ -20,6 +20,34 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: {{ . | quote }}
     {{- end }}
+---
+# Controllers (ADR-001): the namespaces above, plus node agents forwarding
+# events and the other controller proxying to the leader.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auto-agent-controller
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: auto-agent-controller
+  policyTypes: [Ingress]
+  ingress:
+  - ports:
+    - { port: 8080, protocol: TCP }
+    from:
+    {{- range .Values.networkPolicy.allowFromNamespaces }}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ . | quote }}
+    {{- end }}
+    - podSelector:
+        matchLabels:
+          app: auto-agent
+    - podSelector:
+        matchLabels:
+          app: auto-agent-controller
   {{- if .Values.webhook.enabled }}
   # The API server calls the admission webhook; its source is not a pod.
   - ports:

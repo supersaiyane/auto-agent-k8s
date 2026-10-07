@@ -401,3 +401,17 @@ func TestDryRun_DoesNotSpendBlastRadius(t *testing.T) {
 		t.Fatal("first real action after dry-run was refused")
 	}
 }
+
+// mergePatch only receives plain maps; a value JSON cannot encode is a
+// programming error and must fail loudly rather than send a broken patch.
+func TestMergePatch_PanicsOnUnencodable(t *testing.T) {
+	if got := string(mergePatch(map[string]any{"spec": map[string]any{"replicas": 3}})); got != `{"spec":{"replicas":3}}` {
+		t.Fatalf("got %s", got)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected a panic for an unencodable value")
+		}
+	}()
+	mergePatch(map[string]any{"bad": make(chan int)})
+}

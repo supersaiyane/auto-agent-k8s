@@ -67,8 +67,11 @@ kind create cluster
 ```
 
 `deploy.sh` builds the image, loads it into kind, applies the manifests in
-`deployment/` (namespace `auto-agent`, allowlist `default,test1,test2`) and
-waits for the pods. It prints the dashboard address when it is done.
+`deployment/` (namespace `auto-agent`, allowlist `test1,test2,chaos`),
+creates the Secret once with generated tokens and waits for the node agents
+and the controller. It prints the dashboard address and the command that
+reads the token. `deploy.sh --help` lists its flags; `teardown.sh` removes
+only what it installed (see `docs/wiki/09-deployment.md`).
 
 ### Option B: Helm, the way you would on a real cluster
 
@@ -250,6 +253,14 @@ Scale-down happens when average CPU utilisation is below 0.3.
 
 ### 5.4 Notifications and integrations
 
+Four detectors read Prometheus and stay silent without it (no alert, no
+error): CPU throttling, claims almost full, etcd health and deprecated API
+use. They need `metrics.type: prometheus` and a Prometheus that scrapes the
+kubelet (cAdvisor and volume stats), plus etcd and the API server for the
+last two; managed control planes usually expose neither, which is fine.
+The full list of detectors, with their rung and test, is in
+`docs/wiki/23-feature-status.md`.
+
 | Value | Default | What it does |
 | --- | --- | --- |
 | `slack.webhookUrl` | empty | Incident messages |
@@ -296,28 +307,43 @@ gates (`scalingGates.*`); see [CONFIGURATION.md](CONFIGURATION.md#scaling).
 kubectl -n kube-system port-forward svc/auto-agent 8080:8080
 ```
 
-Open `http://localhost:8080`. The page asks for the dashboard token once per
-browser tab and keeps it in that tab's session storage only. A wrong token
-shows as empty panels; reload the tab to be asked again.
+Open `http://localhost:8080` and sign in with the dashboard token. It stays in
+that browser tab only; **Sign out** forgets it, and a refused token brings the
+sign-in form back. Requests go to the controllers (ADR-001), so every refresh
+shows the same, cluster-wide view.
 
-With `deploy.sh` (local demo) the dashboard is on a NodePort:
-`http://localhost:30080`.
+With `deploy.sh` (local demo) the script starts that port-forward for you and
+prints the command to read the generated token.
 
 ### 6.2 Tabs
 
 | Tab | What you see |
 | --- | --- |
-| **Events** | Every incident and action, newest first, with filters |
-| **Actions** | Actions taken (or simulated) and whether the workload recovered |
-| **Charts** | Incidents and actions over time |
-| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs, health |
+| **Events** | Every finding and action, newest first, with its fix-ladder rung (R0 to R4) |
+| **Audit** | Every decision of the mutation gate, from every node: applied, simulated, suggested, blocked or failed |
+| **Dry run** | What the agent would have done in dry-run mode, on every node |
+| **Fixes** | Actions taken and whether the workload recovered (verified, verifying, not fixed) |
+| **Compliance** | Incidents, remediation rate, blocked actions and mean time to recover over 7, 30 or 90 days |
+| **Deploys** | Rollouts the leader recorded: revision, image, replicas |
+| **Baselines** | Learned normal CPU, restarts and replicas per workload, when learning mode is on |
+| **K8s events** | Kubernetes events in allowlisted namespaces |
+| **Charts** | Events by type, remediation, pod sizing, top reasons, cost by namespace |
+| **Report** | Incidents by service and by reason; rows open the matching events |
+| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs; rows open a namespace |
 | **Nodes** | Nodes, conditions, pod counts |
-| **Resources** | Requests, limits and usage per allowlisted namespace |
-| **Cost** | Estimated cost per node, namespace and workload (allowlisted namespaces) |
-| **Report** | Summary report, including the dry-run log |
-| **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `top`, `version`, `help` |
+| **Cost** | Estimated cost per node and workload (allowlisted namespaces) |
+| **Resources** | Requests, limits and right-sizing per allowlisted namespace |
+| **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `version`, `help` |
 
-The top bar shows version, mode, whether this pod is the leader, and the node.
+The toolbar filters list views by namespace, severity, gate result and free
+text. The top bar shows version, mode, leader or standby, the refresh rate
+(5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
+(`#audit`, `#compliance`, ...), and the tabs work with the arrow keys.
+
+The page loads no inline script or style, so the server's
+Content-Security-Policy forbids both; every value from the API is escaped
+before it is shown. `make ui-test` opens every tab in headless Chrome and
+fails on any console error, policy violation or injected markup.
 
 ### 6.3 The Terminal tab
 
@@ -375,7 +401,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -X POST -d '{"command":"get pods -n de
 | `auto_agent_actions_total` | Actions applied, by type |
 | `auto_agent_rate_limited_total` | Actions refused by the rate limiter |
 | `auto_agent_dedup_skipped_total` | Duplicate reports suppressed |
-| `auto_agent_handler_errors_total` | Handler failures, by handler and error type |
+| `auto_agent_handler_errors_total` | Handler failures, by handler and error type (`prometheus` means a detector's PromQL query failed) |
+| `auto_agent_evictions_blocked_total` | Node-pressure evictions a PodDisruptionBudget refused, by namespace |
 | `auto_agent_api_errors_total` | Failed API reads, by resource and reason (`forbidden` means RBAC is missing a grant) |
 | `auto_agent_scaling_decisions_total` | Scale up / down decisions |
 | `auto_agent_anomalies_detected_total` | CPU anomalies |
@@ -486,32 +513,37 @@ kubectl -n kube-system get configmap auto-agent-config -o yaml
 
 ### 10.1 Components
 
-```
-                      +-------------------- each node -------------------+
- pods on this node -->| pod informer --> handlers (crashloop, OOM, ...)   |
- this node ---------->| node informer --> node pressure (own node only)   |
-                      |                                                   |
-                      |   leader only: loops every 30s / 2m / 5m          |
-                      |   (scaling, jobs, rollouts, storage, network ...) |
-                      |                        |                          |
-                      |                        v                          |
-                      |   applyMutation: mode -> guardrails -> rate limit |
-                      |                        |                          |
-                      +------------------------|--------------------------+
-                                               v
-                                       Kubernetes API (patch / delete / evict)
+Two roles of one binary (ADR-001, `docs/adr/ADR-001-node-and-controller-roles.md`):
 
+```
+   +--------------- node agent (DaemonSet, every node) ----------------+
+   | pods on this node --> handlers (crashloop, OOM, image pull, ...)   |
+   | this node ----------> node pressure (own node only)                |
+   | events --> forwarder --(INTERNAL_TOKEN)--+                         |
+   | :8080 serves /healthz, /readyz, /metrics only                      |
+   +------------------------------------------|------------------------+
+                                              v
+   +--------------- controller (Deployment, 2 replicas) ---------------+
+   | leader: cluster loops (jobs, rollouts, HPAs, PDBs, pod states,     |
+   |         Prometheus checks, finalizers, ...) and the one event log  |
+   | standby: proxies /api/ and /internal/ to the leader                |
+   | :8080 dashboard + API (DASHBOARD_TOKEN), ingest, Slack callback    |
+   +-------------------------------------------------------------------+
+
+   every action, either role: applyMutation: mode -> guardrails -> rate limit
+                              --> Kubernetes API (patch / delete / evict)
    alerts, tickets, PRs, LLM prompts --> internal/redact --> Slack, Jira, GitHub, LLM, Alertmanager
-   dashboard + API (:8080, token)   --> allowlisted namespaces only
+   dashboard + API --> allowlisted namespaces only
 ```
 
 | Package | Responsibility |
 | --- | --- |
-| `cmd/auto-agent` | Wiring, leader loops, config from env |
+| `cmd/auto-agent` | Wiring per role (`AGENT_ROLE`), leader loops, leader proxy target |
 | `internal/kube` | Detectors, handlers, the mutation gate, guardrails, dry-run log, audit log |
 | `internal/policy` | Mode, allowlist, thresholds; ConfigMap hot reload with immutable snapshots |
 | `internal/crd` | AutoRemediationPolicy watcher and matching |
-| `internal/leader` | Lease-based leader election |
+| `internal/leader` | Lease-based leader election; reports who leads |
+| `internal/events` | Event log on the controller, forwarder on node agents |
 | `internal/httpapi` | Dashboard, API, kubectl panel, Slack callback, auth |
 | `internal/redact` | Masks secrets and personal data in everything sent out |
 | `internal/obs` | Prometheus metrics, API error counting |
@@ -585,6 +617,7 @@ More: [docs/wiki/15-security-hardening.md](wiki/15-security-hardening.md).
 | `make vuln` | govulncheck |
 | `make check-writing` | Fails on em or en dashes anywhere (project writing rule) |
 | `make helm-lint` | Lints the chart |
+| `make coverage-check` | Fails if total coverage drops below `.coverage-floor` or the gate, redaction, rate limiting or API auth code is below 100 percent |
 | `make verify` | All of the above; the definition of done |
 | `make e2e` | Full kind test (section 3, option C) |
 | `make manifests` | Regenerates `deployment/02-rbac.yaml` from the chart |
@@ -606,11 +639,14 @@ Work is planned in [docs/plans/](plans/), tracked in
    `charts/auto-agent/templates/clusterrole.yaml`; the RBAC test fails until
    both agree.
 3. Handle API errors with `countAPIError(err, "<resource>", ns)`; never
-   discard them (`TestAPIErrorsAreNotSwallowed`).
+   discard them (`TestAPIErrorsAreNotSwallowed`). New settings go in
+   `config.Load` (`internal/config`) and `docs/CONFIGURATION.md`; nothing
+   else may call `os.Getenv`. Time comes from the component's `clock()`, so
+   tests can drive it.
 4. If it fixes something, hand the write to `tryFixAction` or
    `applyMutation`, and add it to `mutatingDrivers` in `gate_test.go` so it is
    tested in every mode and blocked state.
-5. Call it from the right leader loop in `cmd/auto-agent/main.go`.
+5. Call it from the right leader loop in `cmd/auto-agent/run.go`.
 6. `make verify`, then `make e2e`.
 
 ### 12.4 Known gaps

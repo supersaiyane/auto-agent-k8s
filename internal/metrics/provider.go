@@ -3,36 +3,51 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 type Provider interface {
 	AvgDeploymentCPU(ctx context.Context, d *appsv1.Deployment, window string) (float64, error)
 	QueryInstant(ctx context.Context, promQL string) (float64, error)
+	// QueryVector returns every series of an instant query with its labels
+	// (PLAN-002 phase 10). An empty result is not an error.
+	QueryVector(ctx context.Context, promQL string) ([]Sample, error)
 }
 
-func NewProviderFromEnv(ctx context.Context) (Provider, error) {
-	t := envOr("METRICS_PROVIDER", "metrics-server")
+// Sample is one series of an instant vector.
+type Sample struct {
+	Labels map[string]string
+	Value  float64
+}
+
+// ErrNoPromQL means no Prometheus is configured. Detectors that need one
+// treat it as "nothing to check", not as a failure.
+var ErrNoPromQL = errors.New("prometheus not configured")
+
+// NewProvider returns the CPU metrics source: "prometheus" (needs url) or the
+// metrics-server stub for anything else.
+func NewProvider(kind, url string, hc *http.Client) (Provider, error) {
+	t := kind
 	switch t {
 	case "prometheus":
-		base := envOr("PROMETHEUS_URL", "")
+		base := url
 		if base == "" {
 			return nil, fmt.Errorf("PROMETHEUS_URL required for prometheus provider")
 		}
 		return &prom{
-			base: base,
-			client: &http.Client{
-				Timeout: 10 * time.Second,
-			},
+			base:   base,
+			client: httpx.Client(hc, 10*time.Second),
 		}, nil
 	default:
 		klog.Warningf("metrics: using stub provider (METRICS_PROVIDER=%s)", t)
@@ -49,7 +64,11 @@ func (*stub) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, _ string)
 }
 
 func (*stub) QueryInstant(_ context.Context, _ string) (float64, error) {
-	return 0, fmt.Errorf("prometheus not configured")
+	return 0, ErrNoPromQL
+}
+
+func (*stub) QueryVector(_ context.Context, _ string) ([]Sample, error) {
+	return nil, ErrNoPromQL
 }
 
 // --- Prometheus provider ---
@@ -67,23 +86,34 @@ func sanitizeLabelValue(s string) string {
 }
 
 func (p *prom) QueryInstant(ctx context.Context, q string) (float64, error) {
+	v, err := p.QueryVector(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	if len(v) == 0 {
+		return 0, fmt.Errorf("prometheus: no data for query")
+	}
+	return v[0].Value, nil
+}
+
+func (p *prom) QueryVector(ctx context.Context, q string) ([]Sample, error) {
 	u := p.base + "/api/v1/query?query=" + url.QueryEscape(q)
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		return 0, fmt.Errorf("prometheus: create request: %w", err)
+		return nil, fmt.Errorf("prometheus: create request: %w", err)
 	}
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("prometheus: query: %w", err)
+		return nil, fmt.Errorf("prometheus: query: %w", err)
 	}
 	defer resp.Body.Close()
 
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
 	if err != nil {
-		return 0, fmt.Errorf("prometheus: read body: %w", err)
+		return nil, fmt.Errorf("prometheus: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("prometheus: status %d: %s", resp.StatusCode, truncBody(b))
+		return nil, fmt.Errorf("prometheus: status %d: %s", resp.StatusCode, truncBody(b))
 	}
 
 	var out struct {
@@ -91,28 +121,30 @@ func (p *prom) QueryInstant(ctx context.Context, q string) (float64, error) {
 		Data   struct {
 			ResultType string `json:"resultType"`
 			Result     []struct {
-				Value [2]interface{} `json:"value"`
+				Metric map[string]string `json:"metric"`
+				Value  [2]interface{}    `json:"value"`
 			} `json:"result"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
-		return 0, fmt.Errorf("prometheus: unmarshal: %w", err)
+		return nil, fmt.Errorf("prometheus: unmarshal: %w", err)
 	}
 	if out.Status != "success" {
-		return 0, fmt.Errorf("prometheus: query status: %s", out.Status)
+		return nil, fmt.Errorf("prometheus: query status: %s", out.Status)
 	}
-	if len(out.Data.Result) == 0 {
-		return 0, fmt.Errorf("prometheus: no data for query")
+	samples := make([]Sample, 0, len(out.Data.Result))
+	for _, r := range out.Data.Result {
+		s, ok := r.Value[1].(string)
+		if !ok {
+			return nil, fmt.Errorf("prometheus: unexpected value type")
+		}
+		var f float64
+		if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
+			return nil, fmt.Errorf("prometheus: parse value %q: %w", s, err)
+		}
+		samples = append(samples, Sample{Labels: r.Metric, Value: f})
 	}
-	s, ok := out.Data.Result[0].Value[1].(string)
-	if !ok {
-		return 0, fmt.Errorf("prometheus: unexpected value type")
-	}
-	var f float64
-	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
-		return 0, fmt.Errorf("prometheus: parse value %q: %w", s, err)
-	}
-	return f, nil
+	return samples, nil
 }
 
 func (p *prom) AvgDeploymentCPU(ctx context.Context, d *appsv1.Deployment, window string) (float64, error) {
@@ -126,13 +158,6 @@ func (p *prom) AvgDeploymentCPU(ctx context.Context, d *appsv1.Deployment, windo
 		ns, name, window,
 	)
 	return p.QueryInstant(ctx, q)
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func truncBody(b []byte) string {

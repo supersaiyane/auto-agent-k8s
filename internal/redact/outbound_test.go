@@ -53,32 +53,32 @@ func TestOutboundClientsRedact(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name string
-		send func()
+		send func(hc *http.Client)
 	}{
-		{"llm diagnose", func() {
-			llm.New("https://llm.test/v1/chat", "key", "m", true, 5).Diagnose(ctx, "CrashLoop "+leakyLog, leakyLog)
+		{"llm diagnose", func(hc *http.Client) {
+			llm.New("https://llm.test/v1/chat", "key", "m", true, 5, hc).Diagnose(ctx, "CrashLoop "+leakyLog, leakyLog)
 		}},
-		{"slack post", func() { _ = slack.New("https://hooks.slack.test/x", 5).Post(leakyLog) }},
-		{"slack blocks", func() {
-			_ = slack.New("https://hooks.slack.test/x", 5).PostBlocks(
+		{"slack post", func(hc *http.Client) { _ = slack.New("https://hooks.slack.test/x", 5, hc).Post(leakyLog) }},
+		{"slack blocks", func(hc *http.Client) {
+			_ = slack.New("https://hooks.slack.test/x", 5, hc).PostBlocks(
 				slack.BuildIncidentBlocks("CrashLoop", leakyLog, "default", "api", "inc-1"))
 		}},
-		{"alertmanager", func() {
-			_ = alertmanager.New("https://am.test").Fire(ctx, alertmanager.Alert{
+		{"alertmanager", func(hc *http.Client) {
+			_ = alertmanager.New("https://am.test", hc).Fire(ctx, alertmanager.Alert{
 				Labels:      map[string]string{"alertname": "AutoAgentIncident"},
 				Annotations: map[string]string{"description": leakyLog},
 			})
 		}},
-		{"github issue", func() {
-			_, _ = integrations.NewGitHubIssues("tok", "o/r").CreateOrUpdate(ctx, "k1",
+		{"github issue", func(hc *http.Client) {
+			_, _ = integrations.NewGitHubIssues("tok", "o/r", hc).CreateOrUpdate(ctx, "k1",
 				integrations.Ticket{Title: "CrashLoop " + leakyLog, Body: leakyLog})
 		}},
-		{"jira issue", func() {
-			_, _ = integrations.NewJira("tok", "https://jira.test", "OPS", "bot@corp.test").CreateOrUpdate(ctx, "k1",
+		{"jira issue", func(hc *http.Client) {
+			_, _ = integrations.NewJira("tok", "https://jira.test", "OPS", "bot@corp.test", hc).CreateOrUpdate(ctx, "k1",
 				integrations.Ticket{Title: "CrashLoop " + leakyLog, Body: leakyLog})
 		}},
-		{"github pr text", func() {
-			_, _ = integrations.NewGitHub("tok", "o/r", "main").OpenPR(ctx, integrations.GitOpsChange{
+		{"github pr text", func(hc *http.Client) {
+			_, _ = integrations.NewGitHub("tok", "o/r", "main", hc).OpenPR(ctx, integrations.GitOpsChange{
 				FilePath: "values.yaml", Content: []byte("replicas: 2\n"), Title: "fix " + leakyLog,
 				Body: leakyLog, Branch: "auto-agent/x"})
 		}},
@@ -86,11 +86,7 @@ func TestOutboundClientsRedact(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ct := &captureTransport{}
-			orig := http.DefaultTransport
-			http.DefaultTransport = ct
-			defer func() { http.DefaultTransport = orig }()
-
-			tc.send()
+			tc.send(&http.Client{Transport: ct}) // injected, no global swap (PLAN-002 9.2)
 
 			all := strings.Join(ct.bodies, "\n---\n")
 			if len(ct.bodies) == 0 {

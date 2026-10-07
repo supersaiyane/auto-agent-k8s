@@ -12,22 +12,38 @@
 |------|------|
 | `00-namespace.yaml` | `auto-agent` namespace |
 | `01-crds.yaml` | AutoRemediationPolicy CRD |
-| `02-rbac.yaml` | ServiceAccount + ClusterRole + ClusterRoleBinding |
-| `03-config.yaml` | ConfigMap (all settings) + Secret (tokens) |
-| `04-daemonset.yaml` | DaemonSet + NodePort Service (30080) |
+| `02-rbac.yaml` | One ServiceAccount, ClusterRole and write Roles per role (node, controller) |
+| `03-config.yaml` | ConfigMap (all settings) |
+| `04-agent.yaml` | Node agent DaemonSet, controller Deployment, ClusterIP Service, NetworkPolicies |
+| `ensure-secret.sh` | Creates the Secret once with generated tokens; never overwrites it |
+
+Files `01` to `04` are generated from the chart by `make manifests`; `make
+verify` fails if they drift.
 | `deploy.sh` | One-shot: build → load → apply → port-forward |
 | `teardown.sh` | Clean removal of everything |
 
-### What deploy.sh Does
+### What deploy.sh does
 
-1. Verifies `kubectl` cluster access
-2. Builds Docker image (`auto-agent:latest`)
-3. Auto-detects cluster type and loads image (containerd/KIND/Minikube/k3d)
-4. Reads `COST_PROVIDER`: installs Kubecost/OpenCost if configured
-5. Applies all manifests in order
-6. Patches cost provider URL into ConfigMap
-7. Waits for DaemonSet rollout
-8. Starts port-forward, opens browser
+1. Checks cluster access (`--context NAME` picks a kubectl context).
+2. Builds `auto-agent:latest` and loads it into kind or minikube. Any other
+   cluster needs a pushed image: `--image REGISTRY/auto-agent@sha256:...`.
+3. Applies the namespace, CRD, RBAC and ConfigMap. Allowlisted namespaces
+   (`test1`, `test2`, `chaos`) it has to create are labelled
+   `auto-agent.io/demo=true`.
+4. Creates the Secret once with generated tokens (`ensure-secret.sh`); a
+   re-run keeps every value you patched in.
+5. Installs OpenCost or Kubecost only with `--with-opencost` or
+   `--with-kubecost`, or sets manual prices with `--cost-manual 0.05,0.005,USD`.
+6. Applies the node agents and the controller and waits for both.
+7. Starts a dashboard port-forward on `localhost:8080` unless the port is
+   taken (`--no-port-forward` skips it). It never stops a process it did not
+   start.
+
+`teardown.sh` removes what deploy.sh installed. It keeps the CRD and your
+policies unless you pass `--delete-policies`, removes OpenCost or Kubecost
+only if deploy.sh installed them, and removes demo namespaces only with
+`--delete-demo-namespaces`. `make e2e-raw` runs both scripts on a throwaway
+kind cluster and checks exactly that.
 
 ## Option 2: Helm
 

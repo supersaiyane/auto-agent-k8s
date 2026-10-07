@@ -11,16 +11,25 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type Elector struct{ leader int32 }
+type Elector struct {
+	leader  int32
+	current atomic.Value // string: the identity holding the lease
+}
 
 func (e *Elector) IsLeader() bool { return atomic.LoadInt32(&e.leader) == 1 }
 
-func Start(ctx context.Context, kc *kubernetes.Clientset, namespace, name string) *Elector {
+// Leader is the identity (pod name) of the current leader, or "" before
+// one is known. A standby controller proxies to it (ADR-001).
+func (e *Elector) Leader() string {
+	id, _ := e.current.Load().(string) // unset before the first leader is seen
+	return id
+}
+
+func Start(ctx context.Context, kc kubernetes.Interface, namespace, name, identity string) *Elector {
 	e := &Elector{}
 
 	// Each pod must have a unique identity for leader election.
-	// Use POD_NAME (set via downward API) or fall back to hostname.
-	identity := os.Getenv("POD_NAME")
+	// The caller passes POD_NAME (downward API); fall back to the hostname.
 	if identity == "" {
 		var err error
 		identity, err = os.Hostname()
@@ -59,6 +68,7 @@ func Start(ctx context.Context, kc *kubernetes.Clientset, namespace, name string
 			},
 			OnNewLeader: func(identity string) {
 				klog.Infof("current leader: %s", identity)
+				e.current.Store(identity)
 			},
 		},
 	})

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"k8s.io/klog/v2"
 )
 
@@ -32,23 +32,12 @@ type Sink interface {
 
 // --- Singleton sink (initialized once) ---
 
-var (
-	sinkOnce sync.Once
-	sinkInst Sink
-)
-
-func GlobalSink() Sink {
-	sinkOnce.Do(func() {
-		sinkInst = newSinkFromEnv()
-	})
-	return sinkInst
-}
-
-func newSinkFromEnv() Sink {
-	switch os.Getenv("LOG_STORE") {
+// NewSink builds the log bundle sink from configuration (PLAN-002 8.3).
+func NewSink(c config.Storage) Sink {
+	switch c.Store {
 	case "s3":
-		if b := os.Getenv("LOG_S3_BUCKET"); b != "" {
-			s, err := NewS3Real(context.Background(), b, os.Getenv("LOG_S3_PREFIX"))
+		if b := c.S3Bucket; b != "" {
+			s, err := NewS3Real(context.Background(), b, c.S3Prefix)
 			if err != nil {
 				klog.Warningf("storage: failed to init S3 sink: %v, falling back to filesystem", err)
 			} else {
@@ -58,12 +47,12 @@ func newSinkFromEnv() Sink {
 		}
 		return newFSSink("/var/log/auto-agent/s3mirror")
 	case "efs":
-		return newFSSink(os.Getenv("LOG_EFS_PATH"))
+		return newFSSink(c.EFSPath)
 	case "none":
 		klog.Infof("storage: logging disabled (LOG_STORE=none)")
 		return &nopSink{}
 	default:
-		return newFSSink(os.Getenv("LOG_EFS_PATH"))
+		return newFSSink(c.EFSPath)
 	}
 }
 

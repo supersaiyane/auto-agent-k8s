@@ -15,6 +15,7 @@ import (
 // LearningMode collects workload baselines over a learning period
 // and auto-tunes thresholds per workload.
 type LearningMode struct {
+	now       func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu        sync.RWMutex
 	baselines map[string]*WorkloadBaseline // key: "ns/workload"
 	period    time.Duration                // how long to learn (default 2 weeks)
@@ -58,7 +59,7 @@ func NewLearningMode(savePath string, period time.Duration) *LearningMode {
 
 // IsLearning returns true if still in the learning period.
 func (lm *LearningMode) IsLearning() bool {
-	return time.Since(lm.startTime) < lm.period
+	return lm.clock().Sub(lm.startTime) < lm.period
 }
 
 // RecordCPU adds a CPU sample for a workload.
@@ -71,7 +72,7 @@ func (lm *LearningMode) RecordCPU(ns, workload string, cpu float64) {
 		bl = &WorkloadBaseline{
 			Workload:  workload,
 			Namespace: ns,
-			FirstSeen: time.Now(),
+			FirstSeen: lm.clock(),
 		}
 		lm.baselines[key] = bl
 	}
@@ -212,4 +213,12 @@ func stddev(vals []float64, avg float64) float64 {
 		sumSq += (v - avg) * (v - avg)
 	}
 	return math.Sqrt(sumSq / float64(len(vals)-1))
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (lm *LearningMode) clock() time.Time {
+	if lm.now != nil {
+		return lm.now()
+	}
+	return time.Now()
 }

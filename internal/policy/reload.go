@@ -6,7 +6,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -130,15 +129,4 @@ func namespaceKeys(p *Policy) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// InitialLoad loads the policy from configmap on startup, falling back to env.
-func InitialLoad(ctx context.Context, kc kubernetes.Interface, namespace, configMap string) *Policy {
-	cm, err := kc.CoreV1().ConfigMaps(namespace).Get(ctx, configMap, metav1.GetOptions{})
-	if err != nil {
-		klog.V(2).Infof("policy: ConfigMap %s/%s not found, using env vars: %v", namespace, configMap, err)
-		return LoadFromEnv()
-	}
-	base := LoadFromEnv()
-	return applyConfigMapData(base, cm.Data)
 }

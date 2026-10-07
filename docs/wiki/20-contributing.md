@@ -39,7 +39,7 @@ func CheckMyIssue(ctx context.Context, deps *Deps) {
 
 ### 2. Wire into the periodic loop
 
-In `cmd/auto-agent/main.go`, add to the appropriate ticker:
+In `cmd/auto-agent/run.go`, add to the appropriate ticker:
 ```go
 case <-jobTicker.C:
     // ... existing checks

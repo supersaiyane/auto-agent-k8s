@@ -11,6 +11,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // Client supports posting to a default webhook and per-channel overrides.
@@ -21,16 +23,14 @@ type Client struct {
 	channels    map[string]string // channel name -> webhook URL
 }
 
-func New(hook string, timeoutSec int) *Client {
+func New(hook string, timeoutSec int, hc *http.Client) *Client {
 	if timeoutSec <= 0 {
 		timeoutSec = 5
 	}
 	return &Client{
 		defaultHook: hook,
-		client: &http.Client{
-			Timeout: time.Duration(timeoutSec) * time.Second,
-		},
-		channels: make(map[string]string),
+		client:      httpx.Client(hc, time.Duration(timeoutSec)*time.Second),
+		channels:    make(map[string]string),
 	}
 }
 

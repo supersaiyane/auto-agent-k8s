@@ -13,6 +13,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // GitOpsChange describes a file change to propose via PR/MR.
@@ -38,12 +40,12 @@ type githubClient struct {
 	client *http.Client
 }
 
-func NewGitHub(token, repo, base string) GitOps {
+func NewGitHub(token, repo, base string, hc *http.Client) GitOps {
 	return &githubClient{
 		token:  token,
 		repo:   repo,
 		base:   base,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: httpx.Client(hc, 30*time.Second),
 	}
 }
 
@@ -249,13 +251,13 @@ type gitlabClient struct {
 	client  *http.Client
 }
 
-func NewGitLab(token, project, base string) GitOps {
+func NewGitLab(token, project, base string, hc *http.Client) GitOps {
 	return &gitlabClient{
 		token:   token,
 		project: project,
 		base:    base,
 		baseURL: "https://gitlab.com",
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  httpx.Client(hc, 30*time.Second),
 	}
 }
 

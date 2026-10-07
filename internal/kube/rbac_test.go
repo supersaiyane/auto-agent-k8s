@@ -46,7 +46,7 @@ var typedAccessors = map[string]perm{
 	"Jobs": {"batch", "jobs", ""}, "CronJobs": {"batch", "cronjobs", ""},
 	"HorizontalPodAutoscalers": {"autoscaling", "horizontalpodautoscalers", ""},
 	"Ingresses":                {"networking.k8s.io", "ingresses", ""}, "StorageClasses": {"storage.k8s.io", "storageclasses", ""},
-	"Evictions": {"", "pods/eviction", ""},
+	"Evictions": {"", "pods/eviction", ""}, "PodDisruptionBudgets": {"policy", "poddisruptionbudgets", ""},
 }
 
 var clientVerbs = map[string]string{
@@ -104,37 +104,11 @@ func codePerms(t *testing.T) map[perm]bool {
 				if !ok {
 					return true
 				}
-				verbSel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || clientVerbs[verbSel.Sel.Name] == "" {
-					return true
+				if p, ok, unknown := typedCallPerm(call); ok {
+					need[p] = true
+				} else if unknown != "" {
+					t.Errorf("%s: %s has no RBAC mapping; add it to typedAccessors", fset.Position(call.Pos()), unknown)
 				}
-				resCall, ok := verbSel.X.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				resSel, ok := resCall.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				gvCall, ok := resSel.X.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				gvSel, ok := gvCall.Fun.(*ast.SelectorExpr)
-				if !ok || !groupVersion.MatchString(gvSel.Sel.Name) {
-					return true
-				}
-				p, known := typedAccessors[resSel.Sel.Name]
-				if !known {
-					t.Errorf("%s: %s().%s has no RBAC mapping; add it to typedAccessors",
-						fset.Position(call.Pos()), gvSel.Sel.Name, resSel.Sel.Name)
-					return true
-				}
-				p.verb = clientVerbs[verbSel.Sel.Name]
-				if verbSel.Sel.Name == "GetLogs" {
-					p.resource = "pods/log"
-				}
-				need[p] = true
 				return true
 			})
 			return nil
@@ -146,6 +120,41 @@ func codePerms(t *testing.T) map[perm]bool {
 	return need
 }
 
+// typedCallPerm maps a typed client call such as
+// kc.CoreV1().Pods(ns).List(...) to its permission. unknown names an
+// accessor missing from typedAccessors.
+func typedCallPerm(call *ast.CallExpr) (p perm, ok bool, unknown string) {
+	verbSel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || clientVerbs[verbSel.Sel.Name] == "" {
+		return perm{}, false, ""
+	}
+	resCall, ok := verbSel.X.(*ast.CallExpr)
+	if !ok {
+		return perm{}, false, ""
+	}
+	resSel, ok := resCall.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return perm{}, false, ""
+	}
+	gvCall, ok := resSel.X.(*ast.CallExpr)
+	if !ok {
+		return perm{}, false, ""
+	}
+	gvSel, ok := gvCall.Fun.(*ast.SelectorExpr)
+	if !ok || !groupVersion.MatchString(gvSel.Sel.Name) {
+		return perm{}, false, ""
+	}
+	p, known := typedAccessors[resSel.Sel.Name]
+	if !known {
+		return perm{}, false, gvSel.Sel.Name + "()." + resSel.Sel.Name
+	}
+	p.verb = clientVerbs[verbSel.Sel.Name]
+	if verbSel.Sel.Name == "GetLogs" {
+		p.resource = "pods/log"
+	}
+	return p, true, ""
+}
+
 type renderedRole struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
@@ -155,7 +164,9 @@ type renderedRole struct {
 	Rules []rbacv1.PolicyRule `json:"rules"`
 }
 
-func renderRoles(t *testing.T, args ...string) []renderedRole {
+// renderKinds renders the chart and returns the JSON of every object whose
+// kind is in kinds.
+func renderKinds(t *testing.T, kinds map[string]bool, args ...string) [][]byte {
 	t.Helper()
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed; RBAC check needs `helm template`")
@@ -164,7 +175,7 @@ func renderRoles(t *testing.T, args ...string) []renderedRole {
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
-	var roles []renderedRole
+	var objs [][]byte
 	dec := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
 	for {
 		var raw map[string]any
@@ -173,10 +184,23 @@ func renderRoles(t *testing.T, args ...string) []renderedRole {
 		} else if err != nil {
 			t.Fatalf("decode chart output: %v", err)
 		}
-		if raw["kind"] != "ClusterRole" && raw["kind"] != "Role" {
+		kind, _ := raw["kind"].(string) // an object without a kind is skipped
+		if !kinds[kind] {
 			continue
 		}
-		b, _ := json.Marshal(raw)
+		b, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatalf("encode %s: %v", kind, err)
+		}
+		objs = append(objs, b)
+	}
+	return objs
+}
+
+func renderRoles(t *testing.T, args ...string) []renderedRole {
+	t.Helper()
+	var roles []renderedRole
+	for _, b := range renderKinds(t, map[string]bool{"ClusterRole": true, "Role": true}, args...) {
 		var r renderedRole
 		if err := json.Unmarshal(b, &r); err != nil {
 			t.Fatalf("role: %v", err)
@@ -306,8 +330,8 @@ func TestCertExpiryCheck_OnlyWhenOptedIn(t *testing.T) {
 		wantReads bool
 	}{{"", false}, {"false", false}, {"true", true}} {
 		t.Run("TLS_CERT_CHECK="+tc.env, func(t *testing.T) {
-			t.Setenv("TLS_CERT_CHECK", tc.env)
 			deps, kc := newHandlerTestDeps(t)
+			deps.TLSCertCheck = tc.env == "true" // parsing is tested in internal/config
 			reads := 0
 			kc.PrependReactor("list", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
 				reads++

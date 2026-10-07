@@ -13,6 +13,8 @@ import (
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx"
 )
 
 // RunbookStep is a single step in a runbook.
@@ -46,11 +48,11 @@ type RunbookStepResult struct {
 }
 
 // FetchRunbook downloads a runbook from a URL (JSON format).
-func FetchRunbook(ctx context.Context, url string) (*Runbook, error) {
+func FetchRunbook(ctx context.Context, hc *http.Client, url string) (*Runbook, error) {
 	if url == "" {
 		return nil, fmt.Errorf("no runbook URL")
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpx.Client(hc, 10*time.Second)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("runbook: create request: %w", err)
@@ -92,7 +94,7 @@ func ExecuteRunbook(ctx context.Context, deps *Deps, rb *Runbook, ns string) Run
 		}
 
 		// Execute by calling the agent's own kubectl API
-		output, err := execRunbookCmd(ctx, step.Command)
+		output, err := execRunbookCmd(ctx, deps.HTTPClient, step.Command)
 		if err != nil {
 			stepResult.Status = "fail"
 			stepResult.Error = err.Error()
@@ -121,7 +123,7 @@ func RunRunbookForIncident(ctx context.Context, deps *Deps, runbookURL, ns, work
 		return ""
 	}
 
-	rb, err := FetchRunbook(ctx, runbookURL)
+	rb, err := FetchRunbook(ctx, deps.HTTPClient, runbookURL)
 	if err != nil {
 		klog.V(3).Infof("runbook: fetch failed for %s: %v", runbookURL, err)
 		return ""
@@ -162,8 +164,8 @@ func RunRunbookForIncident(ctx context.Context, deps *Deps, runbookURL, ns, work
 }
 
 // execRunbookCmd executes a command by calling the agent's own API.
-func execRunbookCmd(ctx context.Context, cmd string) (string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+func execRunbookCmd(ctx context.Context, hc *http.Client, cmd string) (string, error) {
+	client := httpx.Client(hc, 10*time.Second)
 	payload := fmt.Sprintf(`{"command":"%s"}`, strings.ReplaceAll(cmd, `"`, `\"`))
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost:8080/api/kubectl",
 		strings.NewReader(payload))

@@ -10,6 +10,7 @@ import (
 // is exceeded within a window. Once tripped, all actions for that workload
 // are blocked until the window expires.
 type CircuitBreaker struct {
+	now       func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu        sync.Mutex
 	actions   map[string][]time.Time // key: "ns/workload" -> timestamps
 	threshold int
@@ -39,7 +40,7 @@ func (cb *CircuitBreaker) RecordAndCheck(ns, workload string) bool {
 	defer cb.mu.Unlock()
 
 	key := fmt.Sprintf("%s/%s", ns, workload)
-	now := time.Now()
+	now := cb.clock()
 
 	// Check if already tripped
 	if tripTime, ok := cb.tripped[key]; ok {
@@ -82,7 +83,7 @@ func (cb *CircuitBreaker) IsTripped(ns, workload string) bool {
 	if !ok {
 		return false
 	}
-	if time.Since(tripTime) >= cb.window {
+	if cb.clock().Sub(tripTime) >= cb.window {
 		delete(cb.tripped, key)
 		delete(cb.actions, key)
 		return false
@@ -94,7 +95,7 @@ func (cb *CircuitBreaker) IsTripped(ns, workload string) bool {
 func (cb *CircuitBreaker) TrippedWorkloads() []string {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	now := time.Now()
+	now := cb.clock()
 	var result []string
 	for key, tripTime := range cb.tripped {
 		if now.Sub(tripTime) < cb.window {
@@ -102,4 +103,12 @@ func (cb *CircuitBreaker) TrippedWorkloads() []string {
 		}
 	}
 	return result
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (cb *CircuitBreaker) clock() time.Time {
+	if cb.now != nil {
+		return cb.now()
+	}
+	return time.Now()
 }

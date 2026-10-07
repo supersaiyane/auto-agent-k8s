@@ -59,13 +59,21 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	}
 
 	image := imageOf(pod, cname)
+	cause := classifyPull(append([]string{waitingMessage(pod, cname)}, events...)...)
 	msg := fmt.Sprintf("*ImagePullBackOff* on `%s/%s` (container: `%s`, image: `%s`)\nSaved: `%s`\n", ns, name, cname, image, url)
-	msg += "_Check_: image name, tag, registry credentials (ImagePullSecret), and network access to registry.\n"
-	msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "ImagePullBackOff", "delete_pod",
-		func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
-		"deleted pod to retry image pull",
-		"delete pod to retry image pull",
-	)
+	msg += fmt.Sprintf("Cause: %s\n_Fix_: %s\n", cause.label, pullFix(cause, pod, image))
+	rung := RungAuto
+	if cause.retry {
+		msg += tryFixAction(ctx, deps, ns, wl, name, pod.Labels, "ImagePullBackOff", "delete_pod",
+			func() error { return deps.Client.CoreV1().Pods(ns).Delete(ctx, name, metav1.DeleteOptions{}) },
+			"deleted pod to retry image pull",
+			"delete pod to retry image pull",
+		)
+	} else {
+		// Retrying cannot help here, and on a rate limit it adds pulls (ISS-044).
+		rung = RungGuided
+		msg += "_No retry_: deleting the pod would not change this cause.\n"
+	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "ImagePullBackOff", strings.Join(events, "\n"))
 	deps.Slack.Post(msg)
@@ -73,7 +81,7 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl), fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ImagePullBackOff",
-		Message: fmt.Sprintf("Cannot pull image %s", image), LogURL: url})
+		Message: fmt.Sprintf("Cannot pull image %s: %s", image, cause.label), LogURL: url, Rung: string(rung)})
 	obs.IncidentsTotal.WithLabelValues("ImagePullBackOff", ns, wl).Inc()
 }
 
@@ -181,6 +189,12 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	ns, name := pod.Namespace, pod.Name
 	wl := ownerName(pod)
+	if pod.Spec.NodeName == "" {
+		return // unschedulable: CheckPodStates on the leader names the constraint (ISS-043)
+	}
+	if len(volumeFailures(listObjectEvents(ctx, deps.Client, ns, name))) > 0 {
+		return // volume failures: CheckPodStates names the volume (PLAN-002 10.3)
+	}
 	klog.Infof("handler: Pending pod detected %s/%s (>5m)", ns, name)
 
 	events := collectEvents(ctx, deps.Client, ns, name)
@@ -274,4 +288,70 @@ func recordEvent(deps *Deps, evt eventsvc.Event) {
 func sanitizeBranch(s string) string {
 	r := strings.NewReplacer("/", "-", " ", "-", ":", "-")
 	return r.Replace(s)
+}
+
+// pullCause is why an image pull failed, and whether retrying can help
+// (PLAN-002 10.16, ISS-044).
+type pullCause struct {
+	kind, label string
+	retry       bool
+}
+
+// pullCauses is checked in order; the first phrase found decides.
+var pullCauses = []struct {
+	phrases []string
+	cause   pullCause
+}{
+	{[]string{"toomanyrequests", "429 too many requests", "rate limit"},
+		pullCause{"ratelimited", "registry rate limit (toomanyrequests)", false}},
+	{[]string{"unauthorized", "authentication required", "no basic auth credentials", "403 forbidden", "access denied", "denied:"},
+		pullCause{"unauthorized", "registry refused the credentials (unauthorized)", false}},
+	{[]string{"manifest unknown", "not found", "name unknown"},
+		pullCause{"notfound", "image or tag does not exist", false}},
+	{[]string{"i/o timeout", "no such host", "connection refused", "tls handshake timeout", "dial tcp"},
+		pullCause{"network", "node cannot reach the registry", true}},
+}
+
+func classifyPull(texts ...string) pullCause {
+	all := strings.ToLower(strings.Join(texts, "\n"))
+	for _, c := range pullCauses {
+		for _, p := range c.phrases {
+			if strings.Contains(all, p) {
+				return c.cause
+			}
+		}
+	}
+	return pullCause{"unknown", "not recognised from the pull error", true}
+}
+
+func pullFix(c pullCause, pod *corev1.Pod, image string) string {
+	switch c.kind {
+	case "ratelimited":
+		return "authenticate pulls with an imagePullSecret, pull through a mirror or cache, or pin images so nodes reuse cached layers; the agent does not retry, because each retry is another pull against the limit"
+	case "unauthorized":
+		secrets := make([]string, 0, len(pod.Spec.ImagePullSecrets))
+		for _, s := range pod.Spec.ImagePullSecrets {
+			secrets = append(secrets, s.Name)
+		}
+		have := "none are set on the pod"
+		if len(secrets) > 0 {
+			have = "the pod uses `" + strings.Join(secrets, "`, `") + "`"
+		}
+		return fmt.Sprintf("give the pod an imagePullSecret with a valid token for this registry in namespace `%s` (%s), or attach one to its service account", pod.Namespace, have)
+	case "notfound":
+		return fmt.Sprintf("check the reference `%s` and that the tag was pushed to the registry", image)
+	case "network":
+		return fmt.Sprintf("check DNS and egress from node `%s` to the registry; the agent retries once the path is back", pod.Spec.NodeName)
+	}
+	return "check the image name, tag, registry credentials and network access to the registry"
+}
+
+// waitingMessage is the kubelet's message for a waiting container.
+func waitingMessage(pod *corev1.Pod, cname string) string {
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name == cname && cs.State.Waiting != nil {
+			return cs.State.Waiting.Message
+		}
+	}
+	return ""
 }

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source-path=SCRIPTDIR source=../lib.sh
+. "$DIR/../lib.sh"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 pass=0; fail=0; skip=0; total=0
 
@@ -11,7 +13,7 @@ warn() { echo -e "  ${YELLOW}SKIP${NC} $1"; skip=$((skip+1)); total=$((total+1))
 
 check_log() {
     local pattern=$1 timeout=${2:-60}
-    for i in $(seq 1 $timeout); do
+    for i in $(seq 1 "$timeout"); do
         echo -ne "  \033[2m    ${i}s/${timeout}s\033[0m\r"
         if kubectl logs -n auto-agent -l app=auto-agent --tail=500 --since=20m 2>/dev/null | grep -iq "$pattern"; then
             echo -ne "\033[2K\r"
@@ -39,30 +41,17 @@ else
     err "Agent NOT running"; exit 1
 fi
 
-# Make sure chaos namespace is in the allowlist
-ALLOWLIST=$(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}' 2>/dev/null || echo "")
-if ! echo "$ALLOWLIST" | grep -q "chaos"; then
-    echo -e "  ${YELLOW}Adding 'chaos' to NAMESPACE_ALLOWLIST...${NC}"
-    NEW_LIST="$ALLOWLIST,chaos"
-    kubectl patch cm auto-agent-config -n auto-agent --type merge -p "{\"data\":{\"NAMESPACE_ALLOWLIST\":\"$NEW_LIST\"}}" > /dev/null
-    kubectl rollout restart ds/auto-agent -n auto-agent > /dev/null 2>&1
-    kubectl rollout status ds/auto-agent -n auto-agent --timeout=120s > /dev/null 2>&1
-    # Restart port-forward (rollout kills it)
-    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-    sleep 2
-    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
-    sleep 2
-    ok "Agent restarted with chaos namespace"
-fi
+# The chaos namespace must be allowlisted by the generated manifests, which
+# also grant the write Roles there; patching the allowlist here would leave
+# the agent without permission to act (PLAN-002 11.4).
+ALLOWLIST=$(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')
+case ",$ALLOWLIST," in
+*,chaos,*) ok "chaos is allowlisted" ;;
+*) echo "The agent does not watch the chaos namespace (allowlist: $ALLOWLIST). Regenerate the manifests (make manifests) and redeploy." >&2; exit 1 ;;
+esac
 
-# Ensure port-forward is running
-if ! curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
-    echo -e "  ${YELLOW}Restarting port-forward...${NC}"
-    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-    sleep 1
-    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
-    sleep 2
-fi
+# Dashboard: reuse a port-forward if one answers; never kill another process.
+dashboard_forward auto-agent || true
 
 # Deploy chaos suite
 echo ""
@@ -191,11 +180,8 @@ COUNT=$(echo "$EVENTS" | grep -o '"id"' | wc -l | tr -d ' ')
 echo -e "${CYAN}[22]${NC} Dashboard events"
 if [ "$COUNT" -gt 0 ]; then ok "Dashboard has $COUNT events"; else warn "No events yet"; fi
 
-# Find dashboard URL (NodePort 30080 or port-forward 8080)
 DASH_URL=""
-if curl -sf http://localhost:30080/healthz > /dev/null 2>&1; then
-    DASH_URL="http://localhost:30080"
-elif curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+if dashboard_forward auto-agent; then
     DASH_URL="http://localhost:8080"
 fi
 
@@ -203,16 +189,7 @@ echo -e "${CYAN}[23]${NC} Dashboard UI"
 if [ -n "$DASH_URL" ]; then
     ok "Dashboard at $DASH_URL"
 else
-    # Try to start port-forward
-    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-    kubectl port-forward -n auto-agent svc/auto-agent 8080:8080 > /dev/null 2>&1 &
-    sleep 2
-    if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
-        DASH_URL="http://localhost:8080"
-        ok "Dashboard at $DASH_URL (port-forward restarted)"
-    else
-        warn "Dashboard not reachable"
-    fi
+    warn "Dashboard not reachable on localhost:8080"
 fi
 
 echo -e "${CYAN}[24]${NC} Cost API"
@@ -260,5 +237,5 @@ if [ $fail -gt 0 ]; then
 fi
 
 echo ""
-echo "  Cleanup: kubectl delete ns chaos"
+echo "  Cleanup: deployment/test-apps/remove-apps.sh"
 echo ""

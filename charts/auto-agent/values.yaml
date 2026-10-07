@@ -45,7 +45,10 @@ metricsProvider:
   prometheusUrl: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
 gitops:
-  mode: pr                         # pr|live
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17); the agent always
+  # opens a pull request. "live" will commit straight to the branch, skipping
+  # code review, and will stay off unless you set it.
+  mode: pr                         # pr | live (not implemented)
   provider: github                 # github|gitlab
   repo: "yourorg/helm-env"
   branch: "main"
@@ -152,10 +155,30 @@ learning:
   periodDays: 14
 
 images:
+  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17). When built, the
+  # admission webhook will rewrite matching image references as pods are
+  # created. Off by default.
   mirror:
     enabled: false
     prefix: "registry.internal/"
     allowList: []
+
+# Controller (ADR-001): leader-elected cluster loops, event log, dashboard
+# and API. Node agents run as the DaemonSet and use tolerations/resources.
+controller:
+  replicas: 2
+  tolerations: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Token node agents use to reach the controller. Empty: generated once and
+# kept across upgrades.
+internalToken: ""
 
 env: []
 tolerations:

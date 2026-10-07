@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +25,7 @@ func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 func checkCertExpiry(ctx context.Context, deps *Deps) {
 	// Reading secrets is an opt-in grant (chart rbac.readTLSSecrets sets
 	// TLS_CERT_CHECK); without it the check does not run at all (ISS-009).
-	if os.Getenv("TLS_CERT_CHECK") != "true" {
+	if !deps.TLSCertCheck {
 		return
 	}
 	for ns := range deps.Policy().NamespaceAllow {

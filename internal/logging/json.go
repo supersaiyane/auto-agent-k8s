@@ -27,8 +27,7 @@ type Logger struct {
 }
 
 // NewLogger creates a JSON logger if LOG_FORMAT=json, otherwise returns a nop logger.
-func NewLogger() *Logger {
-	format := os.Getenv("LOG_FORMAT")
+func NewLogger(format string) *Logger {
 	if format != "json" {
 		return &Logger{enabled: false}
 	}
@@ -110,8 +109,7 @@ func FormatIncident(reason, namespace, workload, message, severity string) strin
 }
 
 // Init configures klog output format. Call early in main.
-func Init() {
-	format := os.Getenv("LOG_FORMAT")
+func Init(format string) {
 	if format == "json" {
 		fmt.Fprintln(os.Stderr, `{"ts":"`+time.Now().UTC().Format(time.RFC3339)+`","level":"info","msg":"structured JSON logging enabled"}`)
 	}

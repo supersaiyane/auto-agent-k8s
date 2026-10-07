@@ -3,7 +3,6 @@ package kube
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -147,9 +146,9 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 // - gatesConfigured: true if any PROM_* env vars are set
 // - gateActive: true if any gate signal indicates real load, OR if no gates configured (CPU-only mode)
 func evaluateGates(ctx context.Context, deps *Deps) (bool, bool) {
-	qDepthQ := os.Getenv("PROM_QUEUE_DEPTH")
-	errRateQ := os.Getenv("PROM_ERROR_RATE")
-	p95Q := os.Getenv("PROM_P95_LATENCY")
+	qDepthQ := deps.ScalingGates.QueueDepth
+	errRateQ := deps.ScalingGates.ErrorRate
+	p95Q := deps.ScalingGates.P95Latency
 
 	// No gates configured: CPU-only mode
 	if qDepthQ == "" && errRateQ == "" && p95Q == "" {

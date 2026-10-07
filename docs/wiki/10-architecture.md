@@ -3,7 +3,8 @@
 ## Package Structure
 
 ```
-cmd/auto-agent/main.go          Entry point, dependency wiring, periodic loops
+cmd/auto-agent/main.go          Entry point: config, in-cluster clients, then run()
+cmd/auto-agent/run.go           Dependency wiring, leader election, periodic loops
 internal/
   alertmanager/client.go         Alertmanager API client
   crd/controller.go              CRD informer + parser

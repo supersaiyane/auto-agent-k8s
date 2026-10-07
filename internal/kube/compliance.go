@@ -2,39 +2,12 @@ package kube
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 )
 
-// ComplianceTracker collects data for compliance/SLA reporting.
-type ComplianceTracker struct {
-	mu        sync.Mutex
-	incidents []incidentRecord
-	actions   []actionRecord
-	startTime time.Time
-}
-
-type incidentRecord struct {
-	Timestamp  time.Time
-	Reason     string
-	Namespace  string
-	Workload   string
-	DetectedAt time.Time
-	FixedAt    time.Time // zero if not fixed
-}
-
-type actionRecord struct {
-	Timestamp time.Time
-	Action    string
-	Namespace string
-	Workload  string
-	Result    string // success, failed, blocked
-	Duration  time.Duration
-}
-
-// ComplianceReport is the monthly compliance summary.
+// ComplianceReport summarises incidents and remediation over a period.
 type ComplianceReport struct {
 	Period            string         `json:"period"`
 	TotalIncidents    int            `json:"totalIncidents"`
@@ -49,111 +22,67 @@ type ComplianceReport struct {
 	UptimeSeconds     float64        `json:"uptimeSeconds"`
 }
 
-func NewComplianceTracker() *ComplianceTracker {
-	return &ComplianceTracker{
-		incidents: make([]incidentRecord, 0),
-		actions:   make([]actionRecord, 0),
-		startTime: time.Now(),
+// ComplianceFromEvents computes the report from the controller's event log
+// (ISS-061). It is stateless, so it counts node agents' forwarded events and
+// gives the same answer on every request. An incident counts as remediated
+// when a verified fix for the same workload follows it; time to recover is
+// measured to the first such fix. Actions are the gate's audit events.
+func ComplianceFromEvents(evts []eventsvc.Event, since, now, started time.Time) ComplianceReport {
+	r := ComplianceReport{
+		Period:            fmt.Sprintf("%s to %s", since.Format("2006-01-02"), now.Format("2006-01-02")),
+		IncidentsByReason: map[string]int{},
+		IncidentsByNs:     map[string]int{},
+		ActionsByType:     map[string]int{},
+		UptimeSeconds:     now.Sub(started).Seconds(),
 	}
-}
-
-func (ct *ComplianceTracker) RecordIncident(reason, ns, workload string) {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-	ct.incidents = append(ct.incidents, incidentRecord{
-		Timestamp: time.Now(), Reason: reason, Namespace: ns,
-		Workload: workload, DetectedAt: time.Now(),
-	})
-}
-
-func (ct *ComplianceTracker) RecordAction(action, ns, workload, result string, duration time.Duration) {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-	ct.actions = append(ct.actions, actionRecord{
-		Timestamp: time.Now(), Action: action, Namespace: ns,
-		Workload: workload, Result: result, Duration: duration,
-	})
-	// Mark the most recent matching incident as fixed
-	for i := len(ct.incidents) - 1; i >= 0; i-- {
-		if ct.incidents[i].Namespace == ns && ct.incidents[i].Workload == workload && ct.incidents[i].FixedAt.IsZero() {
-			ct.incidents[i].FixedAt = time.Now()
-			break
+	fixes := map[string][]time.Time{} // namespace/workload -> verified fix times
+	for _, e := range evts {
+		if e.Type == eventsvc.Action && e.Action == "verified-fix" {
+			k := e.Namespace + "/" + e.Workload
+			fixes[k] = append(fixes[k], e.Timestamp)
 		}
 	}
-}
-
-// GenerateReport creates a compliance report for the given time window.
-func (ct *ComplianceTracker) GenerateReport(since time.Time) ComplianceReport {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-
-	report := ComplianceReport{
-		Period:            fmt.Sprintf("%s to %s", since.Format("2006-01-02"), time.Now().Format("2006-01-02")),
-		IncidentsByReason: make(map[string]int),
-		IncidentsByNs:     make(map[string]int),
-		ActionsByType:     make(map[string]int),
-		UptimeSeconds:     time.Since(ct.startTime).Seconds(),
-	}
-
-	var totalMTTR time.Duration
-	var mttrCount int
-
-	for _, inc := range ct.incidents {
-		if inc.Timestamp.Before(since) {
+	var mttr time.Duration
+	for _, e := range evts {
+		if e.Timestamp.Before(since) {
 			continue
 		}
-		report.TotalIncidents++
-		report.IncidentsByReason[inc.Reason]++
-		report.IncidentsByNs[inc.Namespace]++
-		if !inc.FixedAt.IsZero() {
-			report.AutoRemediated++
-			mttr := inc.FixedAt.Sub(inc.DetectedAt)
-			totalMTTR += mttr
-			mttrCount++
-		} else {
-			report.ManualRequired++
-		}
-	}
-
-	for _, act := range ct.actions {
-		if act.Timestamp.Before(since) {
-			continue
-		}
-		report.ActionsByType[act.Action]++
-		if act.Result == "blocked" {
-			report.Blocked++
-		}
-	}
-
-	if mttrCount > 0 {
-		report.AvgMTTRSeconds = totalMTTR.Seconds() / float64(mttrCount)
-	}
-	if report.TotalIncidents > 0 {
-		report.RemediationRate = float64(report.AutoRemediated) / float64(report.TotalIncidents) * 100
-	}
-
-	return report
-}
-
-// FromEvents builds compliance data from the event recorder.
-func (ct *ComplianceTracker) FromEvents(recorder *eventsvc.Recorder) {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-	events := recorder.Recent(0) // all
-	for _, e := range events {
 		switch e.Type {
 		case eventsvc.Incident:
-			ct.incidents = append(ct.incidents, incidentRecord{
-				Timestamp: e.Timestamp, Reason: e.Reason,
-				Namespace: e.Namespace, Workload: e.Workload,
-				DetectedAt: e.Timestamp,
-			})
-		case eventsvc.Action:
-			ct.actions = append(ct.actions, actionRecord{
-				Timestamp: e.Timestamp, Action: e.Action,
-				Namespace: e.Namespace, Workload: e.Workload,
-				Result: "success",
-			})
+			r.TotalIncidents++
+			r.IncidentsByReason[e.Reason]++
+			r.IncidentsByNs[e.Namespace]++
+			if fixed, ok := firstAfter(fixes[e.Namespace+"/"+e.Workload], e.Timestamp); ok {
+				r.AutoRemediated++
+				mttr += fixed.Sub(e.Timestamp)
+			}
+		case eventsvc.Audit:
+			switch e.Result {
+			case "success":
+				r.ActionsByType[e.Action]++
+			case "blocked":
+				r.Blocked++
+			}
 		}
 	}
+	r.ManualRequired = r.TotalIncidents - r.AutoRemediated
+	if r.AutoRemediated > 0 {
+		r.AvgMTTRSeconds = mttr.Seconds() / float64(r.AutoRemediated)
+	}
+	if r.TotalIncidents > 0 {
+		r.RemediationRate = float64(r.AutoRemediated) / float64(r.TotalIncidents) * 100
+	}
+	return r
+}
+
+// firstAfter returns the earliest time in ts at or after t.
+func firstAfter(ts []time.Time, t time.Time) (time.Time, bool) {
+	var best time.Time
+	found := false
+	for _, x := range ts {
+		if !x.Before(t) && (!found || x.Before(best)) {
+			best, found = x, true
+		}
+	}
+	return best, found
 }

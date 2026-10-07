@@ -109,6 +109,7 @@ func (a *AuditLog) RecordAction(action, ns, workload, pod, reason, result, detai
 
 // BlastRadiusTracker limits actions across namespaces within a time window.
 type BlastRadiusTracker struct {
+	now             func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu              sync.Mutex
 	namespaceCounts map[string]int
 	window          time.Duration
@@ -131,9 +132,9 @@ func (b *BlastRadiusTracker) AllowAction(ns string) bool {
 	defer b.mu.Unlock()
 
 	// Reset if window expired
-	if time.Since(b.lastReset) >= b.window {
+	if b.clock().Sub(b.lastReset) >= b.window {
 		b.namespaceCounts = make(map[string]int)
-		b.lastReset = time.Now()
+		b.lastReset = b.clock()
 	}
 
 	// Count distinct namespaces that have been acted on
@@ -153,7 +154,7 @@ func (b *BlastRadiusTracker) AllowAction(ns string) bool {
 func (b *BlastRadiusTracker) WouldAllow(ns string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if time.Since(b.lastReset) >= b.window {
+	if b.clock().Sub(b.lastReset) >= b.window {
 		return b.maxNamespaces > 0
 	}
 	if _, exists := b.namespaceCounts[ns]; exists {
@@ -171,6 +172,7 @@ func (b *BlastRadiusTracker) AffectedNamespaces() int {
 
 // QuietHours checks if the current time falls within a maintenance window.
 type QuietHours struct {
+	now     func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	enabled bool
 	windows []TimeWindow
 }
@@ -200,7 +202,7 @@ func (qh *QuietHours) IsQuiet() bool {
 	if !qh.enabled || len(qh.windows) == 0 {
 		return false
 	}
-	now := time.Now().UTC()
+	now := qh.clock().UTC()
 	nowStr := fmt.Sprintf("%02d:%02d", now.Hour(), now.Minute())
 	for _, w := range qh.windows {
 		if w.Start <= w.End {
@@ -254,4 +256,20 @@ func trimSpace(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (b *BlastRadiusTracker) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
+}
+
+// clock returns the current time from the injected clock, or time.Now.
+func (qh *QuietHours) clock() time.Time {
+	if qh.now != nil {
+		return qh.now()
+	}
+	return time.Now()
 }

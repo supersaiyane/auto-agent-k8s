@@ -4,31 +4,27 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"k8s.io/klog/v2"
 )
 
 // StartLogRetention periodically cleans up old log files from the filesystem sink.
 // Only applicable when LOG_STORE=efs or filesystem fallback.
-func StartLogRetention(ctx context.Context) {
-	storeType := os.Getenv("LOG_STORE")
+func StartLogRetention(ctx context.Context, store config.Storage, days int) {
+	storeType := store.Store
 	if storeType != "efs" && storeType != "" {
 		klog.V(3).Infof("retention: skipping (LOG_STORE=%s, only runs for efs/filesystem)", storeType)
 		return
 	}
 
-	basePath := os.Getenv("LOG_EFS_PATH")
+	basePath := store.EFSPath
 	if basePath == "" {
-		basePath = "/var/log/auto-agent"
+		basePath = config.DefaultLogDir
 	}
-
-	days := 7
-	if v := os.Getenv("LOG_RETENTION_DAYS"); v != "" {
-		if d, err := strconv.Atoi(v); err == nil && d > 0 {
-			days = d
-		}
+	if days <= 0 {
+		days = 7
 	}
 
 	ticker := time.NewTicker(1 * time.Hour)

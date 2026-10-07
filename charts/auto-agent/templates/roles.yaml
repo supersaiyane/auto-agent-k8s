@@ -1,5 +1,6 @@
 # Namespaced permissions (CLAUDE.md constraints 4 and 7).
-# Workload writes: one Role per allowlisted namespace, nowhere else.
+# Workload writes: one Role per role per allowlisted namespace, nowhere else
+# (ADR-001: the controller fixes workloads, node agents act on pods).
 {{- range .Values.agent.namespaceAllowlist }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -11,9 +12,6 @@ rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["delete"]
-- apiGroups: [""]
-  resources: ["pods/eviction"]
-  verbs: ["create"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
@@ -39,6 +37,33 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
+  namespace: {{ $.Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-node-write
+  namespace: {{ . }}
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-node-write
+  namespace: {{ . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-node-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent-node
   namespace: {{ $.Values.namespace }}
 {{- end }}
 ---
@@ -81,7 +106,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
-  verbs: ["get", "list", "watch"]
+  verbs: ["list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -95,4 +120,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
+  namespace: {{ .Values.namespace }}
+- kind: ServiceAccount
+  name: auto-agent-node
   namespace: {{ .Values.namespace }}
