@@ -385,6 +385,12 @@ finished first, on 2026-10-08, at the owner's request.
 
 **Owner decision 2026-10-08 (ISS-058): option A.** Order: phase 10 done,
 then 11.1 (ADR-001 first), then 11.2 to 11.7.
+
+11.1 progress, 2026-10-08: ADR-001 written; event forwarding and ingest
+(d915b93); `AGENT_ROLE` (4a5f9aa); standby proxy (8901104); chart with a
+controller Deployment and node DaemonSet, e2e showing a node finding on
+every controller (b7ef047). Remaining: one ServiceAccount per role with
+the RBAC test checking each role against the code it reaches; ISS-059.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

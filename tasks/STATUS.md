@@ -13,7 +13,9 @@ coverage 44.6 percent measured). Phase 10 done 2026-10-08: all 17
 rows, ISS-040 and ISS-043 to ISS-046 fixed, every new detector tested,
 coverage 51.5 percent measured. Phase 11 added from an architect review
 (ISS-047 to ISS-058); owner chose option A for 11.1 on 2026-10-08. Next:
-11.1 (ADR-001, node and controller roles), then 11.2 to 11.7. Old phases 11 to 16
+11.1 (ADR-001, node and controller roles), then 11.2 to 11.7.
+11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
+done and passing the kind e2e; per-role ServiceAccounts in progress. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 

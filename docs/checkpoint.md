@@ -20,12 +20,13 @@
 | 2026-10-07 | PLAN-002 phase 9 | Done; verify and kind e2e passed; committed on plan-002 (not pushed) | 9.1/9.2 every outbound client takes an *http.Client (internal/httpx, httpxtest), httptest tests per client; ISS-042 escalation sent unredacted text, fixed and falsified; 9.3 cost init removed; 9.4 no mutable globals (ISS-015 closed); 9.5 run() extracted; 9.6 boot test (run 84.5, cmd 77.8 because main() needs a pod); 9.7 leader 88.9, crd 98.6; 9.8 floor 27.9 to 44.6 (measured) | cmd/auto-agent/run.go:52 (run), run_test.go, internal/escalation/escalation.go (redacted), docs/plans/PLAN-002-reload-coverage-and-gaps.md (Phase 9 result, then Phase 10 table) |
 | 2026-10-07 | PLAN-002 phase 10 batches A and B; architect review | Phase 10 paused; review recorded as phase 11; verify passed; committed (not pushed) | Batch A 7990933: CheckPodStates (10.1, 10.3, 10.4, 10.5, 10.8, 10.11, 10.12), findings.go report path with rungs, ISS-043. Batch B e8a227c: lifecycle.go finalizers and PDBs (10.2, 10.6), job reason (10.7), HPA (10.15), pull causes (10.16), ISS-044 to ISS-046. Review: ISS-047 to ISS-058, PLAN-002 phase 11 inserted, phases 11 to 16 renumbered 12 to 17 | docs/plans/PLAN-002-reload-coverage-and-gaps.md (Phase 11), tasks/ISSUES.md (ISS-047 to ISS-058), internal/kube/podstate.go, internal/kube/lifecycle.go |
 | 2026-10-08 | PLAN-002 phase 10 finished (10.9, 10.10, 10.13, 10.14, 10.17); owner chose option A | Done; verify and kind e2e passed; committed (not pushed) | metrics.Provider.QueryVector and ErrNoPromQL; promchecks.go (CPU throttling, claims almost full, etcd, deprecated APIs), wired in the quota loop; detector_guard_test.go; feature table and GUIDE; floor 44.6 to 51.5 (measured); ISS-040 fixed, ISS-058 answered A | internal/kube/promchecks.go:73 (CheckResourcePressure), promchecks.go:191 (CheckControlPlane), cmd/auto-agent/run.go:276, internal/kube/detector_guard_test.go, internal/metrics/provider.go (QueryVector), cmd/auto-agent/run.go (quota loop), docs/wiki/23-feature-status.md |
+| 2026-10-08 | PLAN-002 11.1a to 11.1d (option A) | Done; verify and kind e2e passed; committed (not pushed) | ADR-001; events.Sink, Forwarder and /internal/v1/events ingest (d915b93); AGENT_ROLE node, controller, all (4a5f9aa); standby proxy and Elector.Leader (8901104); chart controller Deployment, node DaemonSet, Service and NetworkPolicy for controllers, generated INTERNAL_TOKEN, e2e on every controller (b7ef047); ISS-059 recorded | cmd/auto-agent/run.go (rolesFor, newLeaderTarget), internal/httpapi/proxy.go, internal/events/forwarder.go, charts/auto-agent/templates/controller.yaml, scripts/e2e-kind.sh |
 
 ## Next action
 
-1. PR #1 is open, green and mergeable; merging it, rebasing plan-002 and
+1. PLAN-002 11.1 last step: one ServiceAccount per role; extend
+   internal/kube/rbac_test.go with a call graph from each role's entry
+   points and check each role's grants against it; then ISS-059.
+2. Then 11.2 to 11.7.
+3. PR #1 is open, green and mergeable; merging it, rebasing plan-002 and
    opening PR #2 wait for owner approval.
-2. PLAN-002 11.1 (owner decision ISS-058: option A): write ADR-001 first,
-   then node and controller roles.
-3. Then 11.2 to 11.7.
-4. PR #1 CI (ISS-017).
