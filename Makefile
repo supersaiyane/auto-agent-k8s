@@ -1,6 +1,13 @@
 IMAGE ?= ghcr.io/yourorg/auto-agent:1.0.0
 
-.PHONY: build test lint vet docker push helm-install clean
+# Pinned tool versions. `make tools` downloads them into bin/tools.
+GOLANGCI_LINT_VERSION ?= v1.64.8
+GOVULNCHECK_VERSION   ?= v1.1.4
+TOOLS_BIN             := $(CURDIR)/bin/tools
+# Ratchet base for lint and check-writing: only code changed since BASE is held to the rules.
+BASE                  ?= origin/master
+
+.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full e2e
 
 build:
 	CGO_ENABLED=0 go build -o bin/auto-agent ./cmd/auto-agent
@@ -17,9 +24,32 @@ test-cover:
 vet:
 	go vet ./...
 
+tools:
+	GOBIN=$(TOOLS_BIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOBIN=$(TOOLS_BIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
 lint: vet
-	@which staticcheck > /dev/null 2>&1 || echo "install staticcheck: go install honnef.co/go/tools/cmd/staticcheck@latest"
-	staticcheck ./... || true
+	@test -x $(TOOLS_BIN)/golangci-lint || { echo "golangci-lint missing: run 'make tools'"; exit 1; }
+	$(TOOLS_BIN)/golangci-lint run --new-from-rev=$(BASE) ./...
+
+vuln:
+	@test -x $(TOOLS_BIN)/govulncheck || { echo "govulncheck missing: run 'make tools'"; exit 1; }
+	$(TOOLS_BIN)/govulncheck ./...
+
+check-writing:
+	BASE=$(BASE) sh scripts/check-writing.sh
+
+helm-lint:
+	helm lint charts/auto-agent
+
+# verify is the definition-of-done gate. vuln joins it once ISS-016 (old
+# dependencies) is fixed in PLAN-001 P6.2; until then run verify-full to see it.
+verify: build vet test lint check-writing helm-lint
+
+verify-full: verify vuln
+
+e2e:
+	sh scripts/e2e-kind.sh
 
 tidy:
 	go mod tidy
