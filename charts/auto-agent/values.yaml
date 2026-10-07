@@ -22,7 +22,6 @@ agent:
   # must exist before install. Add production namespaces explicitly.
   namespaceAllowlist: ["default"]
   excludedAnnotation: "auto-agent.io/disable"
-  promQueryForSlo: ""              # optional promql for latency/queue
   logLevel: info
   cooldownUp: 2m                   # minimum time between scale-ups
   cooldownDown: 10m                # long cooldown for scale-down
@@ -87,6 +86,37 @@ leaderElection:
 guardrails:
   circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips
   blastRadiusMaxNamespaces: 5      # distinct namespaces acted on per hour
+  quietHours: ""                   # UTC windows with no actions, e.g. "02:00-06:00,22:00-23:00"
+
+# Optional PromQL "gates" for scale-up. If any is set, scale-up needs CPU over
+# the threshold AND a gate query returning > 0. Empty: CPU alone decides.
+scalingGates:
+  queueDepthQuery: ""
+  errorRateQuery: ""
+  p95LatencyQuery: ""
+
+alertmanager:
+  url: ""                          # e.g. http://alertmanager.monitoring:9093
+
+# How often the leader loops run.
+loops:
+  scaleInterval: 30s               # scaling, anomalies, fix verification
+  jobInterval: 2m                  # workload, job, rollout and node checks
+  quotaInterval: 5m                # quota, storage, network and security checks
+  healthInterval: 3m               # self check
+
+# Cost tab. Empty means the built-in defaults (0.05 per core-hour, 0.005 per
+# GiB-hour, source "default"); setting cpuPerHour marks the source "manual".
+cost:
+  cpuPerHour: ""
+  memPerGiBHour: ""
+  currency: ""                     # default USD
+  instancePrices: ""               # e.g. "t3.medium=0.0416,m5.xlarge=0.192"
+  kubecostUrl: ""                  # use Kubecost as the source
+  opencostUrl: ""                  # use OpenCost as the source (if no Kubecost)
+
+logging:
+  format: text                     # text | json
 
 dashboard:
   # Bearer token for /api/ (dashboard and kubectl endpoint). Empty disables
@@ -113,6 +143,7 @@ escalation:
   smtpHost: ""
   smtpPort: "587"
   smtpUser: ""
+  smtpPass: ""                     # stored in the Secret
   smtpFrom: ""
   emailTo: ""
 

@@ -1,5 +1,7 @@
 # Configuration Reference
 
+> The complete, test-checked list of every setting (variable, Helm value, allowed values, default, effect) is [docs/CONFIGURATION.md](../CONFIGURATION.md). This page is an overview.
+
 All configuration lives in `deployment/03-config.yaml` (ConfigMap + Secret).
 
 ## Agent Mode

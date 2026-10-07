@@ -205,6 +205,12 @@ with `kubectl get nodes` and uncordon by hand if needed.
 
 ## 5. Configuration
 
+This section covers the settings most people change. **Every** setting (all
+81 environment variables the agent reads, their Helm values, allowed values,
+defaults and effect, plus the chart values that do nothing yet) is in
+[docs/CONFIGURATION.md](CONFIGURATION.md), which a test keeps in step with
+the code and the chart.
+
 All settings are Helm values. The chart turns them into the
 `auto-agent-config` ConfigMap (live-reloaded for the mode, allowlist and
 scaling settings) and the `auto-agent-secrets` Secret.
@@ -226,15 +232,7 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | --- | --- | --- |
 | `guardrails.blastRadiusMaxNamespaces` | `5` | Max distinct namespaces acted on per hour |
 | `guardrails.circuitBreakerThreshold` | `5` | Max actions per workload per hour before the breaker trips |
-| `QUIET_HOURS` env (via `env:`) | none | UTC windows with no actions, e.g. `02:00-06:00,22:00-23:00` |
-
-Set quiet hours through the chart's `env` list:
-
-```yaml
-env:
-  - name: QUIET_HOURS
-    value: "02:00-06:00"
-```
+| `guardrails.quietHours` | empty | UTC windows with no actions, e.g. `02:00-06:00,22:00-23:00` |
 
 ### 5.3 Scaling
 
@@ -259,7 +257,7 @@ Scale-down happens when average CPU utilisation is below 0.3.
 | `llm.enabled`, `llm.apiUrl`, `llm.model` | off | LLM diagnosis in alerts; prompts are redacted |
 | `tickets.enabled`, `tickets.provider` (`github` / `jira`) | off | Create or update a ticket per incident |
 | `gitops.provider`, `gitops.repo`, `gitops.valuesFile` | github | Where OOM memory-bump PRs go |
-| `ALERTMANAGER_URL` env | empty | Send structured alerts to Alertmanager |
+| `alertmanager.url` | empty | Send structured alerts to Alertmanager |
 | `logs.store` | `efs` | `efs` (host directory), `s3` or `none` for log bundles |
 | `logs.efs.path` | `/var/log/auto-agent` | Host directory for log bundles and the audit log |
 
@@ -283,9 +281,10 @@ ISS-012): `escalation.*` (PagerDuty, OpsGenie, email), `gitops.mode`,
 
 ### 5.6 Timing (advanced)
 
-Environment variables, set through `env:`: `SCALE_INTERVAL` (30s),
-`JOB_INTERVAL` (2m, workload checks), `QUOTA_INTERVAL` (5m, storage, network,
-security checks), `HEALTH_INTERVAL` (3m, self check).
+`loops.scaleInterval` (30s), `loops.jobInterval` (2m, workload checks),
+`loops.quotaInterval` (5m, storage, network, security checks),
+`loops.healthInterval` (3m, self check). Scale-up can also require PromQL
+gates (`scalingGates.*`); see [CONFIGURATION.md](CONFIGURATION.md#scaling).
 
 ---
 
@@ -408,7 +407,7 @@ metadata:
 
 ### 8.3 Pause during a maintenance window
 
-Use `QUIET_HOURS` (section 5.2), or switch to `dry-run` (8.1) and back.
+Set `guardrails.quietHours` (section 5.2), or switch to `dry-run` (8.1) and back.
 
 ### 8.4 Read the audit trail
 

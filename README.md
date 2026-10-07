@@ -23,6 +23,7 @@ to what you need:
 | Run it day to day (modes, pausing, per-workload policies) | [Day-2 operations](docs/GUIDE.md#8-day-2-operations) |
 | Fix a problem with it | [Troubleshooting](docs/GUIDE.md#9-troubleshooting) |
 | Review the design | [Architecture](docs/GUIDE.md#10-architecture), [Security model](docs/GUIDE.md#11-security-model) |
+| Look up any setting (every variable, its options and default) | [Configuration reference](docs/CONFIGURATION.md) |
 | Change the code | [Developing](docs/GUIDE.md#12-developing), [CLAUDE.md](CLAUDE.md) |
 
 ### Quick start (kind)
