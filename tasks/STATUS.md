@@ -17,7 +17,9 @@ coverage 51.5 percent measured. Phase 11 added from an architect review
 11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
 done and passing the kind e2e; per-role ServiceAccounts and generated raw
 manifests done 2026-10-08; ISS-059 fixed. 11.1, 11.2 and 11.4 are
-complete. Next: 11.3 remainder, 11.5, 11.6. Old phases 11 to 16
+complete. Next: 11.8 (ADR-002: watch every namespace, fix inside a Helm
+ceiling, Settings tab to change the fix scope, namespace dropdown), then
+11.3 remainder, 11.5, 11.6. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 

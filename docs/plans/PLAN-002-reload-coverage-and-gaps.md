@@ -405,7 +405,8 @@ rungs, filters, refresh control and deep links (ISS-053, ISS-060);
 process killing, opt-in cost tools and ownership labels; demo apps in
 labelled namespaces `test1`, `test2`, `chaos` (the raw allowlist); `make
 e2e-raw` runs both scripts on kind; shellcheck in CI (ISS-049, ISS-052).
-Next: 11.3 remainder (one namespace name, image digest), 11.5, 11.6.
+Next: 11.8 (ADR-002, watch and fix scope with the Settings tab), then the
+11.3 remainder (one namespace name, image digest), 11.5, 11.6.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong
@@ -426,6 +427,7 @@ the Service spreads requests across them.
 | 11.4 | Scripts that only touch what they own (ISS-049, ISS-052) | `deploy.sh` and `teardown.sh` rewritten: flags instead of prompts (`--namespace`, `--allowlist`, `--image`, `--with-opencost`), no `kill` of local processes, no orphan port-forward, third-party installs only behind a flag, ownership labels so teardown removes only what deploy created, CRD removal only with `--delete-policies`, failures stop the script; test apps in their own labelled namespaces, never `default`; `shellcheck` on every script in `make verify` and CI | shellcheck clean; e2e runs deploy, re-deploy and teardown on kind and finds no residue and nothing foreign removed |
 | 11.5 | Entry point and shutdown (ISS-054, ISS-055, ISS-056) | Shutdown order: stop intake, wait for handlers and loops (bounded), then close recorder and audit log; one start and stop notice per rollout (leader or controller only); `flag.Set` error handled; QPS and burst in config; kubeconfig fallback for local runs; `auto-agent version` and `auto-agent check-config` (effective config, redacted, unknown keys named); `run()` split into functions under 50 lines | Test: an action in flight at cancel is in the audit log; test: unknown key reported; `cmd` at 85 percent |
 | 11.6 | Docs with one owner per topic (ISS-057) | Each wiki page either owns its topic or is a short page linking to the owner (`GUIDE.md`, `CONFIGURATION.md`); changelog rewritten from git history with computed counts; a docs check (extending the configuration reference test) fails when a page names a setting, API route or Helm value that does not exist; dashboard page rewritten with the new views | The docs check is falsified once; `make check-writing` passes |
+| 11.8 | Watch scope and fix scope (ADR-002, owner decision 2026-10-08, option 3) | Watch every namespace except the system ones; fix only inside a Helm ceiling (`agent.fixCeiling`, or `rbac.fixAnywhere: true` for a write ClusterRole); the initial fix list from Helm, then changeable from a new **Settings** tab that explains what, how and why, warns in fix-anywhere mode, confirms each change and records it as an audit event; a top-bar namespace dropdown filters every tab; the gate refuses actions outside the fix scope; constraint 4 reworded | Tests: reads outside the watch scope refused; the UI cannot enable a namespace outside the ceiling; a Helm upgrade keeps the UI choice; the browser test switches namespaces and edits the fix scope; `make e2e` |
 | 11.7 | Records | ADR-001, feature table, GUIDE, CONFIGURATION, STATUS, checkpoint, project map | `make verify` and `make e2e` pass; commit set |
 
 ## Owner decisions (2026-10-07)

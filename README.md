@@ -22,7 +22,7 @@ to what you need:
 | Call the API or scrape metrics | [HTTP API and metrics](docs/GUIDE.md#7-the-http-api) |
 | Run it day to day (modes, pausing, per-workload policies) | [Day-2 operations](docs/GUIDE.md#8-day-2-operations) |
 | Fix a problem with it | [Troubleshooting](docs/GUIDE.md#9-troubleshooting) |
-| Review the design | [Architecture](docs/GUIDE.md#10-architecture), [Security model](docs/GUIDE.md#11-security-model), [ADR-001: node and controller roles](docs/adr/ADR-001-node-and-controller-roles.md) |
+| Review the design | [Architecture](docs/GUIDE.md#10-architecture), [Security model](docs/GUIDE.md#11-security-model), [ADR-001: node and controller roles](docs/adr/ADR-001-node-and-controller-roles.md), [ADR-002: watch and fix scope](docs/adr/ADR-002-watch-and-fix-scope.md) |
 | Look up any setting (every variable, its options and default) | [Configuration reference](docs/CONFIGURATION.md) |
 | Change the code | [Developing](docs/GUIDE.md#12-developing), [CLAUDE.md](CLAUDE.md) |
 
