@@ -1,16 +1,18 @@
-IMAGE ?= ghcr.io/yourorg/auto-agent:1.0.0
+IMAGE ?= ghcr.io/supersaiyane/auto-agent-k8s:1.0.0
 
 # Pinned tool versions. `make tools` downloads them into bin/tools.
 GOLANGCI_LINT_VERSION ?= v1.64.8
 GOVULNCHECK_VERSION   ?= v1.1.4
 TOOLS_BIN             := $(CURDIR)/bin/tools
-# Ratchet base for lint and check-writing: only code changed since BASE is held to the rules.
+# Ratchet base for lint: only code changed since BASE is held to golangci-lint.
 BASE                  ?= origin/master
 
 .PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full e2e manifests
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 build:
-	CGO_ENABLED=0 go build -o bin/auto-agent ./cmd/auto-agent
+	CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o bin/auto-agent ./cmd/auto-agent
 
 test:
 	go test -race -count=1 ./...
@@ -37,7 +39,7 @@ vuln:
 	$(TOOLS_BIN)/govulncheck ./...
 
 check-writing:
-	BASE=$(BASE) sh scripts/check-writing.sh
+	sh scripts/check-writing.sh
 
 helm-lint:
 	helm lint charts/auto-agent
@@ -65,7 +67,7 @@ tidy:
 	go mod tidy
 
 docker:
-	docker build -t $(IMAGE) .
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
 push:
 	docker push $(IMAGE)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -14,26 +15,27 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/alertmanager"
-	"github.com/yourorg/auto-agent/internal/crd"
-	"github.com/yourorg/auto-agent/internal/escalation"
-	"github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/httpapi"
-	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/kube"
-	"github.com/yourorg/auto-agent/internal/leader"
-	"github.com/yourorg/auto-agent/internal/llm"
-	"github.com/yourorg/auto-agent/internal/logging"
-	"github.com/yourorg/auto-agent/internal/metrics"
-	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
-	"github.com/yourorg/auto-agent/internal/slack"
-	"github.com/yourorg/auto-agent/internal/storage"
-	"github.com/yourorg/auto-agent/internal/webhook"
+	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpapi"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
+	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
+	"github.com/supersaiyane/auto-agent-k8s/internal/leader"
+	"github.com/supersaiyane/auto-agent-k8s/internal/llm"
+	"github.com/supersaiyane/auto-agent-k8s/internal/logging"
+	"github.com/supersaiyane/auto-agent-k8s/internal/metrics"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/slack"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/webhook"
 )
 
-const version = "1.0.0"
+// version is set at build time: -ldflags "-X main.version=<v>" (ISS-018).
+var version = "dev"
 
 func main() {
 	klog.InitFlags(nil)
@@ -120,7 +122,7 @@ func main() {
 	sink := storage.GlobalSink()
 	dedup := ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second)
 	limiter := ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute)
-	breaker := ratelimit.NewCircuitBreaker(5, 1*time.Hour)
+	breaker := ratelimit.NewCircuitBreaker(intEnv("CIRCUIT_BREAKER_THRESHOLD", 5), 1*time.Hour)
 
 	// Alertmanager client (optional)
 	am := alertmanager.New(os.Getenv("ALERTMANAGER_URL"))
@@ -168,7 +170,7 @@ func main() {
 	auditLog := kube.NewAuditLog(os.Getenv("AUDIT_LOG_PATH"))
 
 	// --- Blast radius tracker (max namespaces affected per hour) ---
-	blastRadius := kube.NewBlastRadiusTracker(5, 1*time.Hour) // max 5 namespaces per hour
+	blastRadius := kube.NewBlastRadiusTracker(intEnv("BLAST_RADIUS_MAX_NAMESPACES", 5), 1*time.Hour) // distinct namespaces acted on per hour
 
 	// --- Quiet hours / maintenance windows ---
 	quietHours := kube.NewQuietHours(os.Getenv("QUIET_HOURS")) // e.g. "02:00-06:00"
@@ -236,7 +238,7 @@ func main() {
 	}
 
 	// --- Leader election (for cluster-wide scaling) ---
-	le := leader.Start(ctx, kc, "auto-agent-leader")
+	le := leader.Start(ctx, kc, envOr("LEADER_LEASE_NAMESPACE", "kube-system"), "auto-agent-leader")
 	httpSrv.SetLeaderFunc(le.IsLeader)
 
 	// --- Start watchers (pod + node informers) ---
@@ -354,4 +356,27 @@ func durationEnv(name string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// intEnv reads a positive integer from the environment, falling back to def
+// when unset or invalid (ISS-015).
+func intEnv(name string, def int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		klog.Warningf("invalid %s %q, using %d", name, v, def)
+		return def
+	}
+	return n
+}
+
+// envOr returns the environment value of name, or def when it is unset.
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
 }

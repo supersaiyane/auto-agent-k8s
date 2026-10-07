@@ -10,10 +10,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {

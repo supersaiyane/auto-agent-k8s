@@ -135,7 +135,7 @@ func validate(req *admissionv1.AdmissionRequest, cfg Config) *admissionv1.Admiss
 		// Check resource limits
 		if cfg.RequireLimits {
 			if c.Resources.Limits == nil || len(c.Resources.Limits) == 0 {
-				return deny(fmt.Sprintf("container %q has no resource limits — set CPU and memory limits to prevent node exhaustion", c.Name))
+				return deny(fmt.Sprintf("container %q has no resource limits: set CPU and memory limits to prevent node exhaustion", c.Name))
 			}
 			if _, ok := c.Resources.Limits[corev1.ResourceMemory]; !ok {
 				return deny(fmt.Sprintf("container %q has no memory limit", c.Name))
@@ -148,7 +148,7 @@ func validate(req *admissionv1.AdmissionRequest, cfg Config) *admissionv1.Admiss
 		// Check readiness probe
 		if cfg.RequireReadiness {
 			if c.ReadinessProbe == nil {
-				return deny(fmt.Sprintf("container %q has no readiness probe — required for safe rollouts", c.Name))
+				return deny(fmt.Sprintf("container %q has no readiness probe: required for safe rollouts", c.Name))
 			}
 		}
 
@@ -161,7 +161,7 @@ func validate(req *admissionv1.AdmissionRequest, cfg Config) *admissionv1.Admiss
 
 		// Warn on :latest tag
 		if strings.HasSuffix(c.Image, ":latest") || !strings.Contains(c.Image, ":") {
-			warnings = append(warnings, fmt.Sprintf("container %q uses :latest or untagged image %q — pin to a specific tag", c.Name, c.Image))
+			warnings = append(warnings, fmt.Sprintf("container %q uses :latest or untagged image %q: pin to a specific tag", c.Name, c.Image))
 		}
 	}
 

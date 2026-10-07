@@ -11,8 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev1.Node) {

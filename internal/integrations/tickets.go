@@ -12,7 +12,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/redact"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // Ticket describes an issue/ticket to create or update.

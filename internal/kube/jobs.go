@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckFailedJobs scans for failed Jobs and CronJobs and alerts.

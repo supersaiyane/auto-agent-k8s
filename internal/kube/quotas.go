@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 const quotaUsageThreshold = 0.9 // alert at 90% usage

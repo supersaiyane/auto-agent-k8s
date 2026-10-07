@@ -18,8 +18,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
 
 // mutationRecorder records every write verb the fake API server receives.
@@ -381,5 +381,23 @@ func TestRollbackDeployment_RetriesOnConflict(t *testing.T) {
 	}
 	if _, ok := d.Spec.Template.Labels["pod-template-hash"]; ok {
 		t.Errorf("pod-template-hash must be stripped from the rolled back template: %v", d.Spec.Template.Labels)
+	}
+}
+
+// ISS-022: simulating in dry-run must not spend the real blast-radius budget,
+// or switching to fix within the hour starts with the budget already gone.
+func TestDryRun_DoesNotSpendBlastRadius(t *testing.T) {
+	deps, _ := newHandlerTestDeps(t)
+	openGuardrails(deps)
+	deps.BlastRadius = NewBlastRadiusTracker(1, time.Hour)
+	deps.Policy().Mode = policy.DryRun
+	for _, ns := range []string{"a", "b", "c"} {
+		SimulateAction(deps, ns, "api", "p", "CrashLoopBackOff", "delete_pod", "deleted pod")
+	}
+	if got := deps.BlastRadius.AffectedNamespaces(); got != 0 {
+		t.Fatalf("dry-run recorded %d namespaces against the blast radius, want 0", got)
+	}
+	if !deps.BlastRadius.AllowAction("a") {
+		t.Fatal("first real action after dry-run was refused")
 	}
 }

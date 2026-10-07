@@ -1,13 +1,13 @@
 ##############################################################
 # APP 2: order-service (namespace: test1)
-# 3 pods — each fails in a different way
+# 3 pods: each fails in a different way
 #
-# Pod 1 (init):   Init container failure — can't reach Redis
-# Pod 2 (image):  ImagePullBackOff — wrong registry
-# Pod 3 (probe):  NotReady — failing readiness probe
+# Pod 1 (init):   Init container failure: can't reach Redis
+# Pod 2 (image):  ImagePullBackOff: wrong registry
+# Pod 3 (probe):  NotReady: failing readiness probe
 ##############################################################
 
-# Deployment 1: Init container failure — init can't reach a dependency
+# Deployment 1: Init container failure: init can't reach a dependency
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -37,7 +37,7 @@ spec:
             - |
               echo "[init] Waiting for Redis at redis.test1.svc:6379..."
               sleep 3
-              echo "[init] ERROR: Connection refused — Redis is not running"
+              echo "[init] ERROR: Connection refused: Redis is not running"
               echo "[init] Cannot proceed without cache layer"
               exit 1
           resources:
@@ -56,7 +56,7 @@ spec:
               cpu: 100m
               memory: 128Mi
 ---
-# Deployment 2: ImagePullBackOff — internal registry that doesn't exist
+# Deployment 2: ImagePullBackOff: internal registry that doesn't exist
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -88,7 +88,7 @@ spec:
               cpu: 200m
               memory: 128Mi
 ---
-# Deployment 3: NotReady — app runs but health endpoint fails
+# Deployment 3: NotReady: app runs but health endpoint fails
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -117,7 +117,7 @@ spec:
             - -c
             - |
               echo "[order-notifier] Started but Kafka connection failing"
-              echo "[order-notifier] Health check will fail — cannot produce messages"
+              echo "[order-notifier] Health check will fail: cannot produce messages"
               sleep infinity
           readinessProbe:
             httpGet:
@@ -134,7 +134,7 @@ spec:
               cpu: 100m
               memory: 64Mi
 ---
-# Service with NO matching pods — zero endpoints blackhole
+# Service with NO matching pods: zero endpoints blackhole
 apiVersion: v1
 kind: Service
 metadata:

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/policy"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 // DryRunLog records what the agent WOULD do in fix mode without actually doing it.
@@ -77,7 +77,7 @@ func SimulateAction(deps *Deps, ns, wl, pod, reason, actionType, description str
 	blocked := ""
 	if deps.QuietHours != nil && deps.QuietHours.IsQuiet() {
 		blocked = "quiet hours"
-	} else if deps.BlastRadius != nil && !deps.BlastRadius.AllowAction(ns) {
+	} else if deps.BlastRadius != nil && !deps.BlastRadius.WouldAllow(ns) {
 		blocked = "blast radius"
 	} else {
 		crdPol := effectivePolicy(deps, ns, nil)

@@ -5,7 +5,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/auto-agent ./cmd/auto-agent
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/auto-agent ./cmd/auto-agent
 
 # Runtime stage: distroless, no shell, runs as uid 65532 (ISS-010).
 # /var/log/auto-agent is a mounted volume, never the image filesystem.

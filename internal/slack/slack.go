@@ -10,7 +10,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/redact"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // Client supports posting to a default webhook and per-channel overrides.

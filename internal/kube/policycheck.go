@@ -3,7 +3,7 @@ package kube
 import (
 	"time"
 
-	"github.com/yourorg/auto-agent/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
 )
 
 // effectivePolicy resolves CRD per-policy overrides for a given namespace + labels.

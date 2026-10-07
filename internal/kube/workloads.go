@@ -12,8 +12,8 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckStuckRollouts scans deployments for ProgressDeadlineExceeded and optionally rolls back.
@@ -57,8 +57,11 @@ func handleStuckRollout(ctx context.Context, deps *Deps, d *appsv1.Deployment) {
 	klog.Infof("handler: stuck rollout detected %s/%s (ProgressDeadlineExceeded)", ns, name)
 
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, name, name, "", "",
+	url, err := persistLogBundle(ctx, deps.Sink, ns, name, name, "", "",
 		"RolloutStuck", "ProgressDeadlineExceeded", "", events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	// Get revision info
 	var currentRev string

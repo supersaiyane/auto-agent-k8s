@@ -12,7 +12,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/redact"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
 
 // GitOpsChange describes a file change to propose via PR/MR.
@@ -288,7 +288,10 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	// Check if file exists
 	fileCheckURL := fmt.Sprintf("%s/projects/%s/repository/files/%s?ref=%s",
 		apiBase, g.project, urlEncodePath(ch.FilePath), branch)
-	req, _ := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("gitlab: file check request: %w", err)
+	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
 	resp, err := g.client.Do(req)
 	if err != nil || resp.StatusCode == 404 {

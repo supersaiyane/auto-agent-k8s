@@ -12,33 +12,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
-// CostConfig holds pricing configuration — loaded from env vars.
+// CostConfig holds pricing configuration, loaded from env vars.
 type CostConfig struct {
-	CPUPerHour    float64            `json:"cpuPerHour"`    // $/vCPU/hour
-	MemPerGiBHour float64           `json:"memPerGiBHour"` // $/GiB/hour
-	HoursPerMonth float64           `json:"hoursPerMonth"`
-	Source        string            `json:"source"`        // "manual", "kubecost", "opencost", "aws", "gcp", "azure"
-	Currency      string            `json:"currency"`
+	CPUPerHour     float64            `json:"cpuPerHour"`    // $/vCPU/hour
+	MemPerGiBHour  float64            `json:"memPerGiBHour"` // $/GiB/hour
+	HoursPerMonth  float64            `json:"hoursPerMonth"`
+	Source         string             `json:"source"` // "manual", "kubecost", "opencost", "aws", "gcp", "azure"
+	Currency       string             `json:"currency"`
 	InstancePrices map[string]float64 `json:"instancePrices,omitempty"` // instance-type -> $/hour
-	KubecostURL   string            `json:"-"`
-	OpenCostURL   string            `json:"-"`
+	KubecostURL    string             `json:"-"`
+	OpenCostURL    string             `json:"-"`
 }
 
 var costCfg CostConfig
 
 func init() {
 	costCfg = CostConfig{
-		CPUPerHour:    envFloat("COST_CPU_PER_HOUR", 0.05),
-		MemPerGiBHour: envFloat("COST_MEM_PER_GIB_HOUR", 0.005),
-		HoursPerMonth: 730.0,
-		Currency:      envStr("COST_CURRENCY", "USD"),
-		KubecostURL:   envStr("KUBECOST_URL", ""),   // e.g. http://kubecost-cost-analyzer.kubecost:9090
-		OpenCostURL:   envStr("OPENCOST_URL", ""),    // e.g. http://opencost.opencost:9003
+		CPUPerHour:     envFloat("COST_CPU_PER_HOUR", 0.05),
+		MemPerGiBHour:  envFloat("COST_MEM_PER_GIB_HOUR", 0.005),
+		HoursPerMonth:  730.0,
+		Currency:       envStr("COST_CURRENCY", "USD"),
+		KubecostURL:    envStr("KUBECOST_URL", ""), // e.g. http://kubecost-cost-analyzer.kubecost:9090
+		OpenCostURL:    envStr("OPENCOST_URL", ""), // e.g. http://opencost.opencost:9003
 		InstancePrices: make(map[string]float64),
 	}
 
@@ -74,15 +75,15 @@ func init() {
 }
 
 type clusterCost struct {
-	TotalMonthly  float64         `json:"totalMonthly"`
-	NodeCost      float64         `json:"nodeCost"`
-	WorkloadCost  float64         `json:"workloadCost"`
-	WastedCost    float64         `json:"wastedCost"`
-	Nodes         []nodeCost      `json:"nodes"`
-	Namespaces    []namespaceCost `json:"namespaces"`
-	TopWorkloads  []workloadCost  `json:"topWorkloads"`
-	Summary       costSummary     `json:"summary"`
-	Config        CostConfig      `json:"config"`
+	TotalMonthly float64         `json:"totalMonthly"`
+	NodeCost     float64         `json:"nodeCost"`
+	WorkloadCost float64         `json:"workloadCost"`
+	WastedCost   float64         `json:"wastedCost"`
+	Nodes        []nodeCost      `json:"nodes"`
+	Namespaces   []namespaceCost `json:"namespaces"`
+	TopWorkloads []workloadCost  `json:"topWorkloads"`
+	Summary      costSummary     `json:"summary"`
+	Config       CostConfig      `json:"config"`
 }
 
 type nodeCost struct {
@@ -174,9 +175,12 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 		hourly, priceSource := nodeHourlyRate(instanceType, cpuCores, memGiB)
 
 		// Count pods and resource usage
-		pods, _ := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		pods, err := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 			FieldSelector: "spec.nodeName=" + n.Name,
 		})
+		if err != nil {
+			obs.CountAPIError(err, "pods", "")
+		}
 		podCount := 0
 		var nodeCPUReq, nodeMemReq float64
 		if pods != nil {
@@ -207,12 +211,21 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Namespaces + Workloads ---
-	nsList, _ := s.kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	nsList, err := s.kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		obs.CountAPIError(err, "namespaces", "")
+	}
 	var allWorkloads []workloadCost
 	if nsList != nil {
 		for _, ns := range nsList.Items {
+			if !s.nsAllowed(ns.Name) {
+				continue
+			}
 			nsCost := namespaceCost{Name: ns.Name}
-			pods, _ := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+			pods, err := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				obs.CountAPIError(err, "pods", ns.Name)
+			}
 			if pods != nil {
 				nsCost.Pods = len(pods.Items)
 				for _, p := range pods.Items {
@@ -225,7 +238,10 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 			result.Namespaces = append(result.Namespaces, nsCost)
 			result.WorkloadCost += nsCost.Monthly
 
-			deploys, _ := s.kc.AppsV1().Deployments(ns.Name).List(ctx, metav1.ListOptions{})
+			deploys, err := s.kc.AppsV1().Deployments(ns.Name).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				obs.CountAPIError(err, "deployments", ns.Name)
+			}
 			if deploys != nil {
 				for _, d := range deploys.Items {
 					replicas := int32(1)
@@ -241,7 +257,10 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 					})
 				}
 			}
-			stss, _ := s.kc.AppsV1().StatefulSets(ns.Name).List(ctx, metav1.ListOptions{})
+			stss, err := s.kc.AppsV1().StatefulSets(ns.Name).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				obs.CountAPIError(err, "statefulsets", ns.Name)
+			}
 			if stss != nil {
 				for _, sts := range stss.Items {
 					replicas := int32(1)
@@ -309,7 +328,7 @@ func nodeHourlyRate(instanceType string, cpuCores, memGiB float64) (float64, str
 	return cpuCores*costCfg.CPUPerHour + memGiB*costCfg.MemPerGiBHour, "computed"
 }
 
-// awsPricing — common AWS on-demand prices (us-east-1, USD/hour, approximate)
+// awsPricing, common AWS on-demand prices (us-east-1, USD/hour, approximate)
 var awsPricing = map[string]float64{
 	// General purpose
 	"t3.micro": 0.0104, "t3.small": 0.0208, "t3.medium": 0.0416, "t3.large": 0.0832, "t3.xlarge": 0.1664,
@@ -365,11 +384,11 @@ func fetchKubecostData(ctx context.Context) (*clusterCost, error) {
 	var kcResp struct {
 		Code int `json:"code"`
 		Data []map[string]struct {
-			Name       string `json:"name"`
-			CPUCost    float64 `json:"cpuCost"`
-			MemCost    float64 `json:"ramCost"`
-			PVCost     float64 `json:"pvCost"`
-			TotalCost  float64 `json:"totalCost"`
+			Name      string  `json:"name"`
+			CPUCost   float64 `json:"cpuCost"`
+			MemCost   float64 `json:"ramCost"`
+			PVCost    float64 `json:"pvCost"`
+			TotalCost float64 `json:"totalCost"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &kcResp); err != nil {

@@ -23,7 +23,7 @@
 1. Verifies `kubectl` cluster access
 2. Builds Docker image (`auto-agent:latest`)
 3. Auto-detects cluster type and loads image (containerd/KIND/Minikube/k3d)
-4. Reads `COST_PROVIDER` — installs Kubecost/OpenCost if configured
+4. Reads `COST_PROVIDER`: installs Kubecost/OpenCost if configured
 5. Applies all manifests in order
 6. Patches cost provider URL into ConfigMap
 7. Waits for DaemonSet rollout
@@ -79,4 +79,4 @@ docker build -t auto-agent:latest .
 kubectl rollout restart ds/auto-agent -n auto-agent
 ```
 
-Events persist to disk (`events.jsonl`) — no data loss on restart.
+Events persist to disk (`events.jsonl`): no data loss on restart.

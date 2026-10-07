@@ -30,9 +30,9 @@ kubectl patch cm auto-agent-config -n auto-agent --type merge \
 **Interactive buttons (Block Kit)**:
 
 When the agent sends an incident alert, it includes interactive buttons built via `BuildIncidentBlocks()`:
-- **Approve Fix** — allows the pending action to execute
-- **Rollback** — triggers a deployment rollback
-- **Silence 1h** — suppresses alerts for this workload for 1 hour
+- **Approve Fix**: allows the pending action to execute
+- **Rollback**: triggers a deployment rollback
+- **Silence 1h**: suppresses alerts for this workload for 1 hour
 
 Button clicks are received at `POST /api/slack/actions` and processed by `SlackActionHandler`.
 

@@ -1,8 +1,8 @@
-# Auto-Agent for Kubernetes — Overview
+# Auto-Agent for Kubernetes: Overview
 
 ## What is Auto-Agent?
 
-Auto-Agent is an autonomous Kubernetes remediation system that runs as a DaemonSet on every node in your cluster. It continuously monitors pods, nodes, deployments, storage, networking, and security — detecting 74 distinct failure conditions and automatically fixing them.
+Auto-Agent is an autonomous Kubernetes remediation system that runs as a DaemonSet on every node in your cluster. It continuously monitors pods, nodes, deployments, storage, networking, and security: detecting 74 distinct failure conditions and automatically fixing them.
 
 Think of it as an **always-on SRE** that watches your cluster 24/7, catches problems before they page you, and fixes what it can while escalating what it can't.
 

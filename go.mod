@@ -1,4 +1,4 @@
-module github.com/yourorg/auto-agent
+module github.com/supersaiyane/auto-agent-k8s
 
 go 1.26.0
 

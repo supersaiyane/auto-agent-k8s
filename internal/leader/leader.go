@@ -15,7 +15,7 @@ type Elector struct{ leader int32 }
 
 func (e *Elector) IsLeader() bool { return atomic.LoadInt32(&e.leader) == 1 }
 
-func Start(ctx context.Context, kc *kubernetes.Clientset, name string) *Elector {
+func Start(ctx context.Context, kc *kubernetes.Clientset, namespace, name string) *Elector {
 	e := &Elector{}
 
 	// Each pod must have a unique identity for leader election.
@@ -32,7 +32,7 @@ func Start(ctx context.Context, kc *kubernetes.Clientset, name string) *Elector 
 
 	lock, err := resourcelock.New(
 		resourcelock.LeasesResourceLock,
-		"kube-system",
+		namespace,
 		name,
 		kc.CoreV1(),
 		kc.CoordinationV1(),

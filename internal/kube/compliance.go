@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 )
 
 // ComplianceTracker collects data for compliance/SLA reporting.

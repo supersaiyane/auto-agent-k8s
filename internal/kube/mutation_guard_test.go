@@ -192,13 +192,23 @@ func TestAPIErrorsAreNotSwallowed(t *testing.T) {
 				if !ok {
 					return true
 				}
-				for k := 0; k+1 < len(block.List); k++ {
+				for k := 0; k < len(block.List); k++ {
 					assign, ok := block.List[k].(*ast.AssignStmt)
 					if !ok || len(assign.Rhs) != 1 {
 						continue
 					}
 					call, ok := assign.Rhs[0].(*ast.CallExpr)
 					if !ok || !isClientCall(call) {
+						continue
+					}
+					// `x, _ := client.List(...)` drops the error outright (ISS-014).
+					if last, ok := assign.Lhs[len(assign.Lhs)-1].(*ast.Ident); ok && last.Name == "_" {
+						checked++
+						t.Errorf("%s: client call error assigned to _; handle it or count it",
+							fset.Position(assign.Pos()))
+						continue
+					}
+					if k+1 >= len(block.List) {
 						continue
 					}
 					ifs, ok := block.List[k+1].(*ast.IfStmt)

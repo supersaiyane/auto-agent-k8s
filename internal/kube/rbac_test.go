@@ -24,7 +24,7 @@ import (
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/yourorg/auto-agent/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // perm is one RBAC grant: API group, resource, verb.

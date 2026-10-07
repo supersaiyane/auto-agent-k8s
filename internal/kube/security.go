@@ -11,8 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // CheckSecurityIssues scans for cert expiry, RBAC errors, and LimitRange violations.
@@ -97,7 +97,10 @@ func checkLimitRangeViolations(ctx context.Context, deps *Deps) {
 			continue
 		}
 		// Just check if events mention LimitRange failures
-		events, _ := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			countAPIError(err, "events", ns)
+		}
 		if events == nil {
 			continue
 		}

@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0 — Full Production Release
+## v1.0.0: Full Production Release
 
 ### Core Engine
 - 74 issue detectors across pod, node, workload, storage, network, security, config
@@ -10,7 +10,7 @@
 
 ### Dashboard
 - 10-tab embedded UI (Events, K8s Events, Actions, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal)
-- Pure SVG/CSS charts (3 pie + 3 bar) — no external dependencies
+- Pure SVG/CSS charts (3 pie + 3 bar): no external dependencies
 - Clickable stat boxes filter events by type
 - Cross-tab navigation: Report → Events filtered by reason/workload
 - Live ticking uptime counter

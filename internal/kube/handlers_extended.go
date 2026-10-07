@@ -9,8 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // handleInitContainerFailure handles Init:Error and Init:CrashLoopBackOff.
@@ -52,8 +52,11 @@ func handleConfigError(ctx context.Context, deps *Deps, pod *corev1.Pod, cname, 
 	klog.Infof("handler: config error on %s/%s (container: %s)", ns, name, cname)
 
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		"ConfigError", reason, "", events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	msg := fmt.Sprintf("*CreateContainerConfigError* on `%s/%s` (container: `%s`)\nReason: %s\nSaved: `%s`\n",
 		ns, name, cname, reason, url)
@@ -75,8 +78,11 @@ func handleRestartStorm(ctx context.Context, deps *Deps, pod *corev1.Pod, cname 
 
 	logs := getLastLogs(ctx, deps.Client, ns, name, cname, 30)
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		"RestartStorm", fmt.Sprintf("Rapid restarts: %d", restartCount), logs, events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	msg := fmt.Sprintf("*RestartStorm* on `%s/%s` (container: `%s`, restarts: %d)\nSaved: `%s`\n",
 		ns, name, cname, restartCount, url)

@@ -10,7 +10,7 @@ All metrics prefixed with `auto_agent_`.
 | `auto_agent_actions_total` | Counter | type, namespace, workload | Remediation actions taken |
 | `auto_agent_scaling_decisions_total` | Counter | direction, namespace, deployment | Scale up/down decisions |
 | `auto_agent_dedup_skipped_total` | Counter | reason | Events deduplicated |
-| `auto_agent_rate_limited_total` | Counter | — | Actions blocked by rate limiter |
+| `auto_agent_rate_limited_total` | Counter |: | Actions blocked by rate limiter |
 | `auto_agent_handler_errors_total` | Counter | handler, error_type | Errors in event handlers |
 | `auto_agent_anomalies_detected_total` | Counter | policy, namespace, rule | CRD anomaly detections |
 | `auto_agent_llm_requests_total` | Counter | status | LLM diagnosis requests |
@@ -71,7 +71,7 @@ Import `dashboards/auto-agent.json` into Grafana. 12 panels:
 - alert: CircuitBreakerTripped
   expr: increase(auto_agent_handler_errors_total{error_type="circuit_breaker"}[1h]) > 0
   labels: { severity: critical }
-  annotations: { summary: "Circuit breaker tripped — investigate workload" }
+  annotations: { summary: "Circuit breaker tripped: investigate workload" }
 ```
 
 ## PromQL Queries

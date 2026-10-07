@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -471,9 +472,12 @@ func describePod(ctx context.Context, kc kubernetes.Interface, ns, name string) 
 		}
 	}
 	// Events
-	events, _ := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+	events, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 		FieldSelector: "involvedObject.name=" + name,
 	})
+	if err != nil {
+		obs.CountAPIError(err, "events", ns)
+	}
 	if events != nil && len(events.Items) > 0 {
 		buf.WriteString("\nEvents:\n")
 		for _, e := range events.Items {

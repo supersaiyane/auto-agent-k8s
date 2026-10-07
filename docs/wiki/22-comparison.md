@@ -40,9 +40,9 @@ Auto-Agent is designed to **complement** existing tooling:
 
 ## What Auto-Agent Does NOT Do
 
-- **APM / tracing** — use Datadog, New Relic, or Jaeger
-- **Log aggregation** — use ELK, Loki, or Datadog Logs
-- **Chaos engineering** — use LitmusChaos or kube-monkey
-- **Detailed cost allocation** — use Kubecost for showback/chargeback
-- **Cluster provisioning** — use Terraform, Pulumi, or Cluster API
-- **CI/CD** — use ArgoCD, Flux, or GitHub Actions
+- **APM / tracing**: use Datadog, New Relic, or Jaeger
+- **Log aggregation**: use ELK, Loki, or Datadog Logs
+- **Chaos engineering**: use LitmusChaos or kube-monkey
+- **Detailed cost allocation**: use Kubecost for showback/chargeback
+- **Cluster provisioning**: use Terraform, Pulumi, or Cluster API
+- **CI/CD**: use ArgoCD, Flux, or GitHub Actions

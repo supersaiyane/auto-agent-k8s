@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yourorg/auto-agent/internal/kube"
+	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
 )
 
-// Extended API dependencies — set after construction.
+// Extended API dependencies, set after construction.
 var (
 	complianceTracker *kube.ComplianceTracker
 	learningMode      *kube.LearningMode

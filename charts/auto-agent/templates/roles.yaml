@@ -42,14 +42,13 @@ subjects:
   namespace: {{ $.Values.namespace }}
 {{- end }}
 ---
-# Leader election. The lease namespace is fixed in code (internal/leader,
-# ISS-015). get and update are pinned to the agent's own lease; create cannot
+# Leader election in leaderElection.namespace (LEADER_LEASE_NAMESPACE). get and update are pinned to the agent's own lease; create cannot
 # be pinned by name in RBAC.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: auto-agent-leader
-  namespace: kube-system
+  namespace: {{ .Values.leaderElection.namespace }}
 rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
@@ -63,7 +62,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: auto-agent-leader
-  namespace: kube-system
+  namespace: {{ .Values.leaderElection.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

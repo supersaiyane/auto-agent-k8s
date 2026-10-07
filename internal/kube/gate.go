@@ -7,8 +7,8 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/yourorg/auto-agent/internal/obs"
-	"github.com/yourorg/auto-agent/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 // gateOutcome says what the mutation gate did with a requested change.

@@ -98,6 +98,21 @@ Nothing pushed.
   fail), writes an SBOM, pushes semver/sha/latest tags and signs the digest
   with keyless cosign. Not proven: needs a push, which waits for the owner.
 
+## Phase 7
+
+- P7.1 docs corrected: escalation chain, learning thresholds, `gitops.mode`
+  and `images.mirror` documented as not wired (checked against code). Wiring
+  or removal waits for the owner (ISS-012).
+- P7.2 done: dry-run no longer spends the blast radius (ISS-022); every
+  dashboard route respects the allowlist, proven by a sentinel test over the
+  route table (ISS-028); breaker, blast radius, lease namespace and loop
+  intervals configurable, container log path fixed (ISS-015 part); discarded
+  errors 48 to 26 with a guard for `x, _ := client...` (ISS-014); repository
+  dash free, check-writing scans everything (ISS-024).
+- P7.3 done: version via ldflags, module path renamed, README rewritten
+  (every test it names exists, checked by grep); /healthz decision recorded
+  (ISS-018).
+
 ## Evidence (measured 2026-10-07)
 
 `go build ./...` ok, `go vet ./...` ok, `go test -race ./...` ok,

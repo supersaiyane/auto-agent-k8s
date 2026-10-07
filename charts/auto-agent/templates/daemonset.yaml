@@ -29,6 +29,8 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       tolerations: {{- toYaml .Values.tolerations | nindent 6 }}
       volumes:
+      # Host directory is configurable; inside the container the agent always
+      # writes /var/log/auto-agent, the only writable path (read-only root).
       - name: efs-logs
         hostPath:
           path: {{ .Values.logs.efs.path }}
@@ -38,7 +40,7 @@ spec:
       # step only hands it to the agent's uid; it has CAP_CHOWN and nothing else.
       - name: log-dir-owner
         image: "{{ .Values.initImage }}"
-        command: ["chown", "65532:65532", "{{ .Values.logs.efs.path }}"]
+        command: ["chown", "65532:65532", "/var/log/auto-agent"]
         securityContext:
           runAsNonRoot: false
           runAsUser: 0
@@ -47,7 +49,7 @@ spec:
           capabilities: { drop: ["ALL"], add: ["CHOWN"] }
         volumeMounts:
         - name: efs-logs
-          mountPath: {{ .Values.logs.efs.path }}
+          mountPath: /var/log/auto-agent
       containers:
       - name: agent
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -67,7 +69,7 @@ spec:
         {{- end }}
         volumeMounts:
         - name: efs-logs
-          mountPath: {{ .Values.logs.efs.path }}
+          mountPath: /var/log/auto-agent
         ports:
         - name: http
           containerPort: 8080

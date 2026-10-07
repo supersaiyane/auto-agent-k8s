@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/yourorg/auto-agent
+  repository: ghcr.io/supersaiyane/auto-agent-k8s
   tag: "1.0.0"
   pullPolicy: IfNotPresent
 
@@ -80,6 +80,13 @@ rbac:
   # Lets the certificate expiry check list TLS secrets in allowlisted
   # namespaces. Off by default: reading secrets is a large grant.
   readTLSSecrets: false
+
+leaderElection:
+  namespace: kube-system           # where the auto-agent-leader Lease lives
+
+guardrails:
+  circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips
+  blastRadiusMaxNamespaces: 5      # distinct namespaces acted on per hour
 
 dashboard:
   # Bearer token for /api/ (dashboard and kubectl endpoint). Empty disables

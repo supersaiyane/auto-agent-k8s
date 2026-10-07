@@ -44,11 +44,11 @@ go test -race -count=1 ./...
 ```
 
 Key test suites:
-- `internal/ratelimit/` — Deduplicator, ActionLimiter, CircuitBreaker
-- `internal/policy/` — LoadFromEnv, validation, defaults
-- `internal/kube/` — helpers, scaler cooldown, pressure detection, integration tests with fake clientset
-- `internal/events/` — Recorder ring buffer, persistence
-- `internal/metrics/` — PromQL sanitization
+- `internal/ratelimit/`: Deduplicator, ActionLimiter, CircuitBreaker
+- `internal/policy/`: LoadFromEnv, validation, defaults
+- `internal/kube/`: helpers, scaler cooldown, pressure detection, integration tests with fake clientset
+- `internal/events/`: Recorder ring buffer, persistence
+- `internal/metrics/`: PromQL sanitization
 
 ## Integration Tests
 

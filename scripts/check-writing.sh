@@ -2,27 +2,20 @@
 # check-writing: fail when an em dash or en dash appears in a source or
 # documentation file (CLAUDE.md, writing rule 1).
 #
-# Default scope is a ratchet: files changed against $BASE (default
-# origin/master), staged, unstaged or untracked. ALL=1 scans every tracked
-# file; the repository is not clean under ALL=1 yet (ISS-024).
+# Scans every tracked and untracked file. The repository was cleaned on
+# 2026-10-07 (ISS-024), so there is no ratchet any more.
 #
 # The characters are built from their UTF-8 bytes so this script does not
 # contain them, and so it works with BSD grep, which has no -P.
 set -eu
 
-BASE="${BASE:-origin/master}"
 EM=$(printf '\342\200\224')
 EN=$(printf '\342\200\223')
 
-if [ "${ALL:-0}" = "1" ]; then
-	list() { git ls-files; }
-else
-	list() {
-		git diff --name-only --diff-filter=d "$BASE"...HEAD
-		git diff --name-only --diff-filter=d HEAD
-		git ls-files --others --exclude-standard
-	}
-fi
+list() {
+	git ls-files
+	git ls-files --others --exclude-standard
+}
 
 status=0
 checked=0
@@ -38,7 +31,7 @@ for f in $(list | sort -u); do
 	fi
 done
 
-echo "check-writing: scanned $checked files (base: $([ "${ALL:-0}" = 1 ] && echo all || echo "$BASE"))"
+echo "check-writing: scanned $checked files"
 if [ "$status" -ne 0 ]; then
 	echo "check-writing: FAIL, replace each dash above with a comma, colon or parentheses"
 fi

@@ -30,9 +30,15 @@ This page documents the honest status of every feature: what's actually working 
 |---------|-------------|-----------------|------------|
 | **Slack** | Sends incident alerts with logs and LLM diagnosis. Interactive buttons are not sent yet (`BuildIncidentBlocks` has no caller, ISS-012); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and replies that no action was taken | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
 | **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired: `FireIncident()` returns nil |
-| **PagerDuty** | Triggers PD incidents for critical/warning severity | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
-| **OpsGenie** | Creates OG alerts for critical/warning | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
-| **Email** | Sends email for critical incidents | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+| **PagerDuty** | Would trigger PD incidents for critical/warning severity. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
+| **OpsGenie** | Would create OG alerts for critical/warning. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
+| **Email** | Would send email for critical incidents. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/main.go` but no handler calls it, so this setting has no effect. | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+
+### Chart values that nothing reads
+
+Checked 2026-10-07 (ISS-012): `gitops.mode` (`GITOPS_MODE`) and
+`images.mirror.*` (`IMAGE_MIRROR_*`) are rendered into the ConfigMap, but no
+Go code reads them. Setting them changes nothing.
 
 ### Ticketing & GitOps
 
@@ -48,7 +54,7 @@ This page documents the honest status of every feature: what's actually working 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **LLM diagnosis** | Sends logs+events to LLM, gets SRE advice | Set `LLM_ENABLED=true`, `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` | No AI diagnosis: Slack messages won't have LLM section |
-| **Learning mode** | Collects CPU baselines per workload, auto-tunes thresholds | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
+| **Learning mode** | Collects CPU baselines per workload (see `/api/baselines`). Thresholds are **not** auto-tuned yet: `LearningMode.GetThreshold` (`internal/kube/learning.go`) has no caller (ISS-012) | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
 | **Auto-scaling** | Scales deployments based on CPU + gate signals | Set `METRICS_PROVIDER=prometheus`, `PROMETHEUS_URL` | No scaling: CPU queries return errors with metrics-server |
 | **Anomaly detection** | Evaluates CRD PromQL rules | Set `PROMETHEUS_URL` + create AutoRemediationPolicy with anomalies | No anomaly detection: queries fail without Prometheus |
 

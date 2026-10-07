@@ -54,7 +54,7 @@ QUIET_HOURS: "22:00-06:00"          # overnight window
 During quiet hours, all fix actions are blocked. Detection and alerting continue normally.
 
 ### 3. Blast Radius
-Limits actions to **max 5 namespaces per hour**. If a bad ConfigMap update affects 10 namespaces simultaneously, the agent acts on the first 5 and blocks the rest — preventing cluster-wide disruption.
+Limits actions to **max 5 namespaces per hour**. If a bad ConfigMap update affects 10 namespaces simultaneously, the agent acts on the first 5 and blocks the rest: preventing cluster-wide disruption.
 
 ### 4. CRD Per-Policy Approval
 ```yaml
@@ -82,13 +82,13 @@ Applies across ALL workloads and namespaces. Once the limit is hit, all actions 
 ```yaml
 DEDUP_TTL_SECONDS: "300"     # 5-minute dedup window
 ```
-Same workload + same reason = deduplicated. Prevents hundreds of alerts from the same crashing deployment. Uses `ownerName` (Deployment level), not pod name — so controller-recreated pods are still deduped.
+Same workload + same reason = deduplicated. Prevents hundreds of alerts from the same crashing deployment. Uses `ownerName` (Deployment level), not pod name: so controller-recreated pods are still deduped.
 
 ### 8. HPA Coexistence
 ```yaml
 HPA_COEXISTENCE: "true"
 ```
-If a Deployment has an HPA, the agent will NOT scale it — avoids fighting with the HPA controller.
+If a Deployment has an HPA, the agent will NOT scale it: avoids fighting with the HPA controller.
 
 ## Dry-Run Mode
 
@@ -120,7 +120,7 @@ metadata:
   annotations:
     auto-agent.io/disable: "true"
 ```
-The agent will completely ignore this pod/deployment — no detection, no alerts, no actions.
+The agent will completely ignore this pod/deployment: no detection, no alerts, no actions.
 
 ## Node Safety
 

@@ -5,15 +5,15 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/yourorg/auto-agent/internal/alertmanager"
-	"github.com/yourorg/auto-agent/internal/crd"
-	"github.com/yourorg/auto-agent/internal/escalation"
-	"github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/metrics"
-	"github.com/yourorg/auto-agent/internal/policy"
-	"github.com/yourorg/auto-agent/internal/ratelimit"
-	"github.com/yourorg/auto-agent/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
+	"github.com/supersaiyane/auto-agent-k8s/internal/metrics"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
 )
 
 // SlackPoster abstracts Slack message posting for testability.

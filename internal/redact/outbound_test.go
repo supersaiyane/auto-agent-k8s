@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yourorg/auto-agent/internal/alertmanager"
-	"github.com/yourorg/auto-agent/internal/integrations"
-	"github.com/yourorg/auto-agent/internal/llm"
-	"github.com/yourorg/auto-agent/internal/slack"
+	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
+	"github.com/supersaiyane/auto-agent-k8s/internal/llm"
+	"github.com/supersaiyane/auto-agent-k8s/internal/slack"
 )
 
 // Synthetic secrets that a crashing pod might print.

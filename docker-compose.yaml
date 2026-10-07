@@ -5,7 +5,7 @@
 #   docker compose up --build    # build image + deploy to cluster
 #   docker compose down          # tear down from cluster
 #
-# This does NOT run the agent in Docker — it builds the image and
+# This does NOT run the agent in Docker: it builds the image and
 # runs the deploy.sh script which deploys to your K8s cluster.
 
 services:

@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	eventsvc "github.com/yourorg/auto-agent/internal/events"
-	"github.com/yourorg/auto-agent/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // additionalPodReasons lists extra waiting reasons we detect beyond the main handlers.
@@ -33,8 +33,11 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 
 	logs := getLastLogs(ctx, deps.Client, ns, name, cname, 30)
 	events := collectEvents(ctx, deps.Client, ns, name)
-	url, _ := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
+	url, err := persistLogBundle(ctx, deps.Sink, ns, wl, name, cname, pod.Spec.NodeName,
 		reason, message, logs, events)
+	if err != nil {
+		obs.HandlerErrorsTotal.WithLabelValues("logbundle", "storage").Inc()
+	}
 
 	sev := eventsvc.SevWarning
 	if reason == "RunContainerError" || reason == "ContainerCannotRun" || reason == "InvalidImageName" {
