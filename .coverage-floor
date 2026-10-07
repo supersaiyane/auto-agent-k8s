@@ -1,0 +1,6 @@
+# Minimum total statement coverage, in percent, enforced by
+# scripts/coverage-check.sh in `make verify` and CI (PLAN-002 8.6).
+# Raise it to the measured total at the end of each phase; never lower it
+# without a reason written here.
+# 2026-10-07: 27.9 measured at the end of PLAN-002 phase 8.
+27.9

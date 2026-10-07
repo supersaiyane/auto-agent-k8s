@@ -72,3 +72,9 @@ func TestAnnotationsAndNestedValues(t *testing.T) {
 		t.Fatalf("Value changed a non-string: %v", v)
 	}
 }
+
+func TestMapNil(t *testing.T) {
+	if Map(nil) != nil {
+		t.Fatal("nil in, nil out")
+	}
+}

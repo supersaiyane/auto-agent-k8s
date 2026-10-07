@@ -7,7 +7,7 @@ TOOLS_BIN             := $(CURDIR)/bin/tools
 # Ratchet base for lint: only code changed since BASE is held to golangci-lint.
 BASE                  ?= origin/master
 
-.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full e2e manifests
+.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full e2e manifests coverage-check
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -15,7 +15,10 @@ build:
 	CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o bin/auto-agent ./cmd/auto-agent
 
 test:
-	go test -race -count=1 ./...
+	go test -race -count=1 -coverprofile=coverage.out ./...
+
+coverage-check:
+	sh scripts/coverage-check.sh
 
 test-cover:
 	go test -race -coverprofile=coverage.out ./...
@@ -46,7 +49,7 @@ helm-lint:
 
 # verify is the definition-of-done gate (CLAUDE.md). vuln joined it on
 # 2026-10-07 once govulncheck was clean (ISS-016).
-verify: build vet test lint vuln check-writing helm-lint
+verify: build vet test coverage-check lint vuln check-writing helm-lint
 
 # Kept for muscle memory; verify already includes vuln.
 verify-full: verify
