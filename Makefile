@@ -7,7 +7,7 @@ TOOLS_BIN             := $(CURDIR)/bin/tools
 # Ratchet base for lint: only code changed since BASE is held to golangci-lint.
 BASE                  ?= origin/master
 
-.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full lint-shell ui-test e2e e2e-raw manifests check-manifests coverage-check
+.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full lint-shell ui-test e2e e2e-raw manifests check-manifests coverage-check changelog
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -104,6 +104,10 @@ push:
 
 helm-install:
 	helm upgrade --install auto-agent charts/auto-agent -n kube-system --create-namespace
+
+# docs/wiki/19-changelog.md, generated from git history (ISS-057).
+changelog:
+	sh scripts/changelog.sh
 
 helm-template:
 	helm template auto-agent charts/auto-agent

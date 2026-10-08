@@ -6,12 +6,12 @@ This page documents the honest status of every feature: what's actually working 
 
 | Feature | Proof | Notes |
 |---------|-------|-------|
-| **74 issue detectors** | 462+ incidents detected in dashboard | All pod, node, workload, storage, network, security detectors active |
+| **Issue detectors** | Pod handlers in `internal/kube/watcher.go`; leader checks listed in `leaderChecks` (`cmd/auto-agent/run.go`); `TestEveryDetectorHasATest` | Pod, node, workload, storage, network and security checks |
 | **Pod deletion (fix mode)** | `tryFixAction: SUCCESS` in agent logs | Deletes crashing pods, controller recreates them |
 | **Fix verification** | FixTracker confirmed 2+ fixes | Verifies deployment healthy after action (checks ReadyReplicas) |
-| **Dashboard UI (10 tabs)** | Accessible at http://localhost:8080 | Events, K8s Events, Actions, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal |
+| **Dashboard UI (16 tabs, counted 2026-10-08)** | `internal/httpapi/ui/`; `make ui-test` opens every tab | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |
 | **Event persistence** | 258+ events on disk | Survives pod restarts via `events.jsonl` on hostPath volume |
-| **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | 8-layer safety system active |
+| **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | Fix scope, dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval |
 | **Node-local pod informer** | Filtered by `NODE_NAME` env var | Each pod watches only its own node's pods |
 | **Leader election** | One pod acquires lease, runs periodic scans | Lease-based via `kube-system/auto-agent-leader` |
 | **Config hot-reload** | ConfigMap changes picked up every 30s | No pod restart needed for config changes |

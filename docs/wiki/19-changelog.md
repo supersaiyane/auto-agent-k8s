@@ -1,57 +1,83 @@
 # Changelog
 
-## v1.0.0: Full Production Release
+Generated from git history on 2026-10-08 by `make changelog`. Counts are
+measured with `git rev-list --count --no-merges`; nothing here is written by
+hand. The project has no release tags yet.
 
-### Core Engine
-- 74 issue detectors across pod, node, workload, storage, network, security, config
-- 7 remediation actions: pod delete, node cordon/uncordon, rollback, eviction cleanup, job cleanup, scaling
-- 8-layer safety: dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval, HPA awareness
-- Fix verification: FixTracker confirms workload recovery after action
+## Unreleased (branch plan-002 after PR #2)
 
-### Dashboard
-- 10-tab embedded UI (Events, K8s Events, Actions, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal)
-- Pure SVG/CSS charts (3 pie + 3 bar): no external dependencies
-- Clickable stat boxes filter events by type
-- Cross-tab navigation: Report → Events filtered by reason/workload
-- Live ticking uptime counter
-- kubectl terminal via API (read-only)
+PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings tab, shutdown order, check-config, docs.
 
-### Integrations
-- Slack (per-channel + Block Kit interactive buttons)
-- LLM diagnosis (OpenAI-compatible)
-- GitOps PRs (GitHub + GitLab) with actual file content
-- Ticketing (GitHub Issues + Jira) with dedup
-- Alertmanager structured alerts
-- PagerDuty Events API v2
-- OpsGenie Alerts API v2
-- Email via SMTP
-- Kubecost / OpenCost cost integration
+3 commits, 2026-10-08 to 2026-10-08. By type: 2 feat, 1 docs.
 
-### Intelligence
-- Learning mode: baseline CPU collection, auto-tuned thresholds
-- Incident correlation: connect incidents to recent deploys
-- Cost estimation: per-node, per-namespace, per-workload with 40+ instance type prices
-- Compliance reporting: MTTR, remediation rate
-- Resource efficiency: overuse/underuse/no-limits per pod
+- `d68b9a7` docs: PLAN-003 read-only terminal, after PLAN-002 phase 13
+- `c3e88c4` feat: separate watch scope and fix scope (PLAN-002 11.8 step 1)
+- `826d32f` feat: Settings tab and fix scope from the dashboard (PLAN-002 11.8)
 
-### Operations
-- Config hot-reload via ConfigMap watch
-- Persistent event storage (events.jsonl on hostPath)
-- Persistent audit log (audit.jsonl)
-- Agent self-monitoring (Prometheus, Slack, Alertmanager health)
-- Log retention cleanup (hourly, configurable days)
-- Structured JSON logging option
-- Admission webhook (validates limits, probes, image tags)
+## PR #2: PLAN-002 phases 8 to 11 (merged 2026-10-08)
 
-### Deployment
-- Standalone manifests (deployment/ folder)
-- Helm chart with CRDs
-- Docker Compose for image building
-- Auto-install Kubecost/OpenCost based on COST_PROVIDER
-- Auto-detect cluster type for image loading
+Config in one place, coverage gates, native detectors with the fix ladder, node and controller roles (ADR-001), dashboard rebuilt, safe deployment scripts.
 
-### Testing
-- Unit tests (ratelimit, policy, helpers, scaler, watcher, metrics)
-- Integration tests with fake.Clientset
-- Chaos test suite (22 workloads, 25+ automated checks)
-- 3-app test suite across 3 namespaces
+32 commits, 2026-10-07 to 2026-10-08. By type: 14 docs, 9 feat, 5 fix, 2 refactor, 1 test, 1 chore.
+
+- `87c0330` docs: PLAN-002, native config reload, weak features, fix ladder, coverage
+- `2401398` docs: project map lists the plans folder
+- `1fc839c` docs: record PLAN-002 owner decisions; warn on unimplemented flags
+- `79a1590` docs: PLAN-002 Part E, audit every detector and add missing failure classes
+- `cd36f77` docs: PLAN-002 phases renumbered; failure-class table becomes phase 10
+- `7683ea6` docs: PLAN-002 subtask tables for phases 8, 9 and 10
+- `1c0fd55` refactor: read every setting in internal/config; no env reads elsewhere
+- `70f8577` test: inject a clock into every time-based component
+- `f6baa8e` chore: coverage floor in make verify; 100 percent on safety-critical code
+- `ba7e6b0` docs: record PLAN-002 phase 8
+- `8c5cd3c` refactor: inject HTTP clients, remove globals, extract run()
+- `8577ffb` fix: redact incidents before every escalation channel
+- `fc73dd6` docs: record PLAN-002 phase 9
+- `7990933` feat: leader pod checks with named causes and fix rungs
+- `e8a227c` feat: finalizer, disruption budget, job, HPA and pull-cause checks
+- `19710a3` docs: PLAN-002 phase 11 from an architect review
+- `0e2d752` docs: project map for the phase 10 kube files
+- `30c3b00` feat: Prometheus checks and a test for every detector; phase 10 done
+- `d915b93` feat: ADR-001 and event forwarding from node agents to the controller
+- `4a5f9aa` feat: AGENT_ROLE splits the agent into node and controller
+- `8901104` feat: standby controller proxies the API and ingest to the leader
+- `b7ef047` feat: chart deploys a controller Deployment and node agents
+- `6428d6a` docs: record PLAN-002 11.1 progress
+- `cca7d8f` feat: one ServiceAccount per role; raw manifests generated from the chart
+- `4585d66` fix: keep the event history across a controller leader change
+- `ea308c1` fix: audit events for every gate decision; compliance from the event log; security headers
+- `be1b043` feat: rebuilt dashboard and history kept by a fresh controller
+- `a5f96bf` fix: deploy and teardown scripts touch only what they own
+- `55711e8` docs: checkpoint after PLAN-002 11.4
+- `8fcefc5` docs: ADR-002 watch scope and fix scope with a Settings tab
+- `ccf32b6` docs: checkpoint after ADR-002
+- `581c215` fix: shellcheck findings from the first CI run
+
+## PR #1: PLAN-001 safety hardening (merged 2026-10-07)
+
+One mutation gate, dry-run by default, RBAC matching the code, redaction, authenticated endpoints.
+
+15 commits, 2026-10-07 to 2026-10-07. By type: 8 fix, 5 docs, 2 chore.
+
+- `3c3d99c` chore: add verify, pinned lint and vuln tools, dash check and kind e2e
+- `4082923` fix: route every cluster write through one mutation gate
+- `98bb754` fix: default AUTO_MODE to dry-run; add project rules and PLAN-001
+- `408c8ca` fix: one actor per node, policy snapshots, conflict-safe writes
+- `1f1e6d0` fix: require a token on the dashboard API and verify Slack signatures
+- `2f25d06` fix: RBAC that matches the code, counted API errors, non-root image
+- `4c2b5b3` fix: redact secrets and personal data before anything leaves the cluster
+- `fd6a1ac` chore: upgrade dependencies, pin go1.26.6, gate CI on make verify and e2e
+- `5b992ae` fix: dashboard allowlist, dry-run budget, configurable limits, honest docs
+- `817cab4` docs: add the full feature table to the README
+- `d291bc9` docs: checkpoint and project map for the README feature table
+- `6f9023c` fix: pass the container log path, not the host path, as LOG_EFS_PATH
+- `25576ff` docs: add a complete guide from first look to production and development
+- `fd8326a` docs: complete configuration reference, kept in step by a test
+- `b72e21b` docs: checkpoint for PR #1
+
+## Original history
+
+The agent as first written, before the plans. Claims made in that period (detector counts, a "production release") were not measured and are not repeated here.
+
+45 commits, 2025-08-09 to 2026-04-28. By type: 22 feat, 12 fix, 3 docs, 3 chore, 2 test.
+

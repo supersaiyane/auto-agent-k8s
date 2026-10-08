@@ -1,4 +1,4 @@
-# All 74 Issue Detectors
+# Issue Detectors
 
 Auto-Agent detects every category of Kubernetes failure. Each detector has a severity, detection method, timing, and remediation action.
 

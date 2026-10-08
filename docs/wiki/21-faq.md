@@ -34,7 +34,7 @@ A: Some are configurable (CPU threshold, cooldowns). Others are hardcoded (3min 
 ## Safety
 
 **Q: Can the agent make things worse?**
-A: The 8-layer safety system prevents cascading failures. Circuit breaker stops after 5 actions on the same workload. Blast radius limits to 5 namespaces/hour. Start in `observe` mode to build confidence.
+A: The guardrails prevent cascading failures: the fix scope, the mode, quiet hours, blast radius, the circuit breaker and the rate limit. Circuit breaker stops after 5 actions on the same workload. Blast radius limits to 5 namespaces/hour. Start in `observe` mode to build confidence.
 
 **Q: How do I disable the agent for one deployment?**
 A: Add annotation: `auto-agent.io/disable: "true"` to the pod template.

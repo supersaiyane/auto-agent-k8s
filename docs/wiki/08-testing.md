@@ -30,7 +30,7 @@
 bash deployment/test-apps/chaos-test.sh
 ```
 
-Runs 25+ checks with PASS/FAIL/SKIP reporting:
+Runs its checks with PASS/FAIL/SKIP reporting:
 - Auto-adds `chaos` to namespace allowlist
 - Deploys all chaos workloads
 - Waits for agent detection (with timeout per check)

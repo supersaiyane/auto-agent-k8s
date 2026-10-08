@@ -26,7 +26,9 @@ every tab; ISS-064 (guard blind to stored clients) found and fixed. 11.5 done
 loops before closing the audit log; leader-only Slack notices; `auto-agent
 version` and `check-config`; kubeconfig fallback; `KUBE_API_QPS` and
 `KUBE_API_BURST`; `run()` split under 50 lines; `cmd` coverage 86.6%
-(measured). Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+(measured). 11.6 done 2026-10-08 (ISS-057): wiki pages link to their owners,
+counts computed or removed, changelog generated from git, docs check test.
+Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
