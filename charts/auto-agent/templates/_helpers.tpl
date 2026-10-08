@@ -42,3 +42,10 @@ namespace outside the ceiling, so a typo never installs silently.
 {{ .Values.image.repository }}:{{ .Values.image.tag }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The Secret holding the webhook's serving certificate (ISS-032).
+*/}}
+{{- define "auto-agent.webhookSecret" -}}
+{{- .Values.webhook.tls.secretName | default "auto-agent-webhook-tls" -}}
+{{- end -}}

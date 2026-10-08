@@ -2,11 +2,15 @@ package webhook
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -67,12 +71,59 @@ func NewValidator(cfg Config) *Validator {
 	}
 }
 
-// Start begins serving TLS. Call in a goroutine.
-func (v *Validator) Start(certFile, keyFile string) {
-	klog.Infof("webhook: listening on %s", v.srv.Addr)
-	if err := v.srv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-		klog.Errorf("webhook: server error: %v", err)
+// Start binds the port, then serves TLS in the background. Binding first
+// means a port in use or an unreadable certificate stops the agent's start
+// instead of leaving a registered webhook that nothing serves (ISS-032,
+// as ISS-079 did for the API).
+func (v *Validator) Start(certFile, keyFile string) error {
+	certs := &certReloader{certFile: certFile, keyFile: keyFile}
+	if _, err := certs.get(nil); err != nil {
+		return fmt.Errorf("webhook: %w", err)
 	}
+	ln, err := net.Listen("tcp", v.srv.Addr)
+	if err != nil {
+		return fmt.Errorf("webhook: listen on %s: %w", v.srv.Addr, err)
+	}
+	v.srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certs.get}
+	klog.Infof("webhook: listening on %s", ln.Addr())
+	go func() {
+		if err := v.srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
+			klog.Errorf("webhook: server error: %v", err)
+		}
+	}()
+	return nil
+}
+
+// certReloader serves the certificate from disk and loads it again when
+// the file changes, so a certificate cert-manager renews is picked up
+// without a restart.
+type certReloader struct {
+	certFile, keyFile string
+	mu                sync.Mutex
+	cert              *tls.Certificate
+	modTime           time.Time
+}
+
+func (c *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	st, err := os.Stat(c.certFile)
+	if err != nil {
+		return nil, fmt.Errorf("serving certificate: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cert != nil && st.ModTime().Equal(c.modTime) {
+		return c.cert, nil
+	}
+	pair, err := tls.LoadX509KeyPair(c.certFile, c.keyFile)
+	if err != nil {
+		if c.cert != nil {
+			klog.Warningf("webhook: reloading the certificate failed, keeping the previous one: %v", err)
+			return c.cert, nil
+		}
+		return nil, fmt.Errorf("serving certificate: %w", err)
+	}
+	c.cert, c.modTime = &pair, st.ModTime()
+	return c.cert, nil
 }
 
 func (v *Validator) Shutdown(ctx context.Context) error {

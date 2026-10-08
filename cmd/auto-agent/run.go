@@ -112,7 +112,9 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	fwdCtx, stopForwarding := context.WithCancel(context.Background())
 	defer stopForwarding()
 	a.ev = startEvents(ctx, fwdCtx, conf, cl, rl, opts, a.isLeader)
-	startWebhook(conf, rl)
+	if err := startWebhook(conf, rl); err != nil {
+		return err
+	}
 	if err := a.buildDeps(ctx, cl); err != nil {
 		return err
 	}
@@ -204,9 +206,9 @@ func startEvents(ctx, fwdCtx context.Context, conf config.Config, cl Clients, rl
 
 // startWebhook starts the admission validator (optional, needs TLS certs;
 // controller only).
-func startWebhook(conf config.Config, rl roles) {
+func startWebhook(conf config.Config, rl roles) error {
 	if !rl.controller || !conf.Webhook.Enabled() {
-		return
+		return nil
 	}
 	// An unset list is empty, not [""]; an empty prefix would block every
 	// image (ISS-041).
@@ -216,8 +218,11 @@ func startWebhook(conf config.Config, rl roles) {
 		RequireReadiness: conf.Webhook.RequireReadiness,
 		BlockedImages:    conf.Webhook.BlockedImages,
 	})
-	go wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile)
+	if err := wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile); err != nil {
+		return err
+	}
 	klog.Infof("webhook: admission validator enabled on :8443")
+	return nil
 }
 
 // trackers are the stateful parts the server shows and shutdown closes.

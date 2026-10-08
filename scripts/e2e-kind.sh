@@ -308,4 +308,23 @@ if echo "$AGENT_LOGS" | grep -q "DNSResolutionFailed"; then fail "a node agent c
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"
+log "turning on the admission webhook with a provided certificate (ISS-032)"
+WH_DIR=$(mktemp -d)
+WH_HOST="auto-agent-webhook.$NS_AGENT.svc"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout "$WH_DIR/tls.key" -out "$WH_DIR/tls.crt" \
+	-subj "/CN=$WH_HOST" -addext "subjectAltName=DNS:$WH_HOST" >/dev/null 2>&1 || fail "openssl could not make a certificate"
+kubectl --context "$CTX" -n "$NS_AGENT" create secret tls auto-agent-webhook-tls --cert "$WH_DIR/tls.crt" --key "$WH_DIR/tls.key" >/dev/null
+helm upgrade auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" --reuse-values \
+	--set webhook.enabled=true --set webhook.tls.certManager=false --set webhook.tls.secretName=auto-agent-webhook-tls \
+	--set webhook.caBundle="$(base64 < "$WH_DIR/tls.crt" | tr -d '\n')" --wait --timeout 180s >/dev/null
+kubectl --context "$CTX" -n "$NS_AGENT" rollout status deployment/auto-agent-controller --timeout 120s >/dev/null
+DENIED=""
+for _ in 1 2 3 4 5 6; do
+	DENIED=$(kubectl --context "$CTX" -n "$NS_TEST" create deployment no-limits --image=busybox:1.36 --dry-run=server -o name 2>&1 || true)
+	echo "$DENIED" | grep -q "\[auto-agent\]" && break
+	sleep 5
+done
+echo "$DENIED" | grep -q "no resource limits" || fail "the webhook did not deny a Deployment without limits: $DENIED"
+log "webhook served over TLS and denied: $(echo "$DENIED" | grep -o '\[auto-agent\][^"]*' | head -1)"
+
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete, admission webhook over TLS"

@@ -165,15 +165,20 @@ env:
 
 ## Admission webhook
 
-The agent serves the webhook (port 8443) only when **both** certificate
-variables are set. `webhook.enabled` in the chart creates the webhook
-registration and Service but does **not** set them; mount a certificate and
-set both with `env:` (ISS-032).
+`webhook.enabled` renders the webhook registration and Service, mounts the
+serving certificate on the controllers and sets both certificate variables
+(ISS-032, 2026-10-08). The certificate comes from cert-manager by default
+(`webhook.tls.certManager`: a self-signed Issuer and a Certificate, CA
+injected into the registration), or from an existing `kubernetes.io/tls`
+Secret named by `webhook.tls.secretName` with its CA in `webhook.caBundle`.
+The chart refuses to render with neither. The agent binds port 8443 before
+it reports ready, fails its start when the certificate cannot be read, and
+loads a renewed certificate without a restart.
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `WEBHOOK_CERT_FILE` | env only | path to a mounted TLS certificate | empty (webhook off) | Server certificate | `cmd/auto-agent/run.go` |
-| `WEBHOOK_KEY_FILE` | env only | path to the matching key | empty (webhook off) | Server key | `cmd/auto-agent/run.go` |
+| `WEBHOOK_CERT_FILE` | set by `webhook.enabled` | path to a mounted TLS certificate | empty (webhook off) | Server certificate | `cmd/auto-agent/run.go` |
+| `WEBHOOK_KEY_FILE` | set by `webhook.enabled` | path to the matching key | empty (webhook off) | Server key | `cmd/auto-agent/run.go` |
 | `WEBHOOK_REQUIRE_LIMITS` | `webhook.requireLimits` | `true`, `false` | on unless `false` | Reject workloads without resource limits | `cmd/auto-agent/run.go` |
 | `WEBHOOK_REQUIRE_READINESS` | `webhook.requireReadiness` | `true`, `false` | on unless `false` | Reject workloads without readiness probes | `cmd/auto-agent/run.go` |
 | `WEBHOOK_BLOCKED_IMAGES` | `webhook.blockedImages` | comma-separated list of images | empty | Reject workloads using these images | `cmd/auto-agent/run.go` |
@@ -321,4 +326,6 @@ These do not become variables; they change what the chart renders.
 | `rbac.fixAnywhere` | `false` | One write ClusterRole instead of a Role per ceiling namespace (see `FIX_ANYWHERE`) |
 | `webhook.enabled` | `false` | Render the webhook registration and Service |
 | `webhook.failurePolicy` | `Ignore` | `Ignore` or `Fail` when the webhook is unreachable |
-| `webhook.caBundle` | empty | Base64 CA bundle for the webhook registration |
+| `webhook.tls.certManager` | `true` | Ask cert-manager for the serving certificate (needs cert-manager installed) |
+| `webhook.tls.secretName` | empty | Use this existing TLS Secret instead; set `webhook.caBundle` with it |
+| `webhook.caBundle` | empty | Base64 CA bundle for the webhook registration; only with `webhook.tls.secretName` |

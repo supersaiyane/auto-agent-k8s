@@ -25,7 +25,7 @@ This page documents the honest status of every feature: what's actually working 
 | **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
 | **CRD controller** | Watches AutoRemediationPolicy resources; every field takes effect (ISS-037): restartStuckPods, scale min, max, step and allowHPAOverride, cooldown, maxActionsPerHour, requireApproval, slackChannel, ticketing. Dry-run and `agent gate` show the same refusals (ISS-081). Code: `internal/kube/policycheck.go`, `scaler.go` (`scaleLimitsFor`), `handlers.go` (`postIncident`, `createTicket`). Tests: `TestPolicyRefusal_GateAndDryRun`, `TestEvaluateAndScale_PolicyStepMinAndHPAOverride`, `TestEvaluateAndScale_PolicyCooldown`, `TestPolicySlackChannelAndTicketing` | Policies loaded into in-memory cache |
-| **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
+| **Admission webhook** | Validates limits, probes and blocked images over TLS; the chart provides the certificate (cert-manager or a Secret), the agent reloads it on renewal (ISS-032). Code: `internal/webhook/validator.go`, `charts/auto-agent/templates/webhook.yaml`. Tests: `TestValidate`, `TestStart_ServesAndReloadsCertificate`, `TestStart_FailsClosed`; `make e2e` denies a Deployment without limits | Set `webhook.enabled` |
 
 ## Added in PLAN-002 phase 10 (2026-10-08)
 
@@ -104,7 +104,7 @@ Go code reads them. Setting them changes nothing.
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **Admission webhook** | Validates deployments have limits, probes, non-blocked images | Set `WEBHOOK_CERT_FILE`, `WEBHOOK_KEY_FILE` + create ValidatingWebhookConfiguration | No admission validation: bad deployments are not prevented, only detected after the fact |
+| **Admission webhook** | Validates deployments have limits, probes, non-blocked images | Set `webhook.enabled` (cert-manager, or `webhook.tls.secretName` and `webhook.caBundle`) | No admission validation: bad deployments are not prevented, only detected after the fact |
 | **Namespace-scoped RBAC** | Per-namespace Role/RoleBinding instead of ClusterRole | Set `namespacedRBAC.enabled=true` in Helm values | ClusterRole grants access to all namespaces (agent only acts on allowlist though) |
 
 ## Quick Activation Guide

@@ -195,7 +195,15 @@ networkPolicy:
 webhook:
   enabled: false                   # enable admission webhook
   failurePolicy: Ignore            # Ignore or Fail
-  caBundle: ""                     # base64 CA bundle for TLS
+  # Serving certificate (ISS-032). By default the chart asks cert-manager for
+  # one (a self-signed Issuer and a Certificate) and cert-manager injects
+  # the CA into the webhook configuration. Without cert-manager, set
+  # tls.certManager: false, tls.secretName to a kubernetes.io/tls Secret in
+  # the agent's namespace, and caBundle to its CA (base64).
+  tls:
+    certManager: true
+    secretName: ""
+  caBundle: ""                     # base64 CA bundle; only with tls.secretName
   requireLimits: true
   requireReadiness: true
   blockedImages: []
