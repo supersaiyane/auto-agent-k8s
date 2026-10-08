@@ -132,6 +132,13 @@ probes:
   services: false                  # dial a sample of Services that have ready endpoints (opt-in)
   egressTarget: ""                 # host:port to dial to test egress (opt-in); empty: off
 
+# OpenTelemetry spans for every finding and every gate decision (ISS-018).
+# Spans carry names only (reason, namespace, workload, action, outcome),
+# never message text. Off by default.
+tracing:
+  enabled: false
+  endpoint: ""                     # OTLP/HTTP base URL, e.g. http://otel-collector.monitoring:4318
+
 # Approve to fix, rung R3 (PLAN-002 phase 15). Some findings carry an exact
 # change (raise an HPA's maxReplicas, raise a CPU limit, expand a claim,
 # resume a Deployment, delete stuck DaemonSet pods, run a missed CronJob).

@@ -79,7 +79,7 @@ func (h *findingHarness) expect(t *testing.T, reason string, rung Rung, n int) [
 }
 
 func incidents(reason, ns, wl string) float64 {
-	return testutil.ToFloat64(obs.IncidentsTotal.WithLabelValues(reason, ns, wl))
+	return testutil.ToFloat64(obs.IncidentsTotal.WithLabelValues(reason, ns))
 }
 
 func pod(name string, mut func(*corev1.Pod)) *corev1.Pod {

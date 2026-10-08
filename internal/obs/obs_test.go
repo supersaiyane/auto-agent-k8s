@@ -2,8 +2,11 @@ package obs
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -39,5 +42,33 @@ func TestMetricsRegistered(t *testing.T) {
 	InfoGauge.WithLabelValues("v", "fix").Set(1)
 	if n := testutil.CollectAndCount(InfoGauge, "auto_agent_info"); n == 0 {
 		t.Fatal("auto_agent_info not collected")
+	}
+}
+
+// ISS-018: no metric is labelled per object; workload, pod, deployment and
+// node names belong on events and the audit log.
+func TestMetricLabelsAreBounded(t *testing.T) {
+	banned := map[string]bool{"workload": true, "pod": true, "deployment": true, "node": true, "container": true}
+	labelsOf := regexp.MustCompile(`variableLabels: \{([^}]*)\}`)
+	checked := 0
+	for _, c := range all() {
+		ch := make(chan *prometheus.Desc, 4)
+		c.Describe(ch)
+		close(ch)
+		for d := range ch {
+			m := labelsOf.FindStringSubmatch(d.String())
+			if m == nil {
+				t.Fatalf("cannot read the labels of %s", d.String())
+			}
+			checked++
+			for _, l := range strings.Split(m[1], ",") {
+				if banned[strings.TrimSpace(l)] {
+					t.Errorf("%s has a per-object label %q", d.String(), l)
+				}
+			}
+		}
+	}
+	if checked != len(all()) {
+		t.Fatalf("checked %d descriptions for %d collectors", checked, len(all()))
 	}
 }

@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/tracing"
 )
 
 // Rung is how far the agent may go on a finding (PLAN-002 Part C, the fix
@@ -84,6 +87,9 @@ func report(ctx context.Context, deps *Deps, f finding) bool {
 	if !deps.Dedup.Check(dedupKey(f.Namespace, f.Workload+"/"+f.Subject, f.Reason)) {
 		return false
 	}
+	ctx, span := tracing.Span(ctx, "finding "+f.Reason, attribute.String("namespace", f.Namespace),
+		attribute.String("workload", f.Workload), attribute.String("rung", string(f.Rung)), attribute.String("severity", string(f.Severity)))
+	defer span.End()
 	var queued *pendingApproval
 	isNew := false
 	if f.Proposal != nil {
@@ -105,6 +111,6 @@ func report(ctx context.Context, deps *Deps, f finding) bool {
 		Namespace: f.Namespace, Workload: f.Workload, Pod: f.Pod, Node: f.Node,
 		Reason: f.Reason, Message: f.Summary, Rung: string(f.Rung),
 	})
-	obs.IncidentsTotal.WithLabelValues(f.Reason, f.Namespace, f.Workload).Inc()
+	obs.IncidentsTotal.WithLabelValues(f.Reason, f.Namespace).Inc()
 	return true
 }

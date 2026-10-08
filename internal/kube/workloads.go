@@ -98,7 +98,7 @@ func handleStuckRollout(ctx context.Context, deps *Deps, d *appsv1.Deployment) {
 		LogURL:  url, Rung: string(RungAuto)})
 	createTicket(ctx, deps, ns, d.Spec.Template.Labels, fmt.Sprintf("rollout-%s-%s", ns, name),
 		fmt.Sprintf("RolloutStuck: %s/%s", ns, name), msg)
-	obs.IncidentsTotal.WithLabelValues("RolloutStuck", ns, name).Inc()
+	obs.IncidentsTotal.WithLabelValues("RolloutStuck", ns).Inc()
 }
 
 // rollbackDeployment rolls a deployment back to its previous ReplicaSet

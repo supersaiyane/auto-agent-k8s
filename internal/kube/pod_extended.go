@@ -71,7 +71,7 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 		Reason: reason, Message: message, LogURL: url})
 	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("%s-%s-%s", strings.ToLower(reason), ns, wl),
 		fmt.Sprintf("%s: %s/%s", reason, ns, wl), msg)
-	obs.IncidentsTotal.WithLabelValues(reason, ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues(reason, ns).Inc()
 }
 
 // terminalPodWindow is how long one failed pod stays reported once: a

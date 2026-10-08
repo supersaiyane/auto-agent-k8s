@@ -45,6 +45,10 @@ type Config struct {
 	// R3 approvals (PLAN-002 phase 15).
 	Approvals Approvals
 
+	// OpenTelemetry spans (ISS-018).
+	TracingEnabled  bool   // TRACING_ENABLED: export spans for findings and gate decisions
+	TracingEndpoint string // TRACING_ENDPOINT: OTLP/HTTP base URL
+
 	// API client rate limits, per pod (ISS-056).
 	APIQPS   float32
 	APIBurst int
@@ -207,6 +211,9 @@ func Load(get Getenv) Config {
 			Services:      r.boolean("SERVICE_PROBE_ENABLED", false),
 			EgressTarget:  r.str("EGRESS_PROBE_TARGET", ""),
 		},
+
+		TracingEnabled:  r.boolean("TRACING_ENABLED", false),
+		TracingEndpoint: r.str("TRACING_ENDPOINT", ""),
 
 		Approvals: Approvals{
 			TTL:       r.duration("APPROVAL_TTL", 30*time.Minute),

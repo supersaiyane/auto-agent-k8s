@@ -42,7 +42,7 @@ func handleInitContainerFailure(ctx context.Context, deps *Deps, pod *corev1.Pod
 		Namespace: ns, Workload: wl, Pod: name, Reason: "InitContainerFailed",
 		Message: fmt.Sprintf("Init container %s: %s", initName, reason), LogURL: url})
 	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("init-%s-%s", ns, wl), fmt.Sprintf("InitContainerFailed: %s/%s", ns, wl), msg)
-	obs.IncidentsTotal.WithLabelValues("InitContainerFailed", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("InitContainerFailed", ns).Inc()
 }
 
 // handleConfigError handles CreateContainerConfigError (missing ConfigMap/Secret refs).
@@ -67,7 +67,7 @@ func handleConfigError(ctx context.Context, deps *Deps, pod *corev1.Pod, cname, 
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ConfigError", Message: reason, LogURL: url})
 	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("config-%s-%s", ns, wl), fmt.Sprintf("ConfigError: %s/%s", ns, wl), msg)
-	obs.IncidentsTotal.WithLabelValues("ConfigError", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("ConfigError", ns).Inc()
 }
 
 // handleRestartStorm detects containers restarting rapidly (>5 restarts, not yet in BackOff).
@@ -94,7 +94,7 @@ func handleRestartStorm(ctx context.Context, deps *Deps, pod *corev1.Pod, cname 
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "RestartStorm",
 		Message: fmt.Sprintf("Container %s: %d restarts", cname, restartCount), LogURL: url})
-	obs.IncidentsTotal.WithLabelValues("RestartStorm", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("RestartStorm", ns).Inc()
 }
 
 // --- Helpers used by extended handlers ---

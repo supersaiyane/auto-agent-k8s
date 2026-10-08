@@ -128,7 +128,7 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	}
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: "job/" + name, Reason: "JobFailed", Message: failReason, LogURL: url, Rung: string(RungGuided)})
-	obs.IncidentsTotal.WithLabelValues("JobFailed", ns, name).Inc()
+	obs.IncidentsTotal.WithLabelValues("JobFailed", ns).Inc()
 }
 
 // jobFailureFix is the guidance for a Job's failure reason.

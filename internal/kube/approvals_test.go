@@ -18,6 +18,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
@@ -364,5 +368,38 @@ func TestEscalation_CriticalFindingsAndFailedFixes(t *testing.T) {
 	if len(reqs) != 2 || !strings.Contains(reqs[0].Body+reqs[1].Body, "NodeDown default/deployment/b") ||
 		!strings.Contains(reqs[0].Body+reqs[1].Body, "FixFailed default/deployment/c") {
 		t.Fatalf("want one page for the critical finding and one for the failed fix, got %d: %+v", len(reqs), reqs)
+	}
+}
+
+// ISS-018: a finding and a gate decision each leave a span with names only.
+func TestTracing_FindingAndGateSpans(t *testing.T) {
+	before := otel.GetTracerProvider()
+	defer otel.SetTracerProvider(before)
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	otel.SetTracerProvider(tp)
+
+	h, _, _ := approvalHarness(t, nil, testHPA())
+	report(context.Background(), h.deps, finding{Reason: "NodeDown", Namespace: "default", Workload: "deployment/b",
+		Severity: eventsvc.SevCritical, Rung: RungAlert, Summary: "secret=hunter2 in the summary"})
+	applyMutation(context.Background(), h.deps, mutation{Namespace: "default", Workload: "deployment/c", Reason: "r",
+		ActionType: "delete_pod", Apply: func() error { return nil }})
+	spans := exp.GetSpans()
+	names := map[string]map[string]string{}
+	for _, s := range spans {
+		attrs := map[string]string{}
+		for _, a := range s.Attributes {
+			attrs[string(a.Key)] = a.Value.String()
+			if strings.Contains(a.Value.String(), "hunter2") {
+				t.Fatalf("span %s carries message text", s.Name)
+			}
+		}
+		names[s.Name] = attrs
+	}
+	if names["finding NodeDown"]["workload"] != "deployment/b" || names["finding NodeDown"]["rung"] != "R0" {
+		t.Fatalf("finding span: %+v", names)
+	}
+	if names["gate delete_pod"]["outcome"] != "applied" {
+		t.Fatalf("gate span: %+v", names)
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 	"github.com/supersaiyane/auto-agent-k8s/internal/slack"
 	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
+	"github.com/supersaiyane/auto-agent-k8s/internal/tracing"
 	"github.com/supersaiyane/auto-agent-k8s/internal/webhook"
 )
 
@@ -78,19 +79,20 @@ const (
 
 // agent is one running process: what run builds and shutdown takes down.
 type agent struct {
-	conf      config.Config
-	rl        roles
-	hr        *policy.HotReloader
-	podNS     string
-	ev        eventPipe
-	deps      *kube.Deps
-	extras    trackers
-	le        *leader.Elector
-	leads     func() bool // le.IsLeader on controllers; tests swap it
-	srv       *httpapi.Server
-	loopsDone chan struct{}
-	reloader  *kube.Reloader // config reload on controllers (PLAN-002 Part A); nil when off
-	leading   atomic.Bool    // this process announced leadership and still leads
+	stopTracing func(context.Context) error
+	conf        config.Config
+	rl          roles
+	hr          *policy.HotReloader
+	podNS       string
+	ev          eventPipe
+	deps        *kube.Deps
+	extras      trackers
+	le          *leader.Elector
+	leads       func() bool // le.IsLeader on controllers; tests swap it
+	srv         *httpapi.Server
+	loopsDone   chan struct{}
+	reloader    *kube.Reloader // config reload on controllers (PLAN-002 Part A); nil when off
+	leading     atomic.Bool    // this process announced leadership and still leads
 }
 
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
@@ -106,6 +108,10 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		return fmt.Errorf("AGENT_ROLE=node needs CONTROLLER_URL and INTERNAL_TOKEN")
 	}
 	a := &agent{conf: conf, rl: rl, loopsDone: make(chan struct{}), leads: func() bool { return false }}
+	if a.stopTracing, err = tracing.Start(ctx, tracing.Config{Enabled: conf.TracingEnabled, Endpoint: conf.TracingEndpoint,
+		Version: version, Pod: conf.PodName}); err != nil {
+		return err
+	}
 	a.startPolicy(ctx, cl.Kube)
 	// Forwarders outlive ctx: they stop only after every handler has
 	// recorded its last event (ISS-054).
@@ -407,6 +413,9 @@ func (a *agent) shutdown(stopForwarding context.CancelFunc) {
 		a.ev.recorder.Close()
 	}
 	a.extras.audit.Close()
+	if err := a.stopTracing(hctx); err != nil {
+		klog.Warningf("tracing: flushing spans: %v", err)
+	}
 	if a.leading.Load() {
 		if err := a.extras.slack.Post("auto-agent shutting down: the standby takes over"); err != nil {
 			klog.V(2).Infof("slack: stop message not sent: %v", err)

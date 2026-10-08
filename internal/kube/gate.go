@@ -7,9 +7,12 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/tracing"
 )
 
 // gateOutcome says what the mutation gate did with a requested change.
@@ -53,7 +56,13 @@ func approvalNote(m mutation, detail string) string {
 // It checks the fix scope, the mode, then the guardrails, then the rate
 // limiter, and only then calls m.Apply. TestMutationsOnlyThroughGate fails if any mutating
 // client call in this package is made outside a closure handed to this gate.
-func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, string) {
+func applyMutation(ctx context.Context, deps *Deps, m mutation) (out gateOutcome, msg string) {
+	ctx, span := tracing.Span(ctx, "gate "+m.ActionType, attribute.String("reason", m.Reason),
+		attribute.String("namespace", m.Namespace), attribute.String("workload", m.Workload))
+	defer func() {
+		span.SetAttributes(attribute.String("outcome", outcomeNames[out]))
+		span.End()
+	}()
 	pol := deps.Policy()
 	// Outside the fix scope (ADR-002) the change is only described, in every
 	// mode but observe, even where RBAC would allow it. Cluster-scoped
@@ -99,7 +108,7 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 
 	recordPolicyAction(deps, m)
 	klog.Infof("gate: APPLIED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
-	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace, m.Workload).Inc()
+	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace).Inc()
 	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", approvalNote(m, ""))
 	return gateApplied, fmt.Sprintf("_Action_: %s.\n", m.SuccessMsg)
 }

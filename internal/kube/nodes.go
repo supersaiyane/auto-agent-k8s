@@ -73,7 +73,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 	if deps.Policy().Mode != policy.Fix && deps.Policy().Mode != policy.DryRun {
 		msg += "_Suggest_: cordon node and evict non-critical pods.\n"
 		postSlack(deps, msg)
-		obs.IncidentsTotal.WithLabelValues("NodePressure", "", newNode.Name).Inc()
+		obs.IncidentsTotal.WithLabelValues("NodePressure", "").Inc()
 		return
 	}
 
@@ -153,5 +153,5 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 	}
 
 	postSlack(deps, msg)
-	obs.IncidentsTotal.WithLabelValues("NodePressure", "", newNode.Name).Inc()
+	obs.IncidentsTotal.WithLabelValues("NodePressure", "").Inc()
 }

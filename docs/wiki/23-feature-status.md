@@ -188,3 +188,10 @@ ESCALATION_EMAIL_TO: "oncall@yourorg.com"
 | Dashboard Approvals tab and `/api/approvals` (list, reject; never approve) | Working | `internal/httpapi/approvals.go`, `ui/app.js` | `TestAPI_ApprovalsListFiltersAndRejects` |
 | R3 changes: HPA maxReplicas, CPU limit (Deployment, StatefulSet, DaemonSet), claim expansion, Deployment resume, stuck DaemonSet pod delete, CronJob run now | Working behind approval | `internal/kube/approval_fixes.go` | `TestApprovalFixes_Changes`, `TestTemplateOwnerAndCPUPatch` |
 | Stay at R1: stuck terminating pods (force delete), forgotten cordon (node patch), quota exhaustion (no ceiling defined, ISS-077), network pods down (kube-system), sandbox failures | By decision | `podstate.go`, `node_extended.go`, `quotas.go`, `netchecks.go` | their detector tests |
+
+## Added in PLAN-002 phase 16 (2026-10-08): tracing and bounded metrics
+
+| Feature | Status | Code | Test |
+| --- | --- | --- | --- |
+| OpenTelemetry spans for every finding and gate decision, OTLP/HTTP, names only | Working; off until `tracing.enabled` and `tracing.endpoint` (ISS-018) | `internal/tracing/tracing.go`, `internal/kube/findings.go`, `gate.go` | `TestSpan_Exported`, `TestTracing_FindingAndGateSpans` |
+| Counters labelled by reason, type and namespace only; workload names stay on events and the audit log | Working (ISS-018) | `internal/obs/metrics.go` | `TestMetricLabelsAreBounded` |
