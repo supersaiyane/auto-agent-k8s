@@ -74,6 +74,7 @@ var allowedGlobals = map[string]string{
 	"internal/metrics/provider.go:ErrNoPromQL":           "sentinel error",
 	"internal/kube/scope_settings.go:ErrOutsideCeiling":  "sentinel error",
 	"internal/kube/approvals.go:ErrApprovalsOff":         "sentinel error",
+	"internal/integrations/gitops.go:ErrFileNotFound":    "sentinel error",
 	"internal/kube/approvals.go:ErrApprovalUnknown":      "sentinel error",
 	"internal/kube/approvals.go:ErrApprovalDecided":      "sentinel error",
 	"internal/kube/approvals.go:ErrNotApprover":          "sentinel error",

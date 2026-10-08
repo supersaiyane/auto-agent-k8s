@@ -12,6 +12,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// minLearnedSamples is how many CPU samples a baseline needs before it is
+// trusted.
+const minLearnedSamples = 50
+
 // LearningMode collects workload baselines over a learning period
 // and auto-tunes thresholds per workload.
 type LearningMode struct {
@@ -126,7 +130,7 @@ func (lm *LearningMode) GetThreshold(ns, workload string, globalDefault float64)
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
 	bl := lm.baselines[ns+"/"+workload]
-	if bl == nil || bl.SampleCount < 50 {
+	if bl == nil || bl.SampleCount < minLearnedSamples {
 		return globalDefault
 	}
 	if bl.CPUHighThreshold > 0 && bl.CPUHighThreshold < 1.0 {
@@ -222,4 +226,28 @@ func (lm *LearningMode) clock() time.Time {
 		return lm.now()
 	}
 	return time.Now()
+}
+
+// Bounds on a learned scale-up threshold. The floor stays well above the
+// 0.3 scale-down line, so a quiet workload's low baseline can neither make
+// the scaler react to noise nor make scale up and scale down overlap.
+const (
+	learnedThresholdMin = 0.5
+	learnedThresholdMax = 0.95
+)
+
+// scaleUpThreshold is the CPU ratio that triggers a scale up for one
+// Deployment and where it came from: the learned baseline (mean plus two
+// standard deviations, once 50 samples exist), clamped to
+// [learnedThresholdMin, learnedThresholdMax], or the global setting
+// (ISS-012).
+func scaleUpThreshold(deps *Deps, ns, name string, global float64) (float64, string) {
+	if deps.LearningMode == nil {
+		return global, "global"
+	}
+	bl := deps.LearningMode.GetBaseline(ns, name)
+	if bl == nil || bl.SampleCount < minLearnedSamples || bl.CPUHighThreshold <= 0 {
+		return global, "global"
+	}
+	return math.Min(math.Max(bl.CPUHighThreshold, learnedThresholdMin), learnedThresholdMax), "learned"
 }

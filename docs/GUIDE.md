@@ -280,8 +280,8 @@ Tokens for GitHub, GitLab, Jira and the LLM go in the Secret
 (`GIT_TOKEN`, `GITHUB_TOKEN`, `JIRA_TOKEN`, `JIRA_EMAIL`, `LLM_API_KEY`).
 
 **Configurable but not wired yet** (setting them changes nothing,
-ISS-012): `gitops.mode`, `images.mirror.*`, and learning-mode threshold
-tuning. `escalation.*` (PagerDuty, OpsGenie, email) is wired since
+ISS-012): `gitops.mode` and `images.mirror.*`. Learning-mode thresholds
+are applied since 2026-10-08 (ISS-012). `escalation.*` (PagerDuty, OpsGenie, email) is wired since
 2026-10-08 (ISS-080): critical findings and refused fixes are sent after
 Slack.
 
@@ -833,6 +833,6 @@ Work is planned in [docs/plans/](plans/), tracked in
 
 ### 12.4 Known gaps
 
-See [tasks/ISSUES.md](../tasks/ISSUES.md). The main open items: escalation
-and learning tuning are not wired (ISS-012), many packages have no tests yet
-(ISS-021), and the new CI pipeline has not run yet (ISS-017).
+See [tasks/ISSUES.md](../tasks/ISSUES.md). The main open items: `gitops.mode` and
+`images.mirror` are not implemented (ISS-012, PLAN-002 phase 17), and some
+packages still lack tests (ISS-021).

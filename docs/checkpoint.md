@@ -34,16 +34,15 @@
 | 2026-10-08 | PLAN-002 phase 14: network checks (ISS-033, ISS-036) | Done: `make e2e` (node agents start the probes; no DNSResolutionFailed on a healthy cluster) and `make e2e-raw` PASS on kind; `make verify` coverage 76.5% (measured, floor raised); committed, not pushed | `internal/kube/netprobe.go`, `netchecks.go`, chart `probes.*`, node role reads, GUIDE 8.9 | `internal/kube/netprobe.go` (`probeOnce`), `internal/kube/netchecks.go` (`policyBlocks`) |
 | 2026-10-08 | PLAN-002 phase 15: approve to fix (Part C, C1.1 to C1.3, C2) | Done: `make verify` exit 0, coverage 76.9% (measured), floor raised; kind e2e results in the commit body | Approval queue, Slack Approve and Reject, `/api/approvals` and Approvals tab, six R3 fixes behind approval, RBAC for HPA and PVC patch and Job create; ISS-077 OPEN, ISS-078 | `internal/kube/approvals.go:1`, `internal/kube/approval_fixes.go:1`, `internal/httpapi/approvals.go:1`, `cmd/auto-agent/approvals.go:1`, `docs/plans/PLAN-002-reload-coverage-and-gaps.md` (phase 15 as built) |
 | 2026-10-08 | PR #4 opened; ISS-079 startup race fixed and pushed; PLAN-002 phase 16 in progress | ISS-079, ISS-080 (escalation), ISS-038 (fix verification) committed (17c0e51, 48dcab3); ISS-037, ISS-081, ISS-082 (CRD policy fields, dry-run policy refusals, counted Slack errors) and ISS-065 (helm test pod) verified with `make verify` exit 0, coverage 77.5% measured, not yet committed; kind e2e with the policy step running | Escalation wired after Slack, bounded; fix verification needs a finished rollout and a minute of health; every AutoRemediationPolicy field applied; helm test image pinned by digest | `internal/kube/policycheck.go:1`, `internal/kube/scaler.go` (`scaleLimitsFor`), `internal/kube/handlers.go` (`postIncident`, `createTicket`), `internal/kube/fixtracker.go:90`, `scripts/e2e-kind.sh` (policy step), `charts/auto-agent/templates/tests/test-connection.yaml` |
+| 2026-10-08 | PR #5 merged (2baea1d); PLAN-002 phase 16 part 2; PR #6 open | Learned thresholds (ISS-012), gitops valuesFile and author with a YAML-aware patch (ISS-032, ISS-083), D6 tests for storage, logging, obs, webhook (ISS-084, JSON logging fixed); `make verify` exit 0, coverage 79.9% measured, floor 79.9; local `make e2e` not run (Docker down), PR #6 CI e2e is the run | 06e77ba, 43e2ee1, 0645d0b | `internal/kube/learning.go` (`scaleUpThreshold`), `internal/kube/gitops_content.go` (`PatchWorkloadMemory`), `internal/kube/handlers.go` (`memoryBumpChange`), `internal/integrations/gitops.go` (`ReadFile`, `WithAuthor`), `internal/logging/json.go`, `internal/webhook/validator.go` (`pinnedImage`) |
 
 ## Next action
 
-Stopped 2026-10-08 at the owner's request. PR #4 merged to master
-(4ee2e59). PR #5 (phase 16 part 1, plan-002 at ff30698) is open; its CI e2e
-failed only because `helm test --logs` races the hook-succeeded pod delete.
-
-1. The fix is staged, not committed: `scripts/e2e-kind.sh` (helm test step)
-   checks `Phase: Succeeded` instead of `--logs`. Run `make e2e`, commit,
-   push to plan-002, and merge PR #5 when CI is green (owner asked to merge).
-2. Then the rest of phase 16: learned CPU baselines, webhook certs (ISS-032),
-   gitops valuesFile and author, tracing and cardinality (ISS-018), D6, D8.
+1. PR #6 (phase 16 part 2) is open; merge it when its CI (verify, e2e) is
+   green and the owner says so.
+2. Rest of phase 16: webhook certificates (ISS-032: chart sets
+   WEBHOOK_CERT_FILE and KEY_FILE from cert-manager or a Secret, e2e calls
+   the webhook, Start binds before ready as in ISS-079); tracing and metric
+   cardinality (ISS-018); D8 mutation testing on gate, guardrails, redact,
+   approvals.
 3. Owner questions open: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).

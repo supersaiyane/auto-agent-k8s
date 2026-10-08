@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -29,6 +31,42 @@ type GitOpsChange struct {
 // GitOps creates pull requests / merge requests for proposed changes.
 type GitOps interface {
 	OpenPR(ctx context.Context, ch GitOpsChange) (string, error) // returns PR URL
+	// ReadFile returns a file from the base branch; ErrFileNotFound when it
+	// does not exist.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+}
+
+// ErrFileNotFound is ReadFile's answer for a path the repository lacks.
+var ErrFileNotFound = errors.New("file not found in the repository")
+
+// GitOpsOption configures a GitOps client.
+type GitOpsOption func(*gitopsSettings)
+
+type gitopsSettings struct{ authorName, authorEmail string }
+
+// WithAuthor sets the commit author (gitops.author); both are needed.
+func WithAuthor(name, email string) GitOpsOption {
+	return func(s *gitopsSettings) { s.authorName, s.authorEmail = name, email }
+}
+
+func settingsFrom(opts []GitOpsOption) gitopsSettings {
+	var s gitopsSettings
+	for _, o := range opts {
+		o(&s)
+	}
+	if s.authorName == "" || s.authorEmail == "" {
+		s.authorName, s.authorEmail = "", ""
+	}
+	return s
+}
+
+// readBody reads at most 1 MiB of a response body.
+func readBody(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return b, nil
 }
 
 // ---------- GitHub ----------
@@ -38,15 +76,44 @@ type githubClient struct {
 	repo   string // "owner/repo"
 	base   string // default branch, e.g. "main"
 	client *http.Client
+	gitopsSettings
 }
 
-func NewGitHub(token, repo, base string, hc *http.Client) GitOps {
+func NewGitHub(token, repo, base string, hc *http.Client, opts ...GitOpsOption) GitOps {
 	return &githubClient{
-		token:  token,
-		repo:   repo,
-		base:   base,
-		client: httpx.Client(hc, 30*time.Second),
+		token:          token,
+		repo:           repo,
+		base:           base,
+		client:         httpx.Client(hc, 30*time.Second),
+		gitopsSettings: settingsFrom(opts),
 	}
+}
+
+// ReadFile fetches path from the base branch through the contents API.
+func (g *githubClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", g.repo, path, g.base)
+	body, err := g.doGetOptional(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("gitops/github: read %s: %w", path, err)
+	}
+	if body == nil {
+		return nil, ErrFileNotFound
+	}
+	var out struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("gitops/github: parse %s: %w", path, err)
+	}
+	if out.Encoding != "base64" {
+		return nil, fmt.Errorf("gitops/github: %s has encoding %q", path, out.Encoding)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(out.Content, "\n", ""))
+	if err != nil {
+		return nil, fmt.Errorf("gitops/github: decode %s: %w", path, err)
+	}
+	return data, nil
 }
 
 func (g *githubClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, error) {
@@ -139,6 +206,10 @@ func (g *githubClient) createOrUpdateFile(ctx context.Context, apiBase, branch, 
 	if fileSHA != "" {
 		payload["sha"] = fileSHA
 	}
+	if g.authorName != "" {
+		who := map[string]string{"name": g.authorName, "email": g.authorEmail}
+		payload["author"], payload["committer"] = who, who
+	}
 
 	_, err = g.doPut(ctx, url, payload)
 	return err
@@ -178,7 +249,10 @@ func (g *githubClient) doGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("GET %s: %d %s", url, resp.StatusCode, truncBody(body))
 	}
@@ -201,7 +275,10 @@ func (g *githubClient) doGetOptional(ctx context.Context, url string) ([]byte, e
 	if resp.StatusCode == 404 {
 		return nil, nil
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("GET %s: %d %s", url, resp.StatusCode, truncBody(body))
 	}
@@ -234,7 +311,10 @@ func (g *githubClient) doRequest(ctx context.Context, method, url string, payloa
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("%s %s: %d %s", method, url, resp.StatusCode, truncBody(body))
 	}
@@ -249,10 +329,12 @@ type gitlabClient struct {
 	base    string
 	baseURL string // e.g. "https://gitlab.com"
 	client  *http.Client
+	gitopsSettings
 }
 
-func NewGitLab(token, project, base string, hc *http.Client) GitOps {
+func NewGitLab(token, project, base string, hc *http.Client, opts ...GitOpsOption) GitOps {
 	return &gitlabClient{
+		gitopsSettings: settingsFrom(opts),
 		token:   token,
 		project: project,
 		base:    base,
@@ -314,6 +396,9 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 			},
 		},
 	}
+	if g.authorName != "" {
+		commitPayload["author_name"], commitPayload["author_email"] = g.authorName, g.authorEmail
+	}
 	_, err = g.doPost(ctx, commitURL, commitPayload)
 	if err != nil {
 		return "", fmt.Errorf("gitops/gitlab: commit: %w", err)
@@ -342,6 +427,32 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	return out.WebURL, nil
 }
 
+// ReadFile fetches path from the base branch as raw bytes.
+func (g *gitlabClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%s/repository/files/%s/raw?ref=%s", g.baseURL, g.project, urlEncodePath(path), g.base)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("PRIVATE-TOKEN", g.token)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("gitops/gitlab: read %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrFileNotFound
+	}
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitops/gitlab: read %s: %d %s", path, resp.StatusCode, truncBody(body))
+	}
+	return body, nil
+}
+
 func (g *gitlabClient) doPost(ctx context.Context, url string, payload interface{}) ([]byte, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -358,7 +469,10 @@ func (g *gitlabClient) doPost(ctx context.Context, url string, payload interface
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("POST %s: %d %s", url, resp.StatusCode, truncBody(body))
 	}

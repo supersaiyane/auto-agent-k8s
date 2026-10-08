@@ -127,6 +127,9 @@ env:
 | `GITOPS_REPO` | `gitops.repo` | `owner/repo` or GitLab project | chart: placeholder | Repository for those pull requests; PRs need both token and repo | `cmd/auto-agent/run.go` |
 | `GITOPS_BRANCH` | `gitops.branch` | branch name | chart: `main` | Base branch for the pull requests | `cmd/auto-agent/run.go` |
 | `GITOPS_PROVIDER` | `gitops.provider` | `github`, `gitlab` | `github` (anything but `gitlab`) | Pull request host | `cmd/auto-agent/run.go` |
+| `GITOPS_VALUES_FILE` | `gitops.valuesFile` | path in the repository | chart: `environments/prod/values.yaml` | The OOM pull request patches `<deployment>.resources.limits.memory` in this file when it holds exactly one such key; otherwise, or when empty, it proposes a standalone patch file and says why (ISS-032, ISS-083) | `internal/kube/handlers.go` (`memoryBumpChange`) |
+| `GITOPS_AUTHOR_NAME` | `gitops.author.name` | name | empty | Commit author of those pull requests; used only together with the email, otherwise the token's user | `cmd/auto-agent/run.go` (`newGitOps`) |
+| `GITOPS_AUTHOR_EMAIL` | `gitops.author.email` | email | empty | Commit author email | `cmd/auto-agent/run.go` (`newGitOps`) |
 
 ## Logs, audit and retention
 
@@ -201,7 +204,7 @@ each failed channel is counted under its own name.
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/run.go` |
+| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). With 50 samples, a workload's learned high-water mark, clamped to 0.5 to 0.95, replaces `SCALE_CPU_THRESHOLD` for it (ISS-012) | `cmd/auto-agent/run.go` |
 | `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/run.go` |
 
 ## Config reload (PLAN-002 Part A)
@@ -288,9 +291,6 @@ The chart writes these into the ConfigMap, but no code reads them, so
 | --- | --- |
 | `ANOMALIES_POLL_INTERVAL` | `anomalies.pollInterval` |
 | `GITOPS_MODE` | `gitops.mode` |
-| `GITOPS_VALUES_FILE` | `gitops.valuesFile` |
-| `GITOPS_AUTHOR_NAME` | `gitops.author.name` |
-| `GITOPS_AUTHOR_EMAIL` | `gitops.author.email` |
 | `IMAGE_MIRROR_ENABLED` | `images.mirror.enabled` |
 | `IMAGE_MIRROR_PREFIX` | `images.mirror.prefix` |
 | `IMAGE_MIRROR_ALLOWLIST` | `images.mirror.allowList` |
