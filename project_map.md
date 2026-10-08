@@ -1,5 +1,7 @@
 # Project map: auto-agent-k8s
 
+Last checked against the code: 2026-10-08, after PLAN-002 phase 12 (PR #3 merged); no module was added since.
+
 Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet.
 
 | Path | Responsibility |
