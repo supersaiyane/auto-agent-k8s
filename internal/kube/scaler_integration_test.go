@@ -25,6 +25,8 @@ type mockMetrics struct {
 	cpu    float64
 	cpuErr error
 	gate   float64
+	// gateErr fails QueryInstant.
+	gateErr error
 	// vector answers QueryVector; nil means no Prometheus.
 	vector func(q string) ([]metrics.Sample, error)
 }
@@ -33,7 +35,7 @@ func (m *mockMetrics) AvgDeploymentCPU(_ context.Context, _ *appsv1.Deployment, 
 	return m.cpu, m.cpuErr
 }
 func (m *mockMetrics) QueryInstant(_ context.Context, _ string) (float64, error) {
-	return m.gate, nil
+	return m.gate, m.gateErr
 }
 func (m *mockMetrics) QueryVector(_ context.Context, q string) ([]metrics.Sample, error) {
 	if m.vector == nil {

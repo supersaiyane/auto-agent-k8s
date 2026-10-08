@@ -81,7 +81,7 @@ Auto-Agent detects every category of Kubernetes failure. Each detector has a sev
 | 48 | TLS cert expiring (<30d) | Warning | Parse tls.crt expiry | 5min scan | Alert |
 | 49 | RBAC denied | Warning | Events with "forbidden" | 5min scan | Alert |
 | 50 | LimitRange violation | Warning | Events with FailedCreate + LimitRange | 5min scan | Alert |
-| 51 | API server throttled | Warning | Events with TooManyRequests | 5min scan | Alert |
+| 51 | API server throttled | | Removed 2026-10-08 (PLAN-002 phase 12): it read events in every namespace for a reason, TooManyRequests, that no Kubernetes component emits | | |
 | 52 | Webhook blocking | Warning | Events with admission denied | 5min scan | Alert |
 | 53 | ResourceQuota exhausted | Warning | Quota > 90% usage | 5min scan | Alert before pods fail to schedule |
 

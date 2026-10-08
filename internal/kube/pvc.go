@@ -3,74 +3,78 @@ package kube
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
-// CheckPendingPVCs detects PersistentVolumeClaims stuck in Pending.
+// pvcPendingFor is how long a claim may stay Pending before it is reported.
+const pvcPendingFor = 5 * time.Minute
+
+// CheckPendingPVCs reports PersistentVolumeClaims stuck in Pending, with the
+// newest event from the provisioner. A claim waiting for its first consumer
+// (WaitForFirstConsumer binding) is pending by design and is not reported.
 // Must be called only by the leader.
 func CheckPendingPVCs(ctx context.Context, deps *Deps) {
+	now := deps.clock()
 	for _, ns := range watchedNamespaces(ctx, deps) {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			klog.V(3).Infof("pvc: failed to list in %s: %v", ns, err)
+			countAPIError(err, "persistentvolumeclaims", ns) // phase 12: was a silent continue
 			continue
 		}
-		for _, pvc := range pvcs.Items {
-			if pvc.Status.Phase != corev1.ClaimPending {
+		for i := range pvcs.Items {
+			pvc := &pvcs.Items[i]
+			if pvc.Status.Phase != corev1.ClaimPending || now.Sub(pvc.CreationTimestamp.Time) < pvcPendingFor {
 				continue
 			}
-			// Only alert if pending > 5 minutes
-			if pvc.CreationTimestamp.Time.After(metav1.Now().Add(-5 * 60e9)) {
+			latest := newestEvent(listObjectEvents(ctx, deps.Client, ns, pvc.Name), pvc.Name)
+			if latest != nil && latest.Reason == "WaitForFirstConsumer" {
 				continue
 			}
-
-			key := dedupKey(ns, pvc.Name, "PVCPending")
-			if !deps.Dedup.Check(key) {
-				obs.DedupSkippedTotal.WithLabelValues("PVCPending").Inc()
-				continue
+			if f := pendingPVCFinding(pvc, latest, now); report(ctx, deps, f) {
+				createTicket(ctx, deps, fmt.Sprintf("pvc-%s-%s", ns, pvc.Name), fmt.Sprintf("PVC Pending: %s/%s", ns, pvc.Name), f.message())
 			}
-
-			klog.Infof("handler: PVC stuck pending %s/%s", ns, pvc.Name)
-
-			events := collectEvents(ctx, deps.Client, ns, pvc.Name)
-			reason := "unknown"
-			for _, ev := range events {
-				if len(ev) > 0 {
-					reason = ev
-					break
-				}
-			}
-
-			scName := "<default>"
-			if pvc.Spec.StorageClassName != nil {
-				scName = *pvc.Spec.StorageClassName
-			}
-			size := "unknown"
-			if req, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
-				size = req.String()
-			}
-
-			msg := fmt.Sprintf("*PVCPending* `%s/%s` stuck in Pending (>5 min)\n", ns, pvc.Name)
-			msg += fmt.Sprintf("StorageClass: `%s`, Size: `%s`, AccessModes: %v\n", scName, size, pvc.Spec.AccessModes)
-			msg += fmt.Sprintf("_Check_: StorageClass exists, provisioner is running, capacity available.\n")
-			if reason != "unknown" {
-				msg += fmt.Sprintf("Latest event: %s\n", reason)
-			}
-
-			deps.Slack.Post(msg)
-			fireAlert(ctx, deps, "PVCPending", ns, pvc.Name, "", msg, "warning")
-			recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-				Namespace: ns, Workload: pvc.Name, Reason: "PVCPending",
-				Message: fmt.Sprintf("PVC pending: storageClass=%s size=%s", scName, size)})
-			createTicket(ctx, deps, fmt.Sprintf("pvc-%s-%s", ns, pvc.Name),
-				fmt.Sprintf("PVC Pending: %s/%s", ns, pvc.Name), msg)
-			obs.IncidentsTotal.WithLabelValues("PVCPending", ns, pvc.Name).Inc()
 		}
 	}
+}
+
+func pendingPVCFinding(pvc *corev1.PersistentVolumeClaim, latest *corev1.Event, now time.Time) finding {
+	class := "<default>"
+	if pvc.Spec.StorageClassName != nil {
+		class = *pvc.Spec.StorageClassName
+	}
+	size := "unknown"
+	if req, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+		size = req.String()
+	}
+	f := finding{Reason: "PVCPending", Namespace: pvc.Namespace, Workload: "pvc/" + pvc.Name,
+		Severity: eventsvc.SevWarning, Rung: RungGuided,
+		Summary: fmt.Sprintf("Pending for %s", now.Sub(pvc.CreationTimestamp.Time).Round(time.Minute)),
+		Details: []string{fmt.Sprintf("StorageClass `%s`, size %s, access modes %v", class, size, pvc.Spec.AccessModes)},
+		Fix:     fmt.Sprintf("check that the StorageClass exists, its provisioner is running and has capacity: `kubectl describe pvc %s -n %s`", pvc.Name, pvc.Namespace)}
+	if latest != nil {
+		f.Details = append(f.Details, fmt.Sprintf("Latest event: %s %s: %s", latest.Type, latest.Reason, latest.Message))
+	}
+	return f
+}
+
+// newestEvent is the most recent event about the named object; the API
+// returns events in no particular order (phase 12 audit).
+func newestEvent(evs []corev1.Event, name string) *corev1.Event {
+	var mine []corev1.Event
+	for i := range evs {
+		if evs[i].InvolvedObject.Name == name {
+			mine = append(mine, evs[i])
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	sort.Slice(mine, func(a, b int) bool { return eventTime(&mine[a]).After(eventTime(&mine[b])) })
+	return &mine[0]
 }

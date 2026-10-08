@@ -5,23 +5,16 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 )
 
-// untestedDetectors were written before detectors needed tests. PLAN-002
-// phase 12 (ISS-039) tests each one and removes it from this list; the list
-// only shrinks, because the test below fails on a stale entry too.
-var untestedDetectors = map[string]bool{
-	"CheckAnomalies": true, "CheckCronJobMissed": true, "CheckDaemonSetMissing": true,
-	"CheckDeadlineExceeded": true, "CheckDeploymentPaused": true, "CheckEphemeralStorageFull": true,
-	"CheckFailedJobs": true, "CheckNetworkIssues": true, "CheckNodeExtended": true,
-	"CheckNodeHealth": true, "CheckPendingPVCs": true, "CheckRBACDenied": true,
-	"CheckReplicaSetFailure": true, "CheckResourceQuotas": true, "CheckSecurityIssues": true,
-	"CheckServiceEndpoints": true, "CheckStatefulSetStuck": true, "CheckStorageIssues": true,
-	"CheckStuckRollouts": true, "CheckWebhookBlocking": true,
-}
+// untestedDetectors was the list of detectors written before detectors
+// needed tests. PLAN-002 phase 12 (ISS-039) tested every one of them, so it
+// is empty and must stay empty: a new detector needs a test from day one.
+var untestedDetectors = map[string]bool{}
 
 // PLAN-002 10.17: every exported Check* detector is called by a test.
 func TestEveryDetectorHasATest(t *testing.T) {
@@ -83,4 +76,63 @@ func TestEveryDetectorHasATest(t *testing.T) {
 	if len(stale) > 0 {
 		t.Errorf("remove from untestedDetectors, they are tested or gone now: %v", stale)
 	}
+}
+
+// ISS-039, PLAN-002 E.1: every function the leader runs on a timer (the
+// check table in cmd/auto-agent/run.go) is called by a test, not only the
+// ones named Check*.
+func TestEveryLeaderCheckHasATest(t *testing.T) {
+	fset := token.NewFileSet()
+	run, err := parser.ParseFile(fset, "../../cmd/auto-agent/run.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]bool{}
+	for _, d := range run.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "leaderChecks" {
+			continue
+		}
+		ast.Inspect(fd, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "kube" {
+					listed[sel.Sel.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	if len(listed) < 10 {
+		t.Fatalf("found %d leader checks; the scanner is broken", len(listed))
+	}
+	called := map[string]bool{}
+	tests, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range tests {
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				if id, ok := c.Fun.(*ast.Ident); ok {
+					called[id.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	var missing []string
+	for name := range listed {
+		if !called[name] {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("leader checks without a test: %v", missing)
+	}
+	t.Logf("%d leader checks, each called by a test", len(listed))
 }

@@ -6,7 +6,7 @@ This page documents the honest status of every feature: what's actually working 
 
 | Feature | Proof | Notes |
 |---------|-------|-------|
-| **Issue detectors** | Pod handlers in `internal/kube/watcher.go`; leader checks listed in `leaderChecks` (`cmd/auto-agent/run.go`); `TestEveryDetectorHasATest` | Pod, node, workload, storage, network and security checks |
+| **Issue detectors** | Pod handlers in `internal/kube/watcher.go`; leader checks listed in `leaderChecks` (`cmd/auto-agent/run.go`); each audited and tested in `internal/kube/*_audit_test.go` (PLAN-002 phase 12); `TestEveryDetectorHasATest`, `TestEveryLeaderCheckHasATest` | Pod, node, workload, storage, network and security checks, each with its fix-ladder rung |
 | **Pod deletion (fix mode)** | `tryFixAction: SUCCESS` in agent logs | Deletes crashing pods, controller recreates them |
 | **Fix verification** | FixTracker confirmed 2+ fixes | Verifies deployment healthy after action (checks ReadyReplicas) |
 | **Dashboard UI (16 tabs, counted 2026-10-08)** | `internal/httpapi/ui/`; `make ui-test` opens every tab | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |

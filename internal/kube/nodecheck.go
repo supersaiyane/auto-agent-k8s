@@ -3,76 +3,76 @@ package kube
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
-// CheckNodeHealth detects nodes in NotReady state. Runs from the leader
-// so it works even if the affected node's agent pod is down.
+// nodeNotReadyFor is how long a node must stay NotReady before it is
+// reported, so a node joining or a short blip does not page (phase 12 audit).
+const nodeNotReadyFor = 2 * time.Minute
+
+// CheckNodeHealth reports nodes NotReady for nodeNotReadyFor. Runs on the
+// leader, so it works even when the node's own agent is down. A node whose
+// message names the container runtime is reported by CheckNodeExtended as
+// ContainerRuntimeDown instead, not twice.
 func CheckNodeHealth(ctx context.Context, deps *Deps) {
 	nodes, err := deps.Client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		klog.V(3).Infof("nodecheck: failed to list nodes: %v", err)
+		countAPIError(err, "nodes", "") // phase 12: was a silent return
 		return
 	}
+	now := deps.clock()
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		c := nodeCondition(node, corev1.NodeReady)
+		if c == nil || c.Status == corev1.ConditionTrue || runtimeDown(c) || now.Sub(c.LastTransitionTime.Time) < nodeNotReadyFor {
+			continue
+		}
+		report(ctx, deps, finding{Reason: "NodeNotReady", Workload: "node/" + node.Name, Node: node.Name,
+			Severity: eventsvc.SevCritical, Rung: RungAlert,
+			Summary: fmt.Sprintf("NotReady for %s (%s)", now.Sub(c.LastTransitionTime.Time).Round(time.Minute), c.Reason),
+			Details: []string{c.Message, fmt.Sprintf("Kubelet %s, %s; watched pods on the node: %d",
+				node.Status.NodeInfo.KubeletVersion, node.Status.NodeInfo.OSImage, podsOnNode(ctx, deps, node.Name))},
+			Fix: "the cause is on the node: check the kubelet and container runtime logs, disk, memory and network there"})
+	}
+}
 
-	for _, node := range nodes.Items {
-		ready := false
-		var readyCond *corev1.NodeCondition
-		for i, c := range node.Status.Conditions {
-			if c.Type == corev1.NodeReady {
-				readyCond = &node.Status.Conditions[i]
-				if c.Status == corev1.ConditionTrue {
-					ready = true
-				}
-				break
+// nodeCondition returns the node's condition of type t, or nil.
+func nodeCondition(n *corev1.Node, t corev1.NodeConditionType) *corev1.NodeCondition {
+	for i := range n.Status.Conditions {
+		if n.Status.Conditions[i].Type == t {
+			return &n.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// runtimeDown reports whether a NotReady condition names the container
+// runtime; KubeletNotReady alone is the kubelet's generic reason.
+func runtimeDown(c *corev1.NodeCondition) bool {
+	return c.Status != corev1.ConditionTrue && strings.Contains(strings.ToLower(c.Message), "container runtime")
+}
+
+// podsOnNode counts pods on the node in watched namespaces only: reads
+// follow the watch scope (constraint 4; the audit found a cluster-wide read).
+func podsOnNode(ctx context.Context, deps *Deps, node string) int {
+	n := 0
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + node})
+		if err != nil {
+			countAPIError(err, "pods", ns)
+			continue
+		}
+		for i := range pods.Items {
+			if pods.Items[i].Spec.NodeName == node {
+				n++
 			}
 		}
-
-		if ready {
-			continue
-		}
-
-		key := dedupKey("", node.Name, "NodeNotReady")
-		if !deps.Dedup.Check(key) {
-			obs.DedupSkippedTotal.WithLabelValues("NodeNotReady").Inc()
-			continue
-		}
-
-		klog.Infof("nodecheck: node %s is NotReady", node.Name)
-
-		msg := fmt.Sprintf("*NodeNotReady*: `%s` is not ready\n", node.Name)
-		msg += fmt.Sprintf("Version: %s, OS: %s\n", node.Status.NodeInfo.KubeletVersion, node.Status.NodeInfo.OSImage)
-
-		if readyCond != nil {
-			msg += fmt.Sprintf("Reason: %s\nMessage: %s\n", readyCond.Reason, readyCond.Message)
-			msg += fmt.Sprintf("Last transition: %s\n", readyCond.LastTransitionTime.Format("2006-01-02 15:04:05"))
-		}
-
-		// Count pods on this node
-		pods, err := deps.Client.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + node.Name,
-		})
-		if err != nil {
-			countAPIError(err, "pods", "")
-		}
-		podCount := 0
-		if pods != nil {
-			podCount = len(pods.Items)
-		}
-		msg += fmt.Sprintf("Pods on node: %d\n", podCount)
-		msg += "_Action required_: investigate kubelet, container runtime, and network on this node.\n"
-
-		deps.Slack.Post(msg)
-		fireAlert(ctx, deps, "NodeNotReady", "", node.Name, "", msg, "critical")
-		recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-			Node: node.Name, Reason: "NodeNotReady",
-			Message: fmt.Sprintf("Node not ready (%d pods affected)", podCount)})
-		obs.IncidentsTotal.WithLabelValues("NodeNotReady", "", node.Name).Inc()
 	}
+	return n
 }

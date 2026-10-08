@@ -36,13 +36,18 @@ func NewDeployTracker(maxLen int) *DeployTracker {
 
 // RecordDeploy tracks a deployment change.
 func (dt *DeployTracker) RecordDeploy(ns, name, image string, revision int64, replicas int32) {
+	dt.RecordDeployAt(ns, name, image, revision, replicas, time.Now())
+}
+
+// RecordDeployAt records a rollout that happened at a given time.
+func (dt *DeployTracker) RecordDeployAt(ns, name, image string, revision int64, replicas int32, at time.Time) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 	if len(dt.deploys) >= dt.maxLen {
 		dt.deploys = dt.deploys[1:]
 	}
 	dt.deploys = append(dt.deploys, DeployRecord{
-		Timestamp: time.Now().UTC(), Namespace: ns, Deployment: name,
+		Timestamp: at.UTC(), Namespace: ns, Deployment: name,
 		Image: image, Revision: revision, Replicas: replicas,
 	})
 }
@@ -55,8 +60,10 @@ func (dt *DeployTracker) RecentDeploys(ns string, within time.Duration) []Deploy
 	var result []DeployRecord
 	for i := len(dt.deploys) - 1; i >= 0; i-- {
 		d := dt.deploys[i]
+		// Records are dated by their rollout, not their arrival, so they are
+		// not in time order: scan all of them (at most maxLen).
 		if d.Timestamp.Before(cutoff) {
-			break
+			continue
 		}
 		if ns == "" || d.Namespace == ns {
 			result = append(result, d)
@@ -106,9 +113,12 @@ func ScanDeployments(ctx context.Context, deps *Deps) {
 			if d.Spec.Replicas != nil {
 				replicas = *d.Spec.Replicas
 			}
-			// Only record if we haven't seen this revision
+			// Only record if we haven't seen this revision, dated by when it
+			// rolled out: on start every existing Deployment is seen at once,
+			// and dating them "now" blamed old deploys for new incidents
+			// (phase 12 audit).
 			if !deps.DeployTracker.hasRevision(ns, d.Name, rev) {
-				deps.DeployTracker.RecordDeploy(ns, d.Name, image, rev, replicas)
+				deps.DeployTracker.RecordDeployAt(ns, d.Name, image, rev, replicas, rolledOutAt(&d))
 				klog.V(4).Infof("correlation: tracked deploy %s/%s rev=%d", ns, d.Name, rev)
 			}
 		}
@@ -148,4 +158,15 @@ func CostEstimate(cpuRequests float64, memRequestsMi float64, replicas int32) st
 	total := cpuCost + memCost
 
 	return fmt.Sprintf("~$%.0f/month (%d replicas x %.1f CPU + %.0f Mi)", total, replicas, cpuRequests, memRequestsMi)
+}
+
+// rolledOutAt is when the Deployment's current revision rolled out: the
+// Progressing condition's last update, else the Deployment's creation.
+func rolledOutAt(d *appsv1.Deployment) time.Time {
+	for _, c := range d.Status.Conditions {
+		if c.Type == appsv1.DeploymentProgressing && !c.LastUpdateTime.IsZero() {
+			return c.LastUpdateTime.Time
+		}
+	}
+	return d.CreationTimestamp.Time
 }

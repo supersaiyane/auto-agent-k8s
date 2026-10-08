@@ -39,6 +39,7 @@ var typedAccessors = map[string]perm{
 	"Pods": {"", "pods", ""}, "Nodes": {"", "nodes", ""}, "Events": {"", "events", ""},
 	"Namespaces": {"", "namespaces", ""}, "ConfigMaps": {"", "configmaps", ""},
 	"Endpoints": {"", "endpoints", ""}, "LimitRanges": {"", "limitranges", ""},
+	"EndpointSlices":         {"discovery.k8s.io", "endpointslices", ""},
 	"PersistentVolumeClaims": {"", "persistentvolumeclaims", ""}, "ResourceQuotas": {"", "resourcequotas", ""},
 	"Secrets": {"", "secrets", ""}, "Services": {"", "services", ""},
 	"Deployments": {"apps", "deployments", ""}, "ReplicaSets": {"apps", "replicasets", ""},

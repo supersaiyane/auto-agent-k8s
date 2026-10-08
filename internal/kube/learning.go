@@ -176,8 +176,9 @@ func CollectBaselines(ctx context.Context, deps *Deps) {
 		return
 	}
 	for _, ns := range watchedNamespaces(ctx, deps) {
-		dl, err2 := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
-		if err2 != nil {
+		dl, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			countAPIError(err, "deployments", ns) // phase 12: was dropped
 			continue
 		}
 		for i := range dl.Items {

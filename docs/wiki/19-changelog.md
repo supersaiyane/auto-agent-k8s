@@ -8,7 +8,7 @@ hand. The project has no release tags yet.
 
 PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings tab, shutdown order, check-config, docs.
 
-6 commits, 2026-10-08 to 2026-10-08. By type: 2 fix, 2 feat, 2 docs.
+7 commits, 2026-10-08 to 2026-10-08. By type: 3 docs, 2 fix, 2 feat.
 
 - `d68b9a7` docs: PLAN-003 read-only terminal, after PLAN-002 phase 13
 - `c3e88c4` feat: separate watch scope and fix scope (PLAN-002 11.8 step 1)
@@ -16,6 +16,7 @@ PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings t
 - `ed4ddab` fix: ordered shutdown, leader-only notices, check-config (PLAN-002 11.5)
 - `bace559` docs: one owner per topic, generated changelog, docs check (PLAN-002 11.6)
 - `6aafe5b` fix: one namespace and a pinnable image for the chart (PLAN-002 11.3)
+- `de32f7c` docs: phase 11 complete, coverage floor 56.4 (PLAN-002 11.7)
 
 ## PR #2: PLAN-002 phases 8 to 11 (merged 2026-10-08)
 

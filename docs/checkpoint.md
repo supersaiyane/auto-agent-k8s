@@ -28,13 +28,14 @@
 | 2026-10-08 | PR #2 merged; PLAN-002 11.8 step 1 (watch scope, fix scope) | Done: `make verify` passed (coverage 55.2% measured); `make e2e` PASS on kind (dry-run untouched, kube-system refused as outside the watch scope, RBAC complete with every namespace watched) | `internal/policy/scope.go` (new), `policy.go`, `reload.go`; `internal/kube/namespaces.go` (new), `gate.go` fix scope check, 29 detector loops; chart values, `_helpers.tpl` fixCeiling, `roles.yaml` ceiling or fixAnywhere ClusterRoles, `configmap.yaml`; RBAC tests in both modes; CONFIGURATION, README, GUIDE, wiki 03, 11, 21; CLAUDE.md constraint 4 | `internal/kube/gate.go:47` (fix scope check), `internal/policy/scope.go:55` (loadScope), `charts/auto-agent/templates/_helpers.tpl` (fixCeiling), e2e log in the session scratchpad `e2e.txt` |
 | 2026-10-08 | PLAN-002 11.8 steps 2 to 4 (Settings tab, `/api/scope`, namespace selector) | Done: `make e2e` PASS on kind with the new scope case (ceiling refused, choice applied by every agent, kept across `helm upgrade`, audited, cleared); `make ui-test` PASS and falsified | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/policy/reload.go` (WatchScope, fail closed until synced), UI files, chart scope Role, guard ISS-064 | `internal/kube/scope_settings.go:30` (SaveFixScope), `internal/httpapi/scope.go:55` (handleScope), `internal/httpapi/ui/app.js` (viewSettings), `scripts/e2e-kind.sh` (scope case) |
 | 2026-10-08 | PLAN-002 11.5, 11.6, 11.3, 11.7: phase 11 complete | Done: `make verify` (coverage 56.4% measured, floor raised to it), `make e2e` and `make e2e-raw` PASS on kind; not pushed | ed4ddab (shutdown, notices, check-config), bace559 (docs owners, changelog, docs check), 11.3 commit (namespace, image digest), 11.7 records | `cmd/auto-agent/run.go` (`shutdown`, `leaderChecks`), `cmd/auto-agent/main.go` (`command`), `internal/httpapi/docs_test.go`, `charts/auto-agent/templates/_helpers.tpl` |
+| 2026-10-08 | PLAN-002 phase 12: detector audit (ISS-039, 034, 035; ISS-066 to 076 found and fixed) | Code and tests done, full suite passes; `make e2e` and `make e2e-raw` PASS on kind, `make verify` coverage 70.7% (measured); committed | `internal/kube/*_audit_test.go` (audits), `workloads.go`, `jobs.go`, `workload_extended.go`, `pod_extended.go`, `storage_network.go`, `pvc.go`, `nodecheck.go`, `node_extended.go`, `security.go`, `quotas.go`, `anomalies.go`, `fixtracker.go`, `correlation.go`, `learning.go`, `selfcheck.go`; `ratelimit.Deduplicator.CheckFor`; chart grants | `internal/kube/detector_guard_test.go` (`TestEveryLeaderCheckHasATest`), `internal/kube/workloads.go` (`CheckServiceEndpoints`), PR body in session scratchpad `pr3-body.md` |
 
 ## Next action
 
-1. Phase 11 is complete and committed on `plan-002`, not pushed. Push and
-   open a PR only on the owner's approval.
-2. Then PLAN-002 phase 12 (detector audit and tests, ISS-039), phase 13
-   (native config reload), PLAN-003 (terminal), phases 14 to 17.
-3. Open: ISS-063 (terminal `-A`, PLAN-003), ISS-065 (helm test pod).
+1. Read the phase 12 kind e2e and e2e-raw results; then `make verify`, raise
+   `.coverage-floor` to the measured total, `make changelog`, commit phase 12.
+2. Push `plan-002`, open the PR to master (body drafted), then merge on the
+   owner's go ("finish p12 and then pr and merge", 2026-10-08).
+3. Then PLAN-002 phase 13 (native config reload), PLAN-003, phases 14 to 17.
 4. Stage `deployment/` before `make verify` (`check-manifests` diffs the index).
 5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.

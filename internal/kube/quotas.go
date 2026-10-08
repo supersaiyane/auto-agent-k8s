@@ -3,72 +3,66 @@ package kube
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 )
 
-const quotaUsageThreshold = 0.9 // alert at 90% usage
+const quotaUsageThreshold = 0.9 // report at 90% usage
 
-// CheckResourceQuotas scans allowed namespaces for resource quotas nearing exhaustion.
+// CheckResourceQuotas reports quota resources at or above
+// quotaUsageThreshold, once an hour each. The phase 12 audit found it sent
+// Slack only: no event (so the dashboard never showed it), no rung, and a
+// failed list was dropped. Rung R1; R3 (raise within a ceiling) arrives
+// with the approval queue.
 // Must be called only by the leader.
 func CheckResourceQuotas(ctx context.Context, deps *Deps) {
 	for _, ns := range watchedNamespaces(ctx, deps) {
 		quotas, err := deps.Client.CoreV1().ResourceQuotas(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			klog.V(3).Infof("quotas: failed to list in %s: %v", ns, err)
+			countAPIError(err, "resourcequotas", ns)
 			continue
 		}
-
-		for _, rq := range quotas.Items {
-			checkQuota(ctx, deps, ns, &rq)
+		for i := range quotas.Items {
+			for _, f := range quotaFindings(&quotas.Items[i]) {
+				if deps.Dedup.CheckFor(dedupKey(ns, f.Workload, "quota-"+f.Subject), time.Hour) {
+					report(ctx, deps, f)
+				}
+			}
 		}
 	}
 }
 
-func checkQuota(ctx context.Context, deps *Deps, ns string, rq *corev1.ResourceQuota) {
-	for resource, hard := range rq.Status.Hard {
-		used, ok := rq.Status.Used[resource]
-		if !ok {
+func quotaFindings(rq *corev1.ResourceQuota) []finding {
+	var names []string
+	for r := range rq.Status.Hard {
+		names = append(names, string(r))
+	}
+	sort.Strings(names)
+	var out []finding
+	for _, name := range names {
+		hard := rq.Status.Hard[corev1.ResourceName(name)]
+		used, ok := rq.Status.Used[corev1.ResourceName(name)]
+		if !ok || hard.AsApproximateFloat64() <= 0 {
 			continue
 		}
-
-		hardVal := hard.AsApproximateFloat64()
-		usedVal := used.AsApproximateFloat64()
-		if hardVal <= 0 {
-			continue
-		}
-
-		ratio := usedVal / hardVal
+		ratio := used.AsApproximateFloat64() / hard.AsApproximateFloat64()
 		if ratio < quotaUsageThreshold {
 			continue
 		}
-
-		key := dedupKey(ns, rq.Name, fmt.Sprintf("quota-%s", resource))
-		if !deps.Dedup.Check(key) {
-			obs.DedupSkippedTotal.WithLabelValues("QuotaExhaustion").Inc()
-			continue
+		f := finding{Reason: "QuotaExhaustion", Namespace: rq.Namespace, Workload: "resourcequota/" + rq.Name, Subject: name,
+			Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove,
+			Summary: fmt.Sprintf("`%s` at %.0f%%: %s of %s used", name, ratio*100, used.String(), hard.String()),
+			Fix:     "raise the quota if the usage is expected, or free the resource; new pods needing it are refused at 100%"}
+		if ratio >= 1 {
+			f.Severity = eventsvc.SevCritical
+			f.Summary += ", exhausted"
 		}
-
-		pct := ratio * 100
-		msg := fmt.Sprintf("*ResourceQuota* warning in `%s`\nQuota: `%s` resource: `%s`\nUsed: %s / %s (%.0f%%)\n",
-			ns, rq.Name, resource, used.String(), hard.String(), pct)
-
-		if ratio >= 1.0 {
-			msg += "_Status_: EXHAUSTED. New pods requesting this resource will fail to schedule.\n"
-		} else {
-			msg += fmt.Sprintf("_Status_: approaching limit (>%.0f%%). Consider increasing quota or reducing usage.\n",
-				quotaUsageThreshold*100)
-		}
-
-		klog.Infof("quotas: %s/%s resource %s at %.0f%%", ns, rq.Name, resource, pct)
-
-		if err := deps.Slack.Post(msg); err != nil {
-			obs.HandlerErrorsTotal.WithLabelValues("quota", "slack").Inc()
-		}
-		obs.IncidentsTotal.WithLabelValues("QuotaExhaustion", ns, string(resource)).Inc()
+		out = append(out, f)
 	}
+	return out
 }

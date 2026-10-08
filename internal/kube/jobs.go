@@ -8,6 +8,7 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
@@ -21,33 +22,45 @@ func CheckFailedJobs(ctx context.Context, deps *Deps) {
 	for _, ns := range watchedNamespaces(ctx, deps) {
 		jobs, err := deps.Client.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			klog.V(3).Infof("jobs: failed to list jobs in %s: %v", ns, err)
+			countAPIError(err, "jobs", ns) // phase 12: was a silent continue
 			continue
 		}
 
-		for _, job := range jobs.Items {
-			if !isJobFailed(&job) {
+		now := deps.clock()
+		for i := range jobs.Items {
+			job := &jobs.Items[i]
+			failedAt, failed := jobFailedAt(job)
+			// A failed Job does not change by itself: report it once, and not
+			// at all once it is older than the lookback (phase 12 audit).
+			if !failed || now.Sub(failedAt) > failedJobLookback {
 				continue
 			}
-
-			key := dedupKey(ns, job.Name, "JobFailed")
-			if !deps.Dedup.Check(key) {
+			if !deps.Dedup.CheckFor(dedupKey(ns, string(job.UID), "JobFailed"), failedJobLookback) {
 				obs.DedupSkippedTotal.WithLabelValues("JobFailed").Inc()
 				continue
 			}
-
-			handleFailedJob(ctx, deps, &job)
+			handleFailedJob(ctx, deps, job)
 		}
 	}
 }
 
+// failedJobLookback is how far back a Job failure is still news, and how
+// long one failure stays reported once.
+const failedJobLookback = 24 * time.Hour
+
 func isJobFailed(job *batchv1.Job) bool {
+	_, failed := jobFailedAt(job)
+	return failed
+}
+
+// jobFailedAt returns when the Job failed, if it did.
+func jobFailedAt(job *batchv1.Job) (time.Time, bool) {
 	for _, cond := range job.Status.Conditions {
 		if cond.Type == batchv1.JobFailed && cond.Status == "True" {
-			return true
+			return cond.LastTransitionTime.Time, true
 		}
 	}
-	return false
+	return time.Time{}, false
 }
 
 func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
@@ -63,11 +76,9 @@ func handleFailedJob(ctx context.Context, deps *Deps, job *batchv1.Job) {
 	})
 	if err != nil {
 		countAPIError(err, "pods", ns) // ISS-045: no longer dropped
-	} else if len(pods.Items) > 0 {
-		lastPod := pods.Items[len(pods.Items)-1]
-		if len(lastPod.Spec.Containers) > 0 {
-			logs = getLastLogs(ctx, deps.Client, ns, lastPod.Name, lastPod.Spec.Containers[0].Name, 50)
-		}
+	} else if lastPod := newestPod(pods.Items); lastPod != nil && len(lastPod.Spec.Containers) > 0 {
+		// The newest attempt, whatever order the list came in (phase 12 audit).
+		logs = getLastLogs(ctx, deps.Client, ns, lastPod.Name, lastPod.Spec.Containers[0].Name, 50)
 	}
 
 	url, err := persistLogBundle(ctx, deps.Sink, ns, name, name, "", "",
@@ -145,12 +156,12 @@ func jobFailureFix(job *batchv1.Job, reason string) string {
 func cleanupOldFailedJobs(ctx context.Context, deps *Deps, ns, cronJobName string) string {
 	jobs, err := deps.Client.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		klog.V(3).Infof("jobs: failed to list jobs in %s: %v", ns, err)
+		countAPIError(err, "jobs", ns)
 		return ""
 	}
 
 	var old []string
-	cutoff := time.Now().Add(-1 * time.Hour)
+	cutoff := deps.clock().Add(-1 * time.Hour)
 	for _, job := range jobs.Items {
 		if isJobFailed(&job) && ownedByCronJob(&job, cronJobName) && job.CreationTimestamp.Time.Before(cutoff) {
 			old = append(old, job.Name)
@@ -187,4 +198,15 @@ func ownedByCronJob(job *batchv1.Job, cronJobName string) bool {
 		}
 	}
 	return false
+}
+
+// newestPod returns the most recently created pod, or nil.
+func newestPod(pods []corev1.Pod) *corev1.Pod {
+	var newest *corev1.Pod
+	for i := range pods {
+		if newest == nil || pods[i].CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = &pods[i]
+		}
+	}
+	return newest
 }

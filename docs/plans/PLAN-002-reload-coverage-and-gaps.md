@@ -414,7 +414,17 @@ leader-only notices, `check-config`, kubeconfig fallback, API limits
 generated changelog, docs check (ISS-057). 11.3 done: the chart defaults to
 the release namespace, `image.digest`, the helm test fixed (ISS-050;
 ISS-065 opened for the rest). 11.7: records, coverage floor raised to the
-measured total. **Phase 11 is complete.** Next: phase 12.
+measured total. **Phase 11 is complete.**
+
+Phase 12 done 2026-10-08 (ISS-039, ISS-034, ISS-035): every detector and
+leader loop without a test was audited in writing in its test file
+(`*_audit_test.go`: claims, condition, misses, noise, rung) and tested with
+its positive case, a healthy control and each documented miss. The audit
+found and fixed ISS-066 to ISS-076, including a crash on Ingress resource
+backends (ISS-072). Every old detector now reports through `report()` with
+a rung; the untested list is empty and `TestEveryLeaderCheckHasATest` keeps
+every leader check tested. Coverage 70.7% total (measured), floor raised
+to it. Next: phase 13.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

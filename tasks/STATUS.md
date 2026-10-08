@@ -31,7 +31,10 @@ counts computed or removed, changelog generated from git, docs check test.
 11.3 done 2026-10-08 (ISS-050): the chart defaults to the release namespace
 (`auto-agent`), `image.digest`, helm test fixed; ISS-065 opened. `make e2e` and
 `make e2e-raw` pass on kind. 11.7 done: coverage floor 56.4 (measured),
-changelog regenerated. **Phase 11 is complete.** Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+changelog regenerated. **Phase 11 is complete.** Phase 12 done 2026-10-08
+(ISS-039, ISS-034, ISS-035): 20 detectors and 4 leader loops audited and
+tested; ISS-066 to ISS-076 found and fixed; every leader check must have a
+test. Coverage 70.7% total (measured), floor raised to it. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

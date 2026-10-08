@@ -41,9 +41,9 @@ rules:
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]
-- apiGroups: [""]
-  resources: ["endpoints"]
-  verbs: ["get", "list"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["list"]   # CheckServiceEndpoints (ISS-034, ISS-035)
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list"]   # get: the kubectl panel's describe node
@@ -70,7 +70,7 @@ rules:
   verbs: ["list"]
 - apiGroups: ["storage.k8s.io"]
   resources: ["storageclasses"]
-  verbs: ["get"]
+  verbs: ["get", "list"]   # get: volume expansion check (promchecks); list: CheckStorageIssues
 - apiGroups: ["autoagent.io"]
   resources: ["autoremediationpolicies"]
   verbs: ["get", "list", "watch"]
