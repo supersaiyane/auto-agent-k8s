@@ -37,10 +37,13 @@
 
 ## Next action
 
-1. Read the kind e2e result (policy refusal step), run `helm test` on the kind
-   release for ISS-065, then commit ISS-037, ISS-081, ISS-082 and ISS-065.
-2. Merge PR #4 once its e2e check is green (owner approved), then push the
-   phase 16 commits.
-3. Rest of phase 16: learned CPU baselines as scale thresholds, webhook certs
-   (ISS-032), gitops valuesFile and author, tracing and metric cardinality
-   (ISS-018), D6 tests, D8 mutation testing. ISS-025 waits on the owner.
+Stopped 2026-10-08 at the owner's request. PR #4 merged to master
+(4ee2e59). PR #5 (phase 16 part 1, plan-002 at ff30698) is open; its CI e2e
+failed only because `helm test --logs` races the hook-succeeded pod delete.
+
+1. The fix is staged, not committed: `scripts/e2e-kind.sh` (helm test step)
+   checks `Phase: Succeeded` instead of `--logs`. Run `make e2e`, commit,
+   push to plan-002, and merge PR #5 when CI is green (owner asked to merge).
+2. Then the rest of phase 16: learned CPU baselines, webhook certs (ISS-032),
+   gitops valuesFile and author, tracing and cardinality (ISS-018), D6, D8.
+3. Owner questions open: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).

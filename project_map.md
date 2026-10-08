@@ -1,6 +1,6 @@
 # Project map: auto-agent-k8s
 
-Last checked against the code: 2026-10-08, after PLAN-002 phase 12 (PR #3 merged); no module was added since.
+Last checked against the code: 2026-10-08, after PR #4 merged and PLAN-002 phase 16 part 1 (PR #5 open): adds internal/kube approvals.go, approval_fixes.go, policycheck.go, internal/httpapi approvals.go, cmd/auto-agent approvals.go; the chart's helm test pod is admitted by the controller NetworkPolicy.
 
 Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet.
 

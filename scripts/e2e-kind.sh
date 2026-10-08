@@ -51,9 +51,11 @@ helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" 
 	--wait --timeout 180s
 
 log "running the chart's own helm test (ISS-065: pinned image, admitted by the NetworkPolicy)"
-helm test auto-agent --kube-context "$CTX" -n "$NS_AGENT" --timeout 120s --logs > /tmp/e2e-helm-test.txt 2>&1 \
+# No --logs: the chart deletes a passed test pod (hook-succeeded), so its
+# logs can be gone before helm reads them. The phase helm reports is the result.
+helm test auto-agent --kube-context "$CTX" -n "$NS_AGENT" --timeout 120s > /tmp/e2e-helm-test.txt 2>&1 \
 	|| { tail -20 /tmp/e2e-helm-test.txt; fail "helm test failed"; }
-grep -q "All tests passed." /tmp/e2e-helm-test.txt || { tail -20 /tmp/e2e-helm-test.txt; fail "helm test did not report its checks"; }
+grep -Eq "Phase: +Succeeded" /tmp/e2e-helm-test.txt || { tail -20 /tmp/e2e-helm-test.txt; fail "helm test did not succeed"; }
 log "helm test passed"
 
 log "applying an AutoRemediationPolicy that turns off restarts for the crasher (ISS-037)"
