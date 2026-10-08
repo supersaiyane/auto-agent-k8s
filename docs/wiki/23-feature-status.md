@@ -30,13 +30,13 @@ This page documents the honest status of every feature: what's actually working 
 ## Added in PLAN-002 phase 10 (2026-10-08)
 
 Each runs on the leader, reports through one path that records its rung on
-the fix ladder (R0 alert, R1 guided fix, R3 approve to fix once the approval
-queue exists), and is tested with a bad case and a healthy control.
+the fix ladder (R0 alert, R1 guided fix, R3 approve to fix), and is tested
+with a bad case and a healthy control.
 Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
 
 | Detector | Reasons reported | Rung | Code | Test |
 | --- | --- | --- | --- | --- |
-| Pods stuck terminating | `PodStuckTerminating` | R1, R3 later | `internal/kube/podstate.go` | `TestStuckTerminating` |
+| Pods stuck terminating | `PodStuckTerminating` | R1 (force delete stays with a person: a StatefulSet pod on a node that is not really down could run twice) | `internal/kube/podstate.go` | `TestStuckTerminating` |
 | Volumes that do not attach or mount | `VolumeAttachFailed`, `VolumeMountFailed` | R1 | `internal/kube/podstate.go` | `TestVolumeFailures` |
 | Probes failing before a crashloop | `LivenessProbeFailing`, `ReadinessProbeFailing`, `StartupProbeFailing` | R1 | `internal/kube/podstate.go` | `TestProbeFailures` |
 | Why a pod cannot be scheduled (taint, affinity, resources, volume, topology spread) | `Unschedulable` | R1 | `internal/kube/podstate.go`, `scheduling.go` | `TestUnschedulable_ReportedByLeader`, `TestParseSchedulingFailure_OneCasePerCause` |
@@ -45,10 +45,10 @@ Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
 | Namespaces and claims held by finalizers | `NamespaceStuckTerminating`, `PVCStuckTerminating` | R1 | `internal/kube/lifecycle.go` | `TestStuckFinalizers_NamespaceAndPVC` |
 | Disruption budgets blocking evictions; refused evictions counted (`auto_agent_evictions_blocked_total`) | `PDBBlocksDisruption` | R1 | `internal/kube/lifecycle.go`, `nodes.go` | `TestDisruptionBudgets`, `TestNodePressure_EvictionRefusedByBudgetIsCounted` |
 | Job hit its retry limit or deadline, reason in the alert | `JobFailed` | R1 | `internal/kube/jobs.go` | `TestFailedJob_ReasonInAlert` |
-| HPA capped at its maximum for 15 minutes, higher maximum proposed within the policy ceiling | `HPAMaxedOut`, `HPAScalingFailed` | R1, R3 later | `internal/kube/workload_extended.go` | `TestHPA_StuckAtMaxOnlyWhenLimited` |
+| HPA capped at its maximum for 15 minutes, higher maximum proposed within the policy ceiling | `HPAMaxedOut`, `HPAScalingFailed` | R1; R3 with approval | `internal/kube/workload_extended.go` | `TestHPA_StuckAtMaxOnlyWhenLimited` |
 | Image pull cause: rate limit, unauthorized, not found, network; no retry where it cannot help | `ImagePullBackOff` | R1, or R4 for network | `internal/kube/handlers.go` | `TestImagePull_CauseDecidesRetry` |
-| CPU throttling (Prometheus) | `CPUThrottled` | R1, R3 later | `internal/kube/promchecks.go` | `TestCPUThrottling` |
-| Claims almost full; expansion offered only when the StorageClass allows it (Prometheus) | `VolumeAlmostFull` | R1, R3 later | `internal/kube/promchecks.go` | `TestVolumeAlmostFull` |
+| CPU throttling (Prometheus) | `CPUThrottled` | R1; R3 with approval | `internal/kube/promchecks.go` | `TestCPUThrottling` |
+| Claims almost full; expansion offered only when the StorageClass allows it (Prometheus) | `VolumeAlmostFull` | R1; R3 with approval | `internal/kube/promchecks.go` | `TestVolumeAlmostFull` |
 | etcd: no leader, leader churn, database near quota (Prometheus, self-managed control planes) | `EtcdNoLeader`, `EtcdLeaderChurn`, `EtcdDBNearQuota` | R0 | `internal/kube/promchecks.go` | `TestEtcdHealth` |
 | Deprecated API use, with the replacement (Prometheus scraping the API server) | `DeprecatedAPIInUse` | R1 | `internal/kube/promchecks.go` | `TestDeprecatedAPIs` |
 
@@ -178,3 +178,13 @@ ESCALATION_EMAIL_TO: "oncall@yourorg.com"
 | Kubecost | Dashboard Cost tab shows `source: kubecost` instead of `default` |
 | Learning | `curl http://localhost:8080/api/baselines`: should show `learning: true` with baseline data |
 | Prometheus | Agent logs should NOT show `metrics provider not implemented` |
+
+## Added in PLAN-002 phase 15 (2026-10-08): approve to fix (R3)
+
+| Feature | Status | Code | Test |
+| --- | --- | --- | --- |
+| Approval queue: holds the exact change, expires after `approvals.ttl` (30m), applied once through the mutation gate with guardrails checked again; replays, expired and rejected items refused; the audit names the approver | Working; off until `approvals.groups` is set; fix mode and fix scope only; in memory, lost on restart (ISS-078) | `internal/kube/approvals.go` | `TestApprovals_ApproveAppliesOnceAndRecordsApprover`, `TestApprovals_ExpiredAndRejectedAreRefused`, `TestApprovals_GuardrailsCheckedAgainAtApproval` |
+| Slack Approve and Reject buttons on the signed callback, listed users only | Working; needs `slack.signingSecret` and a Slack app with interactivity | `internal/httpapi/approvals.go`, `slack_actions.go` | `TestSlackActions_ApproveAndRejectNeedAListedApprover` |
+| Dashboard Approvals tab and `/api/approvals` (list, reject; never approve) | Working | `internal/httpapi/approvals.go`, `ui/app.js` | `TestAPI_ApprovalsListFiltersAndRejects` |
+| R3 changes: HPA maxReplicas, CPU limit (Deployment, StatefulSet, DaemonSet), claim expansion, Deployment resume, stuck DaemonSet pod delete, CronJob run now | Working behind approval | `internal/kube/approval_fixes.go` | `TestApprovalFixes_Changes`, `TestTemplateOwnerAndCPUPatch` |
+| Stay at R1: stuck terminating pods (force delete), forgotten cordon (node patch), quota exhaustion (no ceiling defined, ISS-077), network pods down (kube-system), sandbox failures | By decision | `podstate.go`, `node_extended.go`, `quotas.go`, `netchecks.go` | their detector tests |

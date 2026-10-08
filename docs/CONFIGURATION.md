@@ -227,6 +227,22 @@ reported after two failures in a row, once per run of failures.
 | `SERVICE_PROBE_ENABLED` | `probes.services` | `true`, `false` | `false` | Dial up to 20 Services with ready endpoints per pass: ServiceUnreachable points at kube-proxy or the CNI on that node | `internal/kube/netprobe.go` |
 | `EGRESS_PROBE_TARGET` | `probes.egressTarget` | `host:port` | empty (off) | Dial this address: EgressBlocked | `internal/kube/netprobe.go` |
 
+## Approvals (rung R3, PLAN-002 phase 15)
+
+Some findings carry the exact change that fixes them. In fix mode, inside
+the fix scope, that change waits in a queue on the leader until a listed
+Slack user presses Approve on the signed callback. It then goes through the
+mutation gate, which checks mode, scope, guardrails and the rate limiter
+again. An approval is applied once; a second press is refused. The audit
+log records who approved. The dashboard Approvals tab lists the queue and
+can reject, never approve. The queue is in memory: a restart or a change of
+leader drops what is pending (ISS-078).
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `APPROVAL_TTL` | `approvals.ttl` | Go duration | `30m` | A queued change expires after this | `internal/kube/approvals.go` |
+| `APPROVAL_GROUPS` | `approvals.groups` | comma separated `slack:<user id>` | empty (off) | Who may approve; empty turns approvals off | `internal/kube/approvals.go` |
+
 ## Roles (ADR-001)
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |

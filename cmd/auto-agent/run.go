@@ -277,6 +277,7 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		QuietHours:  kube.NewQuietHours(conf.QuietHours), DryRunLog: t.dryRun,
 		Escalation: escalation.NewChain(conf.Escalation, cl.HTTP), DeployTracker: t.deploys,
 		LearningMode: t.learning, FixTracker: t.fixes,
+		Approvals: kube.NewApprovals(conf.Approvals.TTL, conf.Approvals.Approvers),
 	}
 	return nil
 }
@@ -318,7 +319,7 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		AllowNamespace: func(ns string) bool { return a.hr.Get().Watched(ns) },
 		IsLeader:       a.isLeader, Leader: leaderTarget, HealthOnly: a.rl.onlyNode(),
 		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope, Dynamic: cl.Dynamic, Agent: termAgentFor(a),
-		Extended: ext,
+		Extended: ext, Approvals: approvalsFor(a),
 	})
 }
 

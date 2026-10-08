@@ -94,7 +94,14 @@ NO_TOKEN=$(code http://127.0.0.1:18080/api/status)
 WITH_TOKEN=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/status)
 HEALTH=$(code http://127.0.0.1:18080/healthz)
 KUBECTL=$(curl -s -H 'Authorization: Bearer e2e-token' -X POST -d '{"command":"get pods -n kube-system"}' http://127.0.0.1:18080/api/kubectl)
+# Phase 15: the approval queue is served, and with no approvers it is empty;
+# the dashboard can never approve.
+APPROVALS=$(curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/approvals)
+APPROVE_POST=$(code -H 'Authorization: Bearer e2e-token' -X POST http://127.0.0.1:18080/api/approvals?id=x)
 kill "$PF" 2>/dev/null || true
+log "/api/approvals -> $APPROVALS; POST -> $APPROVE_POST"
+[ "$APPROVALS" = "[]" ] || fail "/api/approvals with no approvers returned $APPROVALS, want []"
+[ "$APPROVE_POST" = "405" ] || fail "POST /api/approvals returned $APPROVE_POST, want 405"
 log "/api/status no token=$NO_TOKEN, with token=$WITH_TOKEN; /healthz=$HEALTH"
 log "kubectl -n kube-system -> $KUBECTL"
 [ "$NO_TOKEN" = "401" ] || fail "/api/status without token returned $NO_TOKEN, want 401"

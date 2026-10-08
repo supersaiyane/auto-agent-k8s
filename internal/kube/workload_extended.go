@@ -82,24 +82,27 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 			if !ok {
 				continue
 			}
-			var stuck []string
+			var stuck, stuckNames []string
 			for j := range pods {
 				if since, ready := notReadyFor(&pods[j], now); !ready && since >= stuckFor {
 					stuck = append(stuck, fmt.Sprintf("`%s` on `%s` (%s)", pods[j].Name, pods[j].Spec.NodeName, waitingState(&pods[j])))
+					stuckNames = append(stuckNames, pods[j].Name)
 				}
 			}
 			sort.Strings(stuck)
+			sort.Strings(stuckNames)
 			rolled := ds.Generation == st.ObservedGeneration && st.UpdatedNumberScheduled >= st.DesiredNumberScheduled
 			unscheduled := st.DesiredNumberScheduled - st.CurrentNumberScheduled
 			if len(stuck) == 0 && (!rolled || unscheduled <= 0) {
 				continue // still rolling out or scheduling: not stuck
 			}
 			f := finding{Reason: "DaemonSetMissing", Namespace: ns, Workload: "daemonset/" + ds.Name,
-				Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove,
+				Severity: eventsvc.SevWarning, Rung: RungGuided,
 				Summary: fmt.Sprintf("%d of %d nodes lack a ready pod", st.DesiredNumberScheduled-st.NumberReady, st.DesiredNumberScheduled),
 				Fix:     fmt.Sprintf("describe the stuck pods (`kubectl describe pod <name> -n %s`); deleting one recreates it on its node", ns)}
 			if len(stuck) > 0 {
 				f.Details = append(f.Details, "Not ready for "+stuckFor.String()+" or more: "+strings.Join(stuck, ", "))
+				f.Target, f.Proposal = RungApprove, proposeDeleteStuck(deps, ds, stuckNames)
 			}
 			if rolled && unscheduled > 0 {
 				f.Details = append(f.Details, fmt.Sprintf("%d node(s) have no pod at all: check taints, tolerations and node selectors", unscheduled))
@@ -205,17 +208,20 @@ func checkHPA(ctx context.Context, deps *Deps, hpa *autoscalingv2.HorizontalPodA
 		ceiling := deps.Policy().MaxReplicas
 		proposed := proposeMaxReplicas(max, ceiling)
 		fix := fmt.Sprintf("raise maxReplicas from %d to %d (half again, within the policy ceiling of %d), or make each replica handle more load", max, proposed, ceiling)
-		if proposed <= max {
-			fix = fmt.Sprintf("maxReplicas is already at the policy ceiling of %d; make each replica handle more load, or raise the ceiling deliberately", ceiling)
-		}
-		report(ctx, deps, finding{
+		f := finding{
 			Reason: "HPAMaxedOut", Namespace: hpa.Namespace, Workload: target,
-			Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove, Subject: hpa.Name,
+			Severity: eventsvc.SevWarning, Rung: RungGuided, Subject: hpa.Name,
 			Summary: fmt.Sprintf("autoscaler `%s` held at maxReplicas %d for %s while load asks for more",
 				hpa.Name, max, now.Sub(c.LastTransitionTime.Time).Round(time.Minute)),
 			Details: []string{fmt.Sprintf("Current %d, desired %d. %s", hpa.Status.CurrentReplicas, hpa.Status.DesiredReplicas, c.Message)},
 			Fix:     fix,
-		})
+		}
+		if proposed <= max {
+			f.Fix = fmt.Sprintf("maxReplicas is already at the policy ceiling of %d; make each replica handle more load, or raise the ceiling deliberately", ceiling)
+		} else {
+			f.Target, f.Proposal = RungApprove, proposeHPAMax(deps, hpa, target, proposed)
+		}
+		report(ctx, deps, f)
 	}
 	if c := hpaCondition(hpa, autoscalingv2.ScalingActive); c != nil && c.Status == corev1.ConditionFalse && c.Reason != "ScalingDisabled" {
 		report(ctx, deps, finding{
@@ -274,7 +280,7 @@ func CheckCronJobMissed(ctx context.Context, deps *Deps) {
 					continue
 				}
 				report(ctx, deps, finding{Reason: "CronJobMissed", Namespace: ns, Workload: "cronjob/" + cj.Name,
-					Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove,
+					Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove, Proposal: proposeRunNow(deps, cj, now),
 					Summary: "missed a scheduled start: " + ev.Message,
 					Details: []string{fmt.Sprintf("Active jobs: %d, concurrency policy %s", len(cj.Status.Active), cj.Spec.ConcurrencyPolicy)},
 					Fix: fmt.Sprintf("if the previous run is still going, it blocks this one; set startingDeadlineSeconds so a late start still runs, "+
@@ -320,7 +326,7 @@ func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
 				continue
 			}
 			report(ctx, deps, finding{Reason: "DeploymentPaused", Namespace: ns, Workload: "deployment/" + d.Name,
-				Severity: eventsvc.SevInfo, Rung: RungGuided, Target: RungApprove,
+				Severity: eventsvc.SevInfo, Rung: RungGuided, Target: RungApprove, Proposal: proposeResume(deps, d),
 				Summary: fmt.Sprintf("paused for %s: no rollout happens, including fixes", now.Sub(since).Round(time.Minute)),
 				Fix:     fmt.Sprintf("if the pause was not meant to last: `kubectl rollout resume deployment/%s -n %s`", d.Name, ns)})
 		}

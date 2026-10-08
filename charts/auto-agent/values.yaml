@@ -126,6 +126,17 @@ probes:
   services: false                  # dial a sample of Services that have ready endpoints (opt-in)
   egressTarget: ""                 # host:port to dial to test egress (opt-in); empty: off
 
+# Approve to fix, rung R3 (PLAN-002 phase 15). Some findings carry an exact
+# change (raise an HPA's maxReplicas, raise a CPU limit, expand a claim,
+# resume a Deployment, delete stuck DaemonSet pods, run a missed CronJob).
+# In fix mode, inside the fix scope, the change waits for one of these
+# Slack users to press Approve; it then goes through the same gate as every
+# other fix. No groups: approvals are off and these stay suggestions. Needs
+# slack.signingSecret so the callback can be verified.
+approvals:
+  ttl: 30m                         # a queued change expires after this
+  groups: []                       # who may approve, e.g. ["slack:U123ABC"]
+
 leaderElection:
   namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 

@@ -158,6 +158,33 @@
       <td class="mono">${esc((r.changedKeys || []).join(', '))}</td>
       <td>${(r.workloads || []).map((w) => `<div>${esc(w.workload)} ${pill(w.result, color[w.result])} <span class="muted small">${esc(trunc(w.detail, 90))}</span></div>`).join('')}</td></tr>`).join('')}</table>`;
   }
+  // Approve to fix, rung R3 (PLAN-002 phase 15): changes waiting for a
+  // listed approver. Approving happens only in Slack, where the person is
+  // known; the dashboard shares one token, so it can only reject.
+  async function viewApprovals() {
+    const all = (await api('/api/approvals')).filter((a) => inNs(a.namespace));
+    setCount(all.length, all.length);
+    const note = state.approvalNotice ? `<p class="small ${state.approvalNotice.ok ? 'green' : 'red'}">${esc(state.approvalNotice.text)}</p>` : '';
+    const intro = '<p class="muted small">In fix mode, inside the fix scope, some findings carry an exact change. It waits here until a listed approver presses Approve in Slack, then goes through the same gate as every other fix. Reject drops it.</p>';
+    if (!all.length) return intro + note + '<p class="muted small">Nothing is waiting. With no approvers set (approvals.groups) this stays empty.</p>';
+    const color = { pending: 'blue', approved: 'green', rejected: 'muted', expired: 'yellow' };
+    return intro + note + `<table><tr><th>Queued</th><th>Workload</th><th>Change</th><th>State</th><th></th></tr>${all.map((a) => `<tr>
+      <td class="time">${when(a.created)}</td><td><span class="ns">${esc(a.namespace)}</span> <strong>${esc(a.workload)}</strong> <span class="reason">${esc(a.reason)}</span></td>
+      <td>${esc(a.change)}<div class="muted small">${esc(trunc(a.summary, 120))}</div></td>
+      <td>${pill(a.state, color[a.state])}${a.by ? ` <span class="muted small">by ${esc(a.by)}</span>` : ''}${a.result ? ' ' + pill(a.result, a.result === 'applied' ? 'green' : 'yellow') : ''}
+        ${a.state === 'pending' ? `<div class="muted small">expires ${when(a.expires)}</div>` : ''}</td>
+      <td>${a.state === 'pending' ? `<button type="button" class="btn" data-action="approval-reject" data-arg="${esc(a.id)}">Reject</button>` : ''}</td></tr>`).join('')}</table>`;
+  }
+  async function rejectApproval(id) {
+    try {
+      await apiSend('DELETE', '/api/approvals?id=' + encodeURIComponent(id));
+      state.approvalNotice = { ok: true, text: 'Rejected; nothing was changed. Recorded in the Audit tab.' };
+    } catch (e) {
+      if (e instanceof AuthError) return;
+      state.approvalNotice = { ok: false, text: e.message };
+    }
+    render();
+  }
   async function viewCompliance() {
     const r = await api('/api/compliance?days=' + num(state.days));
     const days = [7, 30, 90].map((n) => `<button type="button" class="btn${state.days === n ? ' primary' : ''}" data-action="days" data-arg="${n}">${n} days</button>`).join(' ');
@@ -439,7 +466,7 @@
     render();
   }
 
-  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes, reloads: viewReloads,
+  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes, reloads: viewReloads, approvals: viewApprovals,
     compliance: viewCompliance, deploys: viewDeploys, baselines: viewBaselines, k8sevents: viewK8sEvents, charts: viewCharts,
     report: viewReport, cluster: viewCluster, nodes: viewNodes, cost: viewCost, resources: viewResources, settings: viewSettings };
 
@@ -526,6 +553,7 @@
     },
     'scope-review': () => { state.review = true; render(); },
     'scope-cancel': () => { resetEdit(); render(); },
+    'approval-reject': (el) => rejectApproval(el.dataset.arg),
     'scope-apply': () => {
       if (!allConfirmed()) return;
       const { after, added } = scopeDiff();

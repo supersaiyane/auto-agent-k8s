@@ -99,7 +99,7 @@ func TestAudit_DaemonSetMissing(t *testing.T) {
 	h := newFindingHarness(t, objs...)
 	CheckDaemonSetMissing(context.Background(), h.deps)
 	msgs := strings.Join(h.expect(t, "DaemonSetMissing", RungGuided, 2), "\n")
-	for _, want := range []string{"daemonset/logs", "`logs-a` on `node-a`", "daemonset/tainted", "1 node(s) have no pod at all", "approval queue"} {
+	for _, want := range []string{"daemonset/logs", "`logs-a` on `node-a`", "daemonset/tainted", "1 node(s) have no pod at all", "R3 approve to fix: approve to fix is off"} {
 		if !strings.Contains(msgs, want) {
 			t.Errorf("messages lack %q:\n%s", want, msgs)
 		}

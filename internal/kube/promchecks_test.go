@@ -68,6 +68,7 @@ func TestPromChecks_SilentWithoutPrometheus(t *testing.T) {
 func TestCPUThrottling(t *testing.T) {
 	limited := func(name, limit string) *corev1.Pod {
 		return pod(name, func(p *corev1.Pod) {
+			p.Labels = map[string]string{"pod-template-hash": "rs"} // owner ReplicaSet <name>-rs: Deployment <name>
 			p.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")}}
 			if limit != "" {
@@ -86,7 +87,7 @@ func TestCPUThrottling(t *testing.T) {
 	CheckResourcePressure(context.Background(), h.deps)
 	msg := h.expect(t, "CPUThrottled", RungGuided, 1)[0]
 	for _, want := range []string{"container `app` is throttled in 40 percent", "CPU limit 500m, request 200m",
-		"from 500m to 750m", "R3 approve to fix arrives"} {
+		"from 500m to 750m", "R3 approve to fix: approve to fix is off"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message lacks %q:\n%s", want, msg)
 		}

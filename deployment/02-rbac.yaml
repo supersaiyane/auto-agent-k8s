@@ -182,7 +182,15 @@ rules:
   verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -219,7 +227,15 @@ rules:
   verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -256,7 +272,15 @@ rules:
   verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1

@@ -38,18 +38,19 @@ type Server struct {
 	// leader resolves where a standby controller proxies to (ADR-001).
 	leader func() (string, error)
 	// ingest stores forwarded events.
-	ingest  events.Sink
-	meta    *AgentMeta
-	kc      kubernetes.Interface
-	token   string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
-	allowNS func(string) bool // watch scope for kubectl reads
-	cost    CostConfig        // Cost tab pricing (PLAN-002 9.3)
-	ext     ExtendedDeps      // extended endpoints (PLAN-002 9.4)
-	scope   ScopeOptions      // Settings tab (ADR-002)
-	dyn     dynamic.Interface // the terminal's AutoRemediationPolicy reads
-	agent   TerminalAgent     // the terminal's agent commands (PLAN-003)
-	http    *http.Client      // outbound calls (Kubecost, OpenCost)
-	started time.Time
+	ingest    events.Sink
+	meta      *AgentMeta
+	kc        kubernetes.Interface
+	token     string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
+	allowNS   func(string) bool // watch scope for kubectl reads
+	cost      CostConfig        // Cost tab pricing (PLAN-002 9.3)
+	ext       ExtendedDeps      // extended endpoints (PLAN-002 9.4)
+	scope     ScopeOptions      // Settings tab (ADR-002)
+	dyn       dynamic.Interface // the terminal's AutoRemediationPolicy reads
+	agent     TerminalAgent     // the terminal's agent commands (PLAN-003)
+	approvals Approvals         // R3 approval queue (PLAN-002 phase 15); nil off the controller
+	http      *http.Client      // outbound calls (Kubecost, OpenCost)
+	started   time.Time
 }
 
 type AgentMeta struct {
@@ -87,6 +88,9 @@ type Options struct {
 	// answers its agent commands (PLAN-003). Both may be nil.
 	Dynamic dynamic.Interface
 	Agent   TerminalAgent
+	// Approvals is the R3 approval queue (PLAN-002 phase 15); nil on node
+	// agents.
+	Approvals Approvals
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
@@ -96,7 +100,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
-		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope, dyn: opts.Dynamic, agent: opts.Agent}
+		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope, dyn: opts.Dynamic, agent: opts.Agent, approvals: opts.Approvals}
 	s.ingest = opts.Ingest
 	if s.ingest == nil && recorder != nil {
 		s.ingest = recorder
@@ -141,6 +145,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 
 	// Slack interactive actions callback
 	slackHandler := NewSlackActionHandler(opts.SlackSigningSecret)
+	slackHandler.approvals = opts.Approvals
 	RegisterSlackActions(mux, slackHandler)
 
 	// Embedded UI
@@ -807,6 +812,7 @@ var apiRouteTable = []struct {
 	{"/api/fixes", (*Server).handleFixes},
 	{"/api/scope", (*Server).handleScope},
 	{"/api/reloads", (*Server).handleReloads},
+	{"/api/approvals", (*Server).handleApprovals},
 }
 
 // apiRoutes returns every /api/ path the server serves, Slack included.

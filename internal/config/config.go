@@ -42,6 +42,9 @@ type Config struct {
 	// Network probes run by every node agent (PLAN-002 phase 14).
 	Probes Probes
 
+	// R3 approvals (PLAN-002 phase 15).
+	Approvals Approvals
+
 	// API client rate limits, per pod (ISS-056).
 	APIQPS   float32
 	APIBurst int
@@ -199,6 +202,11 @@ func Load(get Getenv) Config {
 			ExternalName:  r.str("DNS_PROBE_EXTERNAL", ""),
 			Services:      r.boolean("SERVICE_PROBE_ENABLED", false),
 			EgressTarget:  r.str("EGRESS_PROBE_TARGET", ""),
+		},
+
+		Approvals: Approvals{
+			TTL:       r.duration("APPROVAL_TTL", 30*time.Minute),
+			Approvers: r.list("APPROVAL_GROUPS"),
 		},
 
 		APIQPS:   float32(r.positiveInt("KUBE_API_QPS", 50)),
@@ -386,4 +394,11 @@ type Probes struct {
 	ExternalName  string        // DNS_PROBE_EXTERNAL: also resolve this name (upstream DNS); empty: off
 	Services      bool          // SERVICE_PROBE_ENABLED: dial ready Services' ClusterIPs (opt-in)
 	EgressTarget  string        // EGRESS_PROBE_TARGET: host:port to dial (opt-in); empty: off
+}
+
+// Approvals is the R3 approval queue (PLAN-002 phase 15). With no
+// approvers it is off and R3 fixes stay suggestions.
+type Approvals struct {
+	TTL       time.Duration // APPROVAL_TTL: a queued change expires after this
+	Approvers []string      // APPROVAL_GROUPS: who may approve, e.g. slack:U123ABC
 }

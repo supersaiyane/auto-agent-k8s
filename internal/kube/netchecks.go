@@ -39,7 +39,7 @@ func CheckSandboxFailures(ctx context.Context, deps *Deps) {
 	for node, pods := range byNode {
 		sort.Strings(pods)
 		report(ctx, deps, finding{Reason: "PodSandboxFailed", Workload: "node/" + node, Node: node,
-			Severity: eventsvc.SevCritical, Rung: RungGuided, Target: RungApprove,
+			Severity: eventsvc.SevCritical, Rung: RungGuided,
 			Summary: fmt.Sprintf("%d pod(s) cannot get a network on this node", len(pods)),
 			Details: []string{"Pods: " + strings.Join(dedupe(pods), ", "), "Latest: " + trunc(sample[node], 200)},
 			Fix:     "the CNI on this node is failing: check its pod there (Calico, Cilium, Flannel, aws-node), the node's IP pool and the CNI config"})
@@ -75,7 +75,7 @@ func CheckSystemNetworkPods(ctx context.Context, deps *Deps) {
 				continue
 			}
 			report(ctx, deps, finding{Reason: "NetworkPodDown", Namespace: ns, Workload: ownerName(p), Pod: p.Name, Node: p.Spec.NodeName,
-				Severity: eventsvc.SevCritical, Rung: RungGuided, Target: RungApprove, Subject: p.Spec.NodeName,
+				Severity: eventsvc.SevCritical, Rung: RungGuided, Subject: p.Spec.NodeName,
 				Summary: fmt.Sprintf("`%s` (%s) on node `%s` is not ready: pod networking or Services fail there", p.Name, sel, p.Spec.NodeName),
 				Details: []string{"State: " + waitingState(p)},
 				Fix:     fmt.Sprintf("`kubectl -n kube-system describe pod %s`; deleting it recreates it on that node", p.Name)})

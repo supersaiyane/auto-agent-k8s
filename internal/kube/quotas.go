@@ -55,7 +55,7 @@ func quotaFindings(rq *corev1.ResourceQuota) []finding {
 			continue
 		}
 		f := finding{Reason: "QuotaExhaustion", Namespace: rq.Namespace, Workload: "resourcequota/" + rq.Name, Subject: name,
-			Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove,
+			Severity: eventsvc.SevWarning, Rung: RungGuided,
 			Summary: fmt.Sprintf("`%s` at %.0f%%: %s of %s used", name, ratio*100, used.String(), hard.String()),
 			Fix:     "raise the quota if the usage is expected, or free the resource; new pods needing it are refused at 100%"}
 		if ratio >= 1 {

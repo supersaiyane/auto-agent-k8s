@@ -37,6 +37,8 @@ data:
   DNS_PROBE_EXTERNAL: "{{ .Values.probes.dnsExternalName }}"
   SERVICE_PROBE_ENABLED: "{{ .Values.probes.services }}"
   EGRESS_PROBE_TARGET: "{{ .Values.probes.egressTarget }}"
+  APPROVAL_TTL: "{{ .Values.approvals.ttl }}"
+  APPROVAL_GROUPS: "{{ join "," .Values.approvals.groups }}"
   KUBE_API_QPS: "{{ .Values.agent.apiQps }}"
   KUBE_API_BURST: "{{ .Values.agent.apiBurst }}"
   METRICS_PROVIDER: "{{ .Values.metricsProvider.type }}"
