@@ -39,6 +39,7 @@ var typedAccessors = map[string]perm{
 	"Pods": {"", "pods", ""}, "Nodes": {"", "nodes", ""}, "Events": {"", "events", ""},
 	"Namespaces": {"", "namespaces", ""}, "ConfigMaps": {"", "configmaps", ""},
 	"Endpoints": {"", "endpoints", ""}, "LimitRanges": {"", "limitranges", ""},
+	"EndpointSlices":         {"discovery.k8s.io", "endpointslices", ""},
 	"PersistentVolumeClaims": {"", "persistentvolumeclaims", ""}, "ResourceQuotas": {"", "resourcequotas", ""},
 	"Secrets": {"", "secrets", ""}, "Services": {"", "services", ""},
 	"Deployments": {"apps", "deployments", ""}, "ReplicaSets": {"apps", "replicasets", ""},
@@ -224,11 +225,21 @@ func grantsOf(r renderedRole) []perm {
 	return ps
 }
 
-// ISS-009, constraint 7: the chart grants exactly what the code uses.
+// ISS-009, constraint 7: the chart grants exactly what the code uses, with
+// writes in one ceiling namespace and with fix-anywhere (ADR-002) alike.
 func TestRBAC_ChartMatchesCode(t *testing.T) {
+	for _, args := range [][]string{
+		{"--set", "agent.fixNamespaces={default}"},
+		{"--set", "rbac.fixAnywhere=true"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) { chartMatchesCode(t, args) })
+	}
+}
+
+func chartMatchesCode(t *testing.T, args []string) {
 	need := codePerms(t)
 	granted := map[perm]bool{}
-	for _, r := range renderRoles(t) {
+	for _, r := range renderRoles(t, args...) {
 		for _, p := range grantsOf(r) {
 			granted[p] = true
 		}
@@ -263,7 +274,7 @@ func TestRBAC_ChartMatchesCode(t *testing.T) {
 // Constraints 4 and 7: workload writes only in allowlisted namespaces, and
 // the lease update is pinned to the agent's own lease.
 func TestRBAC_WritesAreNamespacedAndLeasePinned(t *testing.T) {
-	roles := renderRoles(t, "--set", "agent.namespaceAllowlist={default,prod}")
+	roles := renderRoles(t, "--set", "agent.fixNamespaces={default,prod}")
 	writeNS := map[string]bool{}
 	for _, r := range roles {
 		for _, rule := range r.Rules {
@@ -300,7 +311,7 @@ func TestRBAC_WritesAreNamespacedAndLeasePinned(t *testing.T) {
 }
 
 func TestRBAC_TLSSecretsOptIn(t *testing.T) {
-	roles := renderRoles(t, "--set", "rbac.readTLSSecrets=true", "--set", "agent.namespaceAllowlist={default}")
+	roles := renderRoles(t, "--set", "rbac.readTLSSecrets=true", "--set", "agent.fixNamespaces={default}")
 	for _, r := range roles {
 		for _, p := range grantsOf(r) {
 			if p.resource == "secrets" && r.Kind == "Role" && r.Metadata.Namespace == "default" {

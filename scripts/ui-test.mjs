@@ -12,7 +12,7 @@ import { join } from 'node:path';
 const [base, token] = process.argv.slice(2);
 if (!base || !token) { console.error('usage: ui-test.mjs <base-url> <token>'); process.exit(2); }
 const TABS = ['events', 'audit', 'dryrun', 'actions', 'compliance', 'deploys', 'baselines', 'k8sevents',
-  'charts', 'report', 'cluster', 'nodes', 'cost', 'resources', 'terminal'];
+  'charts', 'report', 'cluster', 'nodes', 'cost', 'resources', 'terminal', 'settings'];
 
 const candidates = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean);
@@ -112,9 +112,52 @@ if (await evaluate(`document.querySelector('#view img') !== null`)) fail('inject
 if (!(await evaluate(`document.getElementById('view').innerText.includes('<img src=x')`))) fail('hostile reason not shown as text');
 if (await evaluate(`[...document.querySelectorAll('#view a')].some((a) => a.href.startsWith('javascript:'))`)) fail('javascript: link rendered');
 
+// The header namespace selector filters every tab and never acts (ADR-002).
+const click = (sel) => evaluate(`document.querySelector(${JSON.stringify(sel)}).click()`);
+const viewText = () => evaluate(`document.getElementById('view').innerText`);
+await click('[role=tab][data-tab="events"]');
+if (!(await waitFor(`[...document.getElementById('view-ns').options].some((o) => o.value === 'payments')`))) fail('namespace selector does not list payments');
+await evaluate(`(() => { const s = document.getElementById('view-ns'); s.value = 'payments'; s.dispatchEvent(new Event('change')); })()`);
+if (!(await waitFor(`document.getElementById('view').innerText.includes('PaymentsOnlyReason') && !document.getElementById('view').innerText.includes('CrashLoopBackOff')`))) {
+  fail('namespace selector did not filter the events tab: ' + (await viewText()).slice(0, 200));
+}
+await click('[role=tab][data-tab="cluster"]');
+if (!(await waitFor(`!document.getElementById('view').innerText.includes('default') && document.getElementById('view').innerText.includes('payments')`))) fail('namespace selector did not filter the cluster tab');
+await evaluate(`(() => { const s = document.getElementById('view-ns'); s.value = ''; s.dispatchEvent(new Event('change')); })()`);
+if (await evaluate(`[...document.getElementById('view-ns').options].some((o) => o.value === 'kube-system')`)) fail('a system namespace is offered although it is not watched');
+
+// Settings: outside the ceiling is greyed out; enabling needs the name typed;
+// the save is real; returning to Helm needs its own confirmation.
+const scope = () => evaluate(`fetch('/api/scope', { headers: { Authorization: 'Bearer ' + sessionStorage.getItem('autoAgentToken') } }).then((r) => r.json()).then((j) => j.fixScope.join(','))`);
+await click('[role=tab][data-tab="settings"]');
+if (!(await waitFor(`document.querySelector('input[data-arg="payments"]') !== null`))) fail('settings: namespace table not shown');
+const text = await viewText();
+for (const want of ['What.', 'How.', 'Why.', 'Watch scope', 'Fix ceiling', 'Fix scope', 'Audit tab', 'phase 15']) {
+  if (!text.toLowerCase().includes(want.toLowerCase())) fail(`settings: missing "${want}"`); // headings are uppercased by CSS
+}
+if (!(await evaluate(`document.querySelector('input[data-arg="orders"]').disabled`))) fail('settings: a namespace outside the ceiling can be ticked');
+await click('input[data-arg="payments"]');
+if (!(await waitFor(`document.querySelector('[data-action="scope-review"]') !== null`))) fail('settings: no review button after a change');
+await click('[data-action="scope-review"]');
+if (!(await waitFor(`document.getElementById('scope-apply') && document.getElementById('scope-apply').disabled`))) fail('settings: apply enabled before the name was typed');
+await evaluate(`(() => { const i = document.querySelector('input[data-confirm="payments"]'); i.value = 'paymentz'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+if (!(await evaluate(`document.getElementById('scope-apply').disabled`))) fail('settings: a mistyped name enabled apply');
+await evaluate(`(() => { const i = document.querySelector('input[data-confirm="payments"]'); i.value = 'payments'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+if (await evaluate(`document.getElementById('scope-apply').disabled`)) fail('settings: apply still disabled after typing the name');
+await click('#scope-apply');
+if (!(await waitFor(`document.getElementById('view').innerText.includes('Fix scope saved: default, payments')`))) fail('settings: no confirmation after apply: ' + (await viewText()).slice(0, 300));
+if ((await scope()) !== 'default,payments') fail('settings: the save did not reach the server: ' + (await scope()));
+await click('[data-action="scope-reset"]');
+if (!(await waitFor(`document.querySelector('[data-action="scope-reset-yes"]') !== null`))) fail('settings: no confirmation before returning to Helm');
+if ((await scope()) !== 'default,payments') fail('settings: asking to return to Helm already changed the scope');
+await click('[data-action="scope-reset-yes"]');
+if (!(await waitFor(`document.getElementById('view').innerText.includes('Returned to the Helm values')`))) fail('settings: no confirmation after returning to Helm');
+if ((await scope()) !== 'default') fail('settings: returning to Helm did not reach the server: ' + (await scope()));
+
 if (failures.length) {
   console.error('ui-test: FAIL\n  ' + failures.join('\n  '));
   done(1);
+} else {
+  console.log(`ui-test: PASS (${TABS.length} tabs, namespace selector, settings flow, no console error, no CSP violation, hostile values inert)`);
+  done(0);
 }
-console.log(`ui-test: PASS (${TABS.length} tabs, no console error, no CSP violation, hostile values inert)`);
-done(0);

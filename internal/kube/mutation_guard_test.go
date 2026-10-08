@@ -22,7 +22,7 @@ var mutatingVerbs = map[string]bool{
 var groupVersion = regexp.MustCompile(`^[A-Z][A-Za-z]*V[0-9]+((alpha|beta)[0-9]+)?$`)
 
 // gateEntryPoints are the functions whose closure arguments may mutate.
-var gateEntryPoints = map[string]bool{"applyMutation": true, "tryFixAction": true}
+var gateEntryPoints = map[string]bool{"applyMutation": true, "tryFixAction": true, "writeAgentSetting": true}
 
 // isClientMutation reports whether call is <...>.XxxV1().<Resource>(...).<Verb>(...).
 func isClientMutation(call *ast.CallExpr) bool {
@@ -112,6 +112,14 @@ func TestMutationsOnlyThroughGate(t *testing.T) {
 					return true
 				}
 				stack = append(stack, n)
+				// ISS-064: a client kept in a variable hides its calls from
+				// this guard and from the RBAC scan, so it is not allowed.
+				for _, rhs := range assignedValues(n) {
+					if storesTypedClient(rhs) {
+						t.Errorf("%s: typed client stored in a variable; call it in one chain so the guard can see it",
+							fset.Position(rhs.Pos()))
+					}
+				}
 				if call, ok := n.(*ast.CallExpr); ok && isClientMutation(call) {
 					found++
 					if !insideGate(stack) {
@@ -136,6 +144,40 @@ func TestMutationsOnlyThroughGate(t *testing.T) {
 		t.Fatal("found no mutating client calls at all; the matcher is broken")
 	}
 	t.Logf("checked %d mutating client call sites", found)
+}
+
+// assignedValues returns the right-hand sides of an assignment or var spec.
+func assignedValues(n ast.Node) []ast.Expr {
+	switch v := n.(type) {
+	case *ast.AssignStmt:
+		return v.Rhs
+	case *ast.ValueSpec:
+		return v.Values
+	}
+	return nil
+}
+
+// storesTypedClient reports whether e evaluates to a group client
+// (x.CoreV1()) or a resource client (x.CoreV1().Pods(ns)) rather than the
+// result of a call on one.
+func storesTypedClient(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if groupVersion.MatchString(sel.Sel.Name) {
+		return true
+	}
+	inner, ok := sel.X.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	isel, ok := inner.Fun.(*ast.SelectorExpr)
+	return ok && groupVersion.MatchString(isel.Sel.Name)
 }
 
 // isClientCall reports whether call is any typed client call, read or write.

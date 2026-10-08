@@ -21,11 +21,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if p.MaxActionsPer10m != 10 {
 		t.Errorf("expected max actions 10, got %d", p.MaxActionsPer10m)
 	}
-	if !p.AllowedNamespace("default") {
-		t.Error("expected 'default' in allowed namespaces")
+	// ADR-002 defaults: watch every non-system namespace, fix nowhere.
+	if !p.Watched("default") || !p.Watched("payments") || p.Watched("kube-system") {
+		t.Error("default watch scope is every namespace except the system ones")
 	}
-	if p.AllowedNamespace("kube-system") {
-		t.Error("expected 'kube-system' not in allowed namespaces")
+	if p.Fixable("default") || len(p.FixScope()) != 0 {
+		t.Error("default fix scope is empty")
 	}
 	if p.MaxReplicas != 50 {
 		t.Errorf("expected max replicas 50, got %d", p.MaxReplicas)
@@ -41,8 +42,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	if p.Mode != Observe {
 		t.Errorf("expected mode Observe, got %s", p.Mode)
 	}
-	if !p.AllowedNamespace("prod") || !p.AllowedNamespace("staging") {
-		t.Error("expected 'prod' and 'staging' in allowed namespaces")
+	// The deprecated alias sets both the watch scope and the fix scope.
+	if !p.Watched("prod") || !p.Fixable("staging") || p.Watched("default") {
+		t.Error("NAMESPACE_ALLOWLIST is the watch and fix scope")
 	}
 	if p.CPUThreshold != 0.7 {
 		t.Errorf("expected CPU threshold 0.7, got %f", p.CPUThreshold)
@@ -66,7 +68,7 @@ func TestLoad_InvalidValuesFallBack(t *testing.T) {
 
 func TestValidate_InvalidCPUThreshold(t *testing.T) {
 	p := &Policy{
-		NamespaceAllow:   map[string]struct{}{"default": {}},
+		WatchNamespaces:  NamespaceSet("default"),
 		CPUThreshold:     1.5,
 		MaxScaleStep:     1,
 		MaxActionsPer10m: 10,
@@ -80,7 +82,7 @@ func TestValidate_InvalidCPUThreshold(t *testing.T) {
 
 func TestValidate_EmptyNamespaces(t *testing.T) {
 	p := &Policy{
-		NamespaceAllow:   map[string]struct{}{},
+		WatchNamespaces:  NamespaceSet(),
 		CPUThreshold:     0.8,
 		MaxScaleStep:     1,
 		MaxActionsPer10m: 10,
@@ -94,7 +96,7 @@ func TestValidate_EmptyNamespaces(t *testing.T) {
 
 func TestValidate_MaxLessThanMin(t *testing.T) {
 	p := &Policy{
-		NamespaceAllow:   map[string]struct{}{"default": {}},
+		WatchNamespaces:  NamespaceSet("default"),
 		CPUThreshold:     0.8,
 		MaxScaleStep:     1,
 		MaxActionsPer10m: 10,
@@ -108,7 +110,7 @@ func TestValidate_MaxLessThanMin(t *testing.T) {
 
 func TestValidate_Valid(t *testing.T) {
 	p := &Policy{
-		NamespaceAllow:   map[string]struct{}{"default": {}},
+		WatchNamespaces:  NamespaceSet("default"),
 		CPUThreshold:     0.8,
 		MaxScaleStep:     2,
 		MaxActionsPer10m: 10,

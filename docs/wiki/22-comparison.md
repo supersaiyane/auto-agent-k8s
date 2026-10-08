@@ -4,7 +4,7 @@
 
 | Feature | Auto-Agent | Kubecost | PagerDuty | Datadog | kube-monkey |
 |---------|-----------|----------|-----------|---------|-------------|
-| **Issue detection** | 74 types | Cost only | Alert routing | APM + infra | None |
+| **Issue detection** | pods, nodes, workloads, storage, network, security | Cost only | Alert routing | APM + infra | None |
 | **Auto-remediation** | Yes (7 actions) | No | No (alert only) | Limited | Chaos only |
 | **Cost estimation** | Yes + Kubecost | Yes (core) | No | Yes | No |
 | **Dashboard** | Embedded | Web app | Web app | Web app | None |

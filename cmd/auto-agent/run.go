@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,10 +68,66 @@ func rolesFor(role string) (roles, error) {
 	return roles{}, fmt.Errorf("AGENT_ROLE %q: want %s, %s or %s", role, config.RoleAll, config.RoleNode, config.RoleController)
 }
 
+// Shutdown budget: the pod's termination grace period (30s) must cover all
+// of it (ISS-054).
+const (
+	httpGrace    = 5 * time.Second  // in-flight API requests
+	handlerGrace = 15 * time.Second // pod handlers and leader loops
+	drainGrace   = 5 * time.Second  // the last event forward
+)
+
+// agent is one running process: what run builds and shutdown takes down.
+type agent struct {
+	conf      config.Config
+	rl        roles
+	hr        *policy.HotReloader
+	podNS     string
+	ev        eventPipe
+	deps      *kube.Deps
+	extras    trackers
+	le        *leader.Elector
+	leads     func() bool // le.IsLeader on controllers; tests swap it
+	srv       *httpapi.Server
+	loopsDone chan struct{}
+	leading   atomic.Bool // this process announced leadership and still leads
+}
+
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
 // Every dependency is built before the HTTP server starts, so no handler
 // sees a half-initialised dependency.
 func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) error {
+	opts = withDefaults(opts)
+	rl, err := rolesFor(conf.Role)
+	if err != nil {
+		return err
+	}
+	if rl.onlyNode() && (conf.ControllerURL == "" || conf.InternalToken == "") {
+		return fmt.Errorf("AGENT_ROLE=node needs CONTROLLER_URL and INTERNAL_TOKEN")
+	}
+	a := &agent{conf: conf, rl: rl, loopsDone: make(chan struct{}), leads: func() bool { return false }}
+	a.startPolicy(ctx, cl.Kube)
+	// Forwarders outlive ctx: they stop only after every handler has
+	// recorded its last event (ISS-054).
+	fwdCtx, stopForwarding := context.WithCancel(context.Background())
+	defer stopForwarding()
+	a.ev = startEvents(ctx, fwdCtx, conf, cl, rl, opts, a.isLeader)
+	startWebhook(conf, rl)
+	if err := a.buildDeps(ctx, cl); err != nil {
+		return err
+	}
+	leaderTarget := a.startLeader(ctx, cl.Kube, opts)
+	a.srv = a.newServer(cl, opts, leaderTarget)
+	go a.srv.Start()
+	a.startWork(ctx)
+	if opts.OnReady != nil {
+		opts.OnReady()
+	}
+	<-ctx.Done()
+	a.shutdown(stopForwarding)
+	return nil
+}
+
+func withDefaults(opts RunOptions) RunOptions {
 	if opts.HTTPAddr == "" {
 		opts.HTTPAddr = ":8080"
 	}
@@ -79,282 +137,327 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	if opts.ForwardEvery == 0 {
 		opts.ForwardEvery = 5 * time.Second
 	}
-	rl, err := rolesFor(conf.Role)
-	if err != nil {
-		return err
-	}
-	onlyNode := rl.node && !rl.controller
-	if onlyNode && (conf.ControllerURL == "" || conf.InternalToken == "") {
-		return fmt.Errorf("AGENT_ROLE=node needs CONTROLLER_URL and INTERNAL_TOKEN")
-	}
+	return opts
+}
 
-	// --- Policy with ConfigMap hot reload ---
-	podNS := conf.PodNamespace
-	if podNS == "" {
-		podNS = "kube-system"
-	}
-	pol := conf.Policy
-	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
-	go hotReloader.Start(ctx, cl.Kube)
+func (r roles) onlyNode() bool { return r.node && !r.controller }
 
-	klog.Infof("auto-agent %s starting (role=%s, mode=%s, namespaces=%v)", version, conf.Role, pol.Mode, namespaceList(pol))
+// startPolicy starts the ConfigMap hot reload; both roles apply the
+// dashboard's fix scope (ADR-002).
+func (a *agent) startPolicy(ctx context.Context, kc kubernetes.Interface) {
+	a.podNS = a.conf.PodNamespace
+	if a.podNS == "" {
+		a.podNS = "kube-system"
+	}
+	pol := a.conf.Policy
+	a.hr = policy.NewHotReloader(pol, a.podNS, "auto-agent-config")
+	a.hr.WatchScope(policy.ScopeConfigMap)
+	go a.hr.Start(ctx, kc)
+	klog.Infof("auto-agent %s starting (role=%s, mode=%s, %s)", version, a.conf.Role, pol.Mode, scopeSummary(pol))
 	obs.InfoGauge.WithLabelValues(version, string(pol.Mode)).Set(1)
+}
 
-	// The controller keeps the one event log; a node agent forwards to it.
-	var recorder *events.Recorder
-	var sink events.Sink
-	var le *leader.Elector // set below, before anything records events
-	forwarded := make(chan struct{})
-	if onlyNode {
+// eventPipe is where events go: the controller keeps the one log, a node
+// agent forwards to it (ADR-001). drained closes after the last forward.
+type eventPipe struct {
+	recorder *events.Recorder
+	sink     events.Sink
+	drained  chan struct{}
+}
+
+func startEvents(ctx, fwdCtx context.Context, conf config.Config, cl Clients, rl roles, opts RunOptions, leading func() bool) eventPipe {
+	ev := eventPipe{drained: make(chan struct{})}
+	if rl.onlyNode() {
 		fwd := events.NewForwarder(conf.ControllerURL, conf.InternalToken, conf.NodeName, cl.HTTP)
-		go func() { fwd.Run(ctx, opts.ForwardEvery); close(forwarded) }()
-		sink = fwd
-	} else {
-		recorder = events.NewRecorder(500)
-		recorder.EnablePersistence(opts.EventsPath)
-		sink = recorder
-		if rl.controller && !rl.node {
-			// The leader copies its log to the standby, so a leader change
-			// keeps the history (ISS-059).
-			peers := newPeerResolver(cl.Kube, conf.PodNamespace, conf.PodName, httpPort(opts.HTTPAddr))
-			// Copy a running peer's log first, so this pod holds the history
-			// even if it wins the next election (ISS-059).
-			bctx, bcancel := context.WithTimeout(ctx, 5*time.Second)
-			if n, err := events.Backfill(bctx, peers, conf.InternalToken, cl.HTTP, recorder); err != nil {
-				klog.Warningf("events: history not copied from a peer: %v", err)
-			} else if n > 0 {
-				klog.Infof("events: copied %d events from a peer controller", n)
-			}
-			bcancel()
-			replica := events.NewReplicaForwarder(peers, conf.InternalToken, cl.HTTP)
-			go func() { replica.Run(ctx, opts.ForwardEvery); close(forwarded) }()
-			sink = events.Tee{Local: recorder, Copy: replica, Leading: func() bool { return le != nil && le.IsLeader() }}
-		} else {
-			close(forwarded)
-		}
+		go func() { fwd.Run(fwdCtx, opts.ForwardEvery); close(ev.drained) }()
+		ev.sink = fwd
+		return ev
 	}
-
-	// --- Admission webhook (optional, requires TLS certs; controller) ---
-	if rl.controller && conf.Webhook.Enabled() {
-		// An unset list is empty, not [""]; an empty prefix would block every
-		// image (ISS-041).
-		wh := webhook.NewValidator(webhook.Config{
-			Port:             8443,
-			RequireLimits:    conf.Webhook.RequireLimits,
-			RequireReadiness: conf.Webhook.RequireReadiness,
-			BlockedImages:    conf.Webhook.BlockedImages,
-		})
-		go wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile)
-		klog.Infof("webhook: admission validator enabled on :8443")
+	ev.recorder = events.NewRecorder(500)
+	ev.recorder.EnablePersistence(opts.EventsPath)
+	ev.sink = ev.recorder
+	if !rl.controller || rl.node {
+		close(ev.drained)
+		return ev
 	}
+	// The leader copies its log to the standby, and a starting controller
+	// copies a peer's log first, so a leader change keeps the history (ISS-059).
+	peers := newPeerResolver(cl.Kube, conf.PodNamespace, conf.PodName, httpPort(opts.HTTPAddr))
+	bctx, bcancel := context.WithTimeout(ctx, 5*time.Second)
+	if n, err := events.Backfill(bctx, peers, conf.InternalToken, cl.HTTP, ev.recorder); err != nil {
+		klog.Warningf("events: history not copied from a peer: %v", err)
+	} else if n > 0 {
+		klog.Infof("events: copied %d events from a peer controller", n)
+	}
+	bcancel()
+	replica := events.NewReplicaForwarder(peers, conf.InternalToken, cl.HTTP)
+	go func() { replica.Run(fwdCtx, opts.ForwardEvery); close(ev.drained) }()
+	ev.sink = events.Tee{Local: ev.recorder, Copy: replica, Leading: leading}
+	return ev
+}
 
-	// --- Outbound clients ---
-	sl := slack.New(conf.SlackWebhookURL, pol.SlackTimeoutSec, cl.HTTP)
-	ll := llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP)
+// startWebhook starts the admission validator (optional, needs TLS certs;
+// controller only).
+func startWebhook(conf config.Config, rl roles) {
+	if !rl.controller || !conf.Webhook.Enabled() {
+		return
+	}
+	// An unset list is empty, not [""]; an empty prefix would block every
+	// image (ISS-041).
+	wh := webhook.NewValidator(webhook.Config{
+		Port:             8443,
+		RequireLimits:    conf.Webhook.RequireLimits,
+		RequireReadiness: conf.Webhook.RequireReadiness,
+		BlockedImages:    conf.Webhook.BlockedImages,
+	})
+	go wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile)
+	klog.Infof("webhook: admission validator enabled on :8443")
+}
+
+// trackers are the stateful parts the server shows and shutdown closes.
+type trackers struct {
+	slack    *slack.Client
+	dedup    *ratelimit.Deduplicator
+	audit    *kube.AuditLog
+	learning *kube.LearningMode
+	deploys  *kube.DeployTracker
+	dryRun   *kube.DryRunLog
+	fixes    *kube.FixTracker
+}
+
+func newTrackers(conf config.Config, cl Clients) trackers {
+	pol := conf.Policy
+	t := trackers{
+		slack:   slack.New(conf.SlackWebhookURL, pol.SlackTimeoutSec, cl.HTTP),
+		dedup:   ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second),
+		audit:   kube.NewAuditLog(conf.AuditLogPath),
+		deploys: kube.NewDeployTracker(100),
+		// Always created: the mode can switch to dry-run by reload after
+		// start, and SimulateAction records nothing without a log (ISS-013).
+		dryRun: kube.NewDryRunLog(200),
+		fixes:  kube.NewFixTracker(200),
+	}
+	if conf.LearningEnabled {
+		t.learning = kube.NewLearningMode("", time.Duration(conf.LearningPeriodDays)*24*time.Hour)
+		klog.Infof("learning: enabled (period=%d days)", conf.LearningPeriodDays)
+	}
+	if pol.Mode == policy.DryRun {
+		klog.Infof("dry-run: mode enabled, no actions will be taken, simulations logged")
+	}
+	return t
+}
+
+// buildDeps builds everything handlers and loops use.
+func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
+	conf, pol := a.conf, a.conf.Policy
 	mp, err := metrics.NewProvider(conf.MetricsProvider, conf.PrometheusURL, cl.HTTP)
 	if err != nil {
 		return fmt.Errorf("metrics provider: %w", err)
 	}
-	am := alertmanager.New(conf.AlertmanagerURL, cl.HTTP)
-	gitOps := newGitOps(conf, cl.HTTP)
-	ticketer := newTicketer(conf, cl.HTTP)
-	escChain := escalation.NewChain(conf.Escalation, cl.HTTP)
-
-	// --- Guardrails and trackers ---
-	dedup := ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second)
-	limiter := ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute)
-	breaker := ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, 1*time.Hour)
-	auditLog := kube.NewAuditLog(conf.AuditLogPath)
-	blastRadius := kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, 1*time.Hour)
-	quietHours := kube.NewQuietHours(conf.QuietHours)
-	deployTracker := kube.NewDeployTracker(100)
-	var learningMode *kube.LearningMode
-	if conf.LearningEnabled {
-		learningMode = kube.NewLearningMode("", time.Duration(conf.LearningPeriodDays)*24*time.Hour)
-		klog.Infof("learning: enabled (period=%d days)", conf.LearningPeriodDays)
-	}
-	// Always created: the mode can switch to dry-run by ConfigMap reload after
-	// startup, and SimulateAction records nothing without a log (ISS-013).
-	dryRunLog := kube.NewDryRunLog(200)
-	if pol.Mode == policy.DryRun {
-		klog.Infof("dry-run: mode enabled, no actions will be taken, simulations logged")
-	}
-	fixTracker := kube.NewFixTracker(200)
-
+	a.extras = newTrackers(conf, cl)
 	crdStore := crd.NewStore()
 	crd.StartController(ctx, cl.Dynamic, crdStore)
-
-	deps := &kube.Deps{
-		Client:       cl.Kube,
-		NodeName:     conf.NodeName,
-		ScalingGates: conf.ScalingGates,
-		TLSCertCheck: conf.TLSCertCheck,
-		Endpoints: kube.SelfCheckEndpoints{
-			PrometheusURL:   conf.PrometheusURL,
-			SlackWebhookURL: conf.SlackWebhookURL,
-			AlertmanagerURL: conf.AlertmanagerURL,
-		},
-		HTTPClient:    cl.HTTP,
-		Metrics:       mp,
-		Policies:      hotReloader,
-		Slack:         sl,
-		LLM:           ll,
-		Dedup:         dedup,
-		Limiter:       limiter,
-		Sink:          storage.NewSink(conf.Storage),
-		CRDStore:      crdStore,
-		GitOps:        gitOps,
-		Ticketer:      ticketer,
-		Recorder:      sink,
-		Breaker:       breaker,
-		AlertManager:  am,
-		AuditLog:      auditLog,
-		BlastRadius:   blastRadius,
-		QuietHours:    quietHours,
-		DryRunLog:     dryRunLog,
-		Escalation:    escChain,
-		DeployTracker: deployTracker,
-		LearningMode:  learningMode,
-		FixTracker:    fixTracker,
+	t := a.extras
+	a.deps = &kube.Deps{
+		Client: cl.Kube, NodeName: conf.NodeName, ScalingGates: conf.ScalingGates, TLSCertCheck: conf.TLSCertCheck,
+		Endpoints: kube.SelfCheckEndpoints{PrometheusURL: conf.PrometheusURL, SlackWebhookURL: conf.SlackWebhookURL,
+			AlertmanagerURL: conf.AlertmanagerURL},
+		HTTPClient: cl.HTTP, Metrics: mp, Policies: a.hr, Slack: t.slack,
+		LLM:   llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP),
+		Dedup: t.dedup, Limiter: ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute),
+		Sink: storage.NewSink(conf.Storage), CRDStore: crdStore,
+		GitOps: newGitOps(conf, cl.HTTP), Ticketer: newTicketer(conf, cl.HTTP), Recorder: a.ev.sink,
+		Breaker:      ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, time.Hour),
+		AlertManager: alertmanager.New(conf.AlertmanagerURL, cl.HTTP), AuditLog: t.audit,
+		BlastRadius: kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, time.Hour),
+		QuietHours:  kube.NewQuietHours(conf.QuietHours), DryRunLog: t.dryRun,
+		Escalation: escalation.NewChain(conf.Escalation, cl.HTTP), DeployTracker: t.deploys,
+		LearningMode: t.learning, FixTracker: t.fixes,
 	}
-
-	// --- Leader election (cluster-wide loops; controller only) ---
-	isLeader := func() bool { return false }
-	var leaderTarget func() (string, error) // nil: never proxy
-	if rl.controller {
-		le = leader.Start(ctx, cl.Kube, conf.LeaderLeaseNamespace, "auto-agent-leader", conf.PodName)
-		isLeader = le.IsLeader
-		if !rl.node { // a standby controller serves the leader's view (ADR-001)
-			leaderTarget = newLeaderTarget(cl.Kube, conf.PodNamespace, httpPort(opts.HTTPAddr), le)
-		}
-	}
-
-	// --- HTTP server: built last, with everything it serves ---
-	httpSrv := httpapi.NewServer(opts.HTTPAddr, recorder, &httpapi.AgentMeta{
-		Version:  version,
-		Mode:     string(pol.Mode),
-		NodeName: conf.NodeName,
-		PodName:  conf.PodName,
-	}, cl.Kube, httpapi.Options{
-		DashboardToken:     conf.DashboardToken,
-		SlackSigningSecret: conf.SlackSigningSecret,
-		Cost:               conf.Cost,
-		HTTPClient:         cl.HTTP,
-		AllowNamespace:     func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) },
-		IsLeader:           isLeader,
-		Leader:             leaderTarget,
-		HealthOnly:         onlyNode,
-		Ingest:             sink,
-		InternalToken:      conf.InternalToken,
-		Extended: httpapi.ExtendedDeps{
-			Learning: learningMode,
-			Deploys:  deployTracker,
-			DryRun:   dryRunLog,
-			Fixes:    fixTracker,
-		},
-	})
-	go httpSrv.Start()
-
-	if rl.node {
-		kube.StartWatchers(ctx, deps)
-		go kube.StartLogRetention(ctx, conf.Storage, conf.LogRetentionDays)
-	}
-
-	httpSrv.SetReady()
-	if opts.OnReady != nil {
-		opts.OnReady()
-	}
-	if rl.controller { // node agents stay quiet: one notice per rollout, not per node (ISS-055)
-		if err := sl.Postf("auto-agent %s started on `%s` (mode=%s)", version, hostname(), pol.Mode); err != nil {
-			klog.V(2).Infof("slack: start message not sent: %v", err)
-		}
-		go leaderLoops(ctx, conf, deps, le)
-	}
-
-	<-ctx.Done()
-	klog.Infof("shutting down...")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	dedup.Stop()
-	<-forwarded // the node agent's last drain to the controller
-	if recorder != nil {
-		recorder.Close()
-	}
-	auditLog.Close()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		klog.Warningf("http shutdown: %v", err)
-	}
-	if rl.controller {
-		if err := sl.Post("auto-agent shutting down"); err != nil {
-			klog.V(2).Infof("slack: stop message not sent: %v", err)
-		}
-	}
-	klog.Infof("auto-agent stopped")
 	return nil
 }
 
-// leaderLoops runs the periodic checks; all but the self check run only on
-// the leader. Intervals are configurable (ISS-015).
-func leaderLoops(ctx context.Context, conf config.Config, deps *kube.Deps, le *leader.Elector) {
-	scaleTicker := time.NewTicker(conf.ScaleInterval)
-	jobTicker := time.NewTicker(conf.JobInterval)
-	quotaTicker := time.NewTicker(conf.QuotaInterval)
-	healthTicker := time.NewTicker(conf.HealthInterval)
-	defer scaleTicker.Stop()
-	defer jobTicker.Stop()
-	defer quotaTicker.Stop()
-	defer healthTicker.Stop()
+// startLeader starts leader election on controllers and returns where a
+// standby proxies to (nil: never proxy, ADR-001).
+func (a *agent) startLeader(ctx context.Context, kc kubernetes.Interface, opts RunOptions) func() (string, error) {
+	if !a.rl.controller {
+		return nil
+	}
+	a.le = leader.Start(ctx, kc, a.conf.LeaderLeaseNamespace, "auto-agent-leader", a.conf.PodName)
+	a.leads = a.le.IsLeader
+	if a.rl.node {
+		return nil
+	}
+	return newLeaderTarget(kc, a.conf.PodNamespace, httpPort(opts.HTTPAddr), a.le)
+}
 
+func (a *agent) isLeader() bool { return a.leads() }
+
+// newServer builds the HTTP server last, with everything it serves.
+func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (string, error)) *httpapi.Server {
+	var scope httpapi.ScopeOptions
+	if a.rl.controller {
+		scope = httpapi.ScopeOptions{Policy: a.hr.Get, Save: func(ctx context.Context, names []string, from string) error {
+			return kube.SaveFixScope(ctx, a.deps, a.podNS, names, from)
+		}}
+	}
+	t := a.extras
+	return httpapi.NewServer(opts.HTTPAddr, a.ev.recorder, &httpapi.AgentMeta{
+		Version: version, Mode: string(a.conf.Policy.Mode), NodeName: a.conf.NodeName, PodName: a.conf.PodName,
+	}, cl.Kube, httpapi.Options{
+		DashboardToken: a.conf.DashboardToken, SlackSigningSecret: a.conf.SlackSigningSecret,
+		Cost: a.conf.Cost, HTTPClient: cl.HTTP,
+		AllowNamespace: func(ns string) bool { return a.hr.Get().Watched(ns) },
+		IsLeader:       a.isLeader, Leader: leaderTarget, HealthOnly: a.rl.onlyNode(),
+		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope,
+		Extended: httpapi.ExtendedDeps{Learning: t.learning, Deploys: t.deploys, DryRun: t.dryRun, Fixes: t.fixes},
+	})
+}
+
+// startWork starts the watchers (node role) and the leader loops and the
+// leadership notice (controller role), then marks the server ready.
+func (a *agent) startWork(ctx context.Context) {
+	if a.rl.node {
+		kube.StartWatchers(ctx, a.deps)
+		go kube.StartLogRetention(ctx, a.conf.Storage, a.conf.LogRetentionDays)
+	}
+	a.srv.SetReady()
+	if !a.rl.controller {
+		close(a.loopsDone)
+		return
+	}
+	go func() { leaderLoops(ctx, a.conf, a.deps, a.le); close(a.loopsDone) }()
+	go a.announceLeadership(ctx, 2*time.Second)
+}
+
+// announceLeadership posts one start notice when this controller becomes
+// leader, so a rollout sends one per leader term instead of one per pod
+// (ISS-055); shutdown sends the stop notice only while this process leads.
+func (a *agent) announceLeadership(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-scaleTicker.C:
-			if !le.IsLeader() {
+		case <-t.C:
+		}
+		leads := a.isLeader()
+		if leads && !a.leading.Load() {
+			if err := a.extras.slack.Postf("auto-agent %s leading on `%s` (mode=%s)", version, hostname(), a.hr.Get().Mode); err != nil {
+				klog.V(2).Infof("slack: start message not sent: %v", err)
+			}
+		}
+		a.leading.Store(leads)
+	}
+}
+
+// shutdown stops intake, waits (bounded) for handlers and loops to finish,
+// then for the last event forward, and only then closes the event log and
+// the audit log, so an action in flight at SIGTERM is still recorded (ISS-054).
+func (a *agent) shutdown(stopForwarding context.CancelFunc) {
+	klog.Infof("shutting down...")
+	hctx, cancel := context.WithTimeout(context.Background(), httpGrace)
+	defer cancel()
+	if err := a.srv.Shutdown(hctx); err != nil {
+		klog.Warningf("http shutdown: %v", err)
+	}
+	if !a.deps.WaitIdle(handlerGrace) {
+		klog.Warningf("shutdown: handlers still running after %s", handlerGrace)
+	}
+	if !waitClosed(a.loopsDone, handlerGrace) {
+		klog.Warningf("shutdown: leader loops still running after %s", handlerGrace)
+	}
+	a.extras.dedup.Stop()
+	stopForwarding()
+	if !waitClosed(a.ev.drained, drainGrace) {
+		klog.Warningf("shutdown: last event forward did not finish in %s", drainGrace)
+	}
+	if a.ev.recorder != nil {
+		a.ev.recorder.Close()
+	}
+	a.extras.audit.Close()
+	if a.leading.Load() {
+		if err := a.extras.slack.Post("auto-agent shutting down: the standby takes over"); err != nil {
+			klog.V(2).Infof("slack: stop message not sent: %v", err)
+		}
+	}
+	klog.Infof("auto-agent stopped")
+}
+
+// waitClosed waits up to d for ch to close and reports whether it did.
+func waitClosed(ch <-chan struct{}, d time.Duration) bool {
+	select {
+	case <-ch:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// check is one periodic detector or loop.
+type check func(context.Context, *kube.Deps)
+
+// checkGroup runs its checks every interval; leaderOnly groups are skipped
+// on a standby. Intervals are configurable (ISS-015).
+type checkGroup struct {
+	every      time.Duration
+	leaderOnly bool
+	checks     []check
+}
+
+func leaderChecks(conf config.Config) []checkGroup {
+	return []checkGroup{
+		{conf.ScaleInterval, true, []check{kube.EvaluateAndScale, kube.CheckAnomalies, kube.VerifyFixes}},
+		{conf.JobInterval, true, []check{kube.CheckFailedJobs, kube.CheckStuckRollouts, kube.CleanupEvictedPods,
+			kube.CheckServiceEndpoints, kube.CheckPendingPVCs, kube.CheckNodeHealth, kube.CheckNodeExtended,
+			kube.ScanDeployments, kube.CheckDeadlineExceeded, kube.CheckEphemeralStorageFull, kube.CheckStatefulSetStuck,
+			kube.CheckDaemonSetMissing, kube.CheckHPAIssues, kube.CheckCronJobMissed, kube.CheckDeploymentPaused,
+			kube.CheckReplicaSetFailure, kube.CheckPodStates}},
+		{conf.QuotaInterval, true, []check{kube.CheckResourceQuotas, kube.CollectBaselines, kube.CheckStorageIssues,
+			kube.CheckNetworkIssues, kube.CheckSecurityIssues, kube.CheckWebhookBlocking, kube.CheckRBACDenied,
+			kube.CheckStuckFinalizers, kube.CheckDisruptionBudgets, kube.CheckResourcePressure, kube.CheckControlPlane}},
+		{conf.HealthInterval, false, []check{kube.SelfCheck}},
+	}
+}
+
+// leaderLoops runs the check groups on their intervals, one group at a time,
+// until ctx is cancelled; all but the self check run only on the leader.
+func leaderLoops(ctx context.Context, conf config.Config, deps *kube.Deps, le *leader.Elector) {
+	groups := leaderChecks(conf)
+	due := make(chan int)
+	for i, g := range groups {
+		go tick(ctx, g.every, i, due)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case i := <-due:
+			if groups[i].leaderOnly && !le.IsLeader() {
 				continue
 			}
-			kube.EvaluateAndScale(ctx, deps)
-			kube.CheckAnomalies(ctx, deps)
-			kube.VerifyFixes(ctx, deps)
-		case <-jobTicker.C:
-			if !le.IsLeader() {
-				continue
+			for _, c := range groups[i].checks {
+				c(ctx, deps)
 			}
-			kube.CheckFailedJobs(ctx, deps)
-			kube.CheckStuckRollouts(ctx, deps)
-			kube.CleanupEvictedPods(ctx, deps)
-			kube.CheckServiceEndpoints(ctx, deps)
-			kube.CheckPendingPVCs(ctx, deps)
-			kube.CheckNodeHealth(ctx, deps)
-			kube.CheckNodeExtended(ctx, deps)
-			kube.ScanDeployments(ctx, deps)
-			kube.CheckDeadlineExceeded(ctx, deps)
-			kube.CheckEphemeralStorageFull(ctx, deps)
-			kube.CheckStatefulSetStuck(ctx, deps)
-			kube.CheckDaemonSetMissing(ctx, deps)
-			kube.CheckHPAIssues(ctx, deps)
-			kube.CheckCronJobMissed(ctx, deps)
-			kube.CheckDeploymentPaused(ctx, deps)
-			kube.CheckReplicaSetFailure(ctx, deps)
-			kube.CheckPodStates(ctx, deps)
-		case <-quotaTicker.C:
-			if !le.IsLeader() {
-				continue
+		}
+	}
+}
+
+// tick sends i on due every interval until ctx is cancelled.
+func tick(ctx context.Context, every time.Duration, i int, due chan<- int) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			select {
+			case due <- i:
+			case <-ctx.Done():
+				return
 			}
-			kube.CheckResourceQuotas(ctx, deps)
-			kube.CollectBaselines(ctx, deps)
-			kube.CheckStorageIssues(ctx, deps)
-			kube.CheckNetworkIssues(ctx, deps)
-			kube.CheckSecurityIssues(ctx, deps)
-			kube.CheckWebhookBlocking(ctx, deps)
-			kube.CheckRBACDenied(ctx, deps)
-			kube.CheckStuckFinalizers(ctx, deps)
-			kube.CheckDisruptionBudgets(ctx, deps)
-			kube.CheckResourcePressure(ctx, deps)
-			kube.CheckControlPlane(ctx, deps)
-		case <-healthTicker.C:
-			kube.SelfCheck(ctx, deps)
 		}
 	}
 }
@@ -396,12 +499,13 @@ func hostname() string {
 	return h
 }
 
-func namespaceList(pol *policy.Policy) []string {
-	nss := make([]string, 0, len(pol.NamespaceAllow))
-	for ns := range pol.NamespaceAllow {
-		nss = append(nss, ns)
+// scopeSummary describes the watch scope and fix scope for the start log.
+func scopeSummary(pol *policy.Policy) string {
+	watch := "all non-system namespaces"
+	if names, all := pol.WatchList(); !all {
+		watch = strings.Join(names, ",")
 	}
-	return nss
+	return fmt.Sprintf("watch=%s fix=%s anywhere=%v", watch, strings.Join(pol.FixScope(), ","), pol.FixAnywhere)
 }
 
 // electorView is what the leader resolver needs from the elector.

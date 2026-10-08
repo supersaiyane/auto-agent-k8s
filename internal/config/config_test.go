@@ -50,7 +50,7 @@ func TestLoad_ValidValues(t *testing.T) {
 	}))
 	if c.BlastRadiusMaxNamespaces != 9 || c.ScaleInterval != 45*time.Second || !c.TicketsEnabled ||
 		!c.TLSCertCheck || c.Webhook.RequireLimits || !c.ScalingGates.Configured() || !c.Webhook.Enabled() ||
-		!c.Policy.AllowedNamespace("b") {
+		!c.Policy.Watched("b") {
 		t.Fatalf("valid values not applied: %+v", c)
 	}
 }

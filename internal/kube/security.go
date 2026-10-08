@@ -5,233 +5,180 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
-// CheckSecurityIssues scans for cert expiry, RBAC errors, and LimitRange violations.
+// eventLookback is how recent an event must be to be reported.
+const eventLookback = 10 * time.Minute
+
+// CheckSecurityIssues reports TLS certificates expired or expiring, and pods
+// refused by a LimitRange. The phase 12 audit removed an API throttling
+// check that read events in every namespace (constraint 4) for an event
+// reason, TooManyRequests, that no Kubernetes component emits.
 func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 	checkCertExpiry(ctx, deps)
 	checkLimitRangeViolations(ctx, deps)
-	checkAPIServerThrottling(ctx, deps)
 }
 
-// checkCertExpiry scans TLS secrets for certificates expiring within 30 days.
+// certWarnDays is how early an expiring certificate is reported.
+const certWarnDays = 30
+
+// checkCertExpiry scans TLS secrets for certificates expired or expiring
+// within certWarnDays, reminding once a day.
 func checkCertExpiry(ctx context.Context, deps *Deps) {
 	// Reading secrets is an opt-in grant (chart rbac.readTLSSecrets sets
 	// TLS_CERT_CHECK); without it the check does not run at all (ISS-009).
+	// The grant sits in the write Roles, so only the fix ceiling is read.
 	if !deps.TLSCertCheck {
 		return
 	}
-	for ns := range deps.Policy().NamespaceAllow {
-		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
-			FieldSelector: "type=kubernetes.io/tls",
-		})
+	now := deps.clock()
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		if !deps.Policy().InCeiling(ns) {
+			continue
+		}
+		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{FieldSelector: "type=kubernetes.io/tls"})
 		if err != nil {
 			countAPIError(err, "secrets", ns)
 			continue
 		}
-		for _, secret := range secrets.Items {
-			certPEM, ok := secret.Data["tls.crt"]
-			if !ok {
-				continue
-			}
-			block, _ := pem.Decode(certPEM)
-			if block == nil {
-				continue
-			}
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				continue
-			}
-
-			daysUntilExpiry := time.Until(cert.NotAfter).Hours() / 24
-
-			if daysUntilExpiry < 0 {
-				// Already expired
-				key := dedupKey(ns, secret.Name, "CertExpired")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*CertExpired* TLS secret `%s/%s` has EXPIRED\n", ns, secret.Name)
-				msg += fmt.Sprintf("Subject: %s\nExpired: %s (%.0f days ago)\n",
-					cert.Subject.CommonName, cert.NotAfter.Format("2006-01-02"), -daysUntilExpiry)
-				msg += "_Action required_: renew the certificate immediately.\n"
-				deps.Slack.Post(msg)
-				fireAlert(ctx, deps, "CertExpired", ns, secret.Name, "", msg, "critical")
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-					Namespace: ns, Workload: secret.Name, Reason: "CertExpired",
-					Message: fmt.Sprintf("Expired %.0f days ago (%s)", -daysUntilExpiry, cert.Subject.CommonName)})
-				obs.IncidentsTotal.WithLabelValues("CertExpired", ns, secret.Name).Inc()
-
-			} else if daysUntilExpiry < 30 {
-				// Expiring soon
-				key := dedupKey(ns, secret.Name, "CertExpiringSoon")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*CertExpiringSoon* TLS secret `%s/%s` expires in %.0f days\n", ns, secret.Name, daysUntilExpiry)
-				msg += fmt.Sprintf("Subject: %s\nExpires: %s\n", cert.Subject.CommonName, cert.NotAfter.Format("2006-01-02"))
-				msg += "_Action_: renew before expiry. Check cert-manager or manual renewal.\n"
-				deps.Slack.Post(msg)
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-					Namespace: ns, Workload: secret.Name, Reason: "CertExpiringSoon",
-					Message: fmt.Sprintf("Expires in %.0f days (%s)", daysUntilExpiry, cert.Subject.CommonName)})
-				obs.IncidentsTotal.WithLabelValues("CertExpiringSoon", ns, secret.Name).Inc()
+		for i := range secrets.Items {
+			if f, ok := certFinding(&secrets.Items[i], now); ok && deps.Dedup.CheckFor(dedupKey(ns, secrets.Items[i].Name, f.Reason+"Daily"), 24*time.Hour) {
+				report(ctx, deps, f)
 			}
 		}
 	}
 }
 
-// checkLimitRangeViolations detects pods that violate namespace LimitRange defaults.
+// certFinding reads the certificate in a TLS secret and says whether it is
+// expired or expires within certWarnDays. Unreadable data is not a finding.
+func certFinding(s *corev1.Secret, now time.Time) (finding, bool) {
+	block, _ := pem.Decode(s.Data["tls.crt"])
+	if block == nil {
+		return finding{}, false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return finding{}, false
+	}
+	days := cert.NotAfter.Sub(now).Hours() / 24
+	f := finding{Namespace: s.Namespace, Workload: "secret/" + s.Name, Rung: RungGuided,
+		Details: []string{fmt.Sprintf("Subject %s, not after %s", cert.Subject.CommonName, cert.NotAfter.UTC().Format("2006-01-02"))},
+		Fix:     fmt.Sprintf("renew it; with cert-manager: `cmctl renew -n %s <certificate>`", s.Namespace)}
+	switch {
+	case days < 0:
+		f.Reason, f.Severity, f.Summary = "CertExpired", eventsvc.SevCritical, fmt.Sprintf("the certificate expired %.0f days ago", -days)
+	case days < certWarnDays:
+		f.Reason, f.Severity, f.Summary = "CertExpiringSoon", eventsvc.SevWarning, fmt.Sprintf("the certificate expires in %.0f days", days)
+	default:
+		return finding{}, false
+	}
+	return f, true
+}
+
+// limitRangeRefusal matches the LimitRange admission plugin's wording
+// ("minimum cpu usage per Container is 100m"); the audit found the check
+// matched any "forbidden" or "limit", which quota, webhook and RBAC
+// refusals also contain.
+var limitRangeRefusal = regexp.MustCompile(`(?i)(minimum|maximum) \S+ usage per (Container|Pod)|LimitRange`)
+
+// checkLimitRangeViolations reports recent pod creations a LimitRange refused.
 func checkLimitRangeViolations(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		lrs, err := deps.Client.CoreV1().LimitRanges(ns).List(ctx, metav1.ListOptions{})
-		if err != nil || len(lrs.Items) == 0 {
-			continue
-		}
-		// Just check if events mention LimitRange failures
-		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			countAPIError(err, "events", ns)
-		}
-		if events == nil {
+			countAPIError(err, "limitranges", ns) // phase 12: was dropped
 			continue
 		}
-		for _, ev := range events.Items {
-			if ev.Reason == "FailedCreate" && (containsAny(ev.Message, "LimitRange", "forbidden", "exceeds") ||
-				containsAny(ev.Message, "minimum", "maximum", "limit")) {
-				if time.Since(ev.LastTimestamp.Time) > 10*time.Minute {
-					continue
-				}
-				key := dedupKey(ns, ev.InvolvedObject.Name, "LimitRangeViolation")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*LimitRangeViolation* in `%s` for `%s/%s`\n",
-					ns, ev.InvolvedObject.Kind, ev.InvolvedObject.Name)
-				msg += fmt.Sprintf("Message: %s\n", ev.Message)
-				msg += "_Fix_: adjust pod resource requests/limits to comply with LimitRange.\n"
-				deps.Slack.Post(msg)
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-					Namespace: ns, Workload: ev.InvolvedObject.Name, Reason: "LimitRangeViolation",
-					Message: ev.Message})
-				obs.IncidentsTotal.WithLabelValues("LimitRangeViolation", ns, ev.InvolvedObject.Name).Inc()
-			}
-		}
-	}
-}
-
-// checkAPIServerThrottling detects if the API server is throttling requests.
-func checkAPIServerThrottling(ctx context.Context, deps *Deps) {
-	// Check for 429 in recent events across all namespaces
-	events, err := deps.Client.CoreV1().Events("").List(ctx, metav1.ListOptions{
-		FieldSelector: "reason=TooManyRequests",
-		Limit:         10,
-	})
-	if err != nil || events == nil || len(events.Items) == 0 {
-		return
-	}
-	for _, ev := range events.Items {
-		if time.Since(ev.LastTimestamp.Time) > 10*time.Minute {
+		if len(lrs.Items) == 0 {
 			continue
 		}
-		key := dedupKey("", "apiserver", "APIThrottled")
-		if !deps.Dedup.Check(key) {
-			return
-		}
-		msg := "*APIServerThrottled*: K8s API server is returning 429 Too Many Requests\n"
-		msg += fmt.Sprintf("Source: %s: %s\n", ev.InvolvedObject.Name, ev.Message)
-		msg += "_Check_: reduce API call frequency, check for controller loops.\n"
-		deps.Slack.Post(msg)
-		fireAlert(ctx, deps, "APIThrottled", "", "apiserver", "", msg, "warning")
-		recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-			Reason: "APIThrottled", Message: "API server throttling requests"})
-		obs.IncidentsTotal.WithLabelValues("APIThrottled", "", "apiserver").Inc()
-		return
-	}
-}
-
-func containsAny(s string, substrs ...string) bool {
-	for _, sub := range substrs {
-		if len(s) >= len(sub) {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
+		for _, ev := range recentEvents(ctx, deps, ns) {
+			if ev.Reason != "FailedCreate" || !limitRangeRefusal.MatchString(ev.Message) {
+				continue
 			}
+			report(ctx, deps, eventFinding(&ev, "LimitRangeViolation", "a LimitRange refused the pod",
+				"set requests and limits within the namespace's LimitRange (`kubectl describe limitrange -n "+ns+"`)"))
 		}
 	}
-	return false
 }
 
-// detectWebhookBlocking checks events for admission webhook rejections.
+// recentEvents lists the events in ns from the last eventLookback; a failed
+// read is counted and gives none.
+func recentEvents(ctx context.Context, deps *Deps, ns string) []corev1.Event {
+	list, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		countAPIError(err, "events", ns)
+		return nil
+	}
+	now := deps.clock()
+	var out []corev1.Event
+	for i := range list.Items {
+		if now.Sub(eventTime(&list.Items[i])) <= eventLookback {
+			out = append(out, list.Items[i])
+		}
+	}
+	return out
+}
+
+// eventFinding builds a finding about the object an event names (R1).
+func eventFinding(ev *corev1.Event, reason, summary, fix string) finding {
+	return finding{Reason: reason, Namespace: ev.Namespace,
+		Workload: strings.ToLower(ev.InvolvedObject.Kind) + "/" + ev.InvolvedObject.Name,
+		Severity: eventsvc.SevWarning, Rung: RungGuided, Summary: summary, Details: []string{ev.Message}, Fix: fix}
+}
+
+// webhookRefusal matches an admission webhook that denied a request or could
+// not be reached, and captures its name; the audit found any "denied" or
+// "admission" matched, and an unreachable webhook was missed.
+var webhookRefusal = regexp.MustCompile(`admission webhook "([^"]+)" denied|failed calling webhook "([^"]+)"`)
+
+// CheckWebhookBlocking reports recent creates and updates an admission
+// webhook refused or failed to answer.
 func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
-		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			countAPIError(err, "events", ns)
-			continue
-		}
-		for _, ev := range events.Items {
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		for _, ev := range recentEvents(ctx, deps, ns) {
 			if ev.Reason != "FailedCreate" && ev.Reason != "FailedUpdate" {
 				continue
 			}
-			if !containsAny(ev.Message, "webhook", "admission", "denied") {
+			m := webhookRefusal.FindStringSubmatch(ev.Message)
+			if m == nil {
 				continue
 			}
-			if time.Since(ev.LastTimestamp.Time) > 10*time.Minute {
-				continue
+			summary, fix := fmt.Sprintf("admission webhook `%s` denied the request", m[1]), "read the webhook's message; change the object or ask the webhook's owner"
+			if m[2] != "" {
+				summary = fmt.Sprintf("admission webhook `%s` could not be reached", m[2])
+				fix = "the webhook's Service has no ready pod or its certificate is wrong; with failurePolicy Fail every matching request is refused until it answers"
 			}
-			key := dedupKey(ns, ev.InvolvedObject.Name, "WebhookBlocking")
-			if !deps.Dedup.Check(key) {
-				continue
-			}
-			msg := fmt.Sprintf("*WebhookBlocking* in `%s`: admission webhook denied `%s/%s`\n",
-				ns, ev.InvolvedObject.Kind, ev.InvolvedObject.Name)
-			msg += fmt.Sprintf("Message: %s\n", ev.Message)
-			msg += "_Check_: webhook configuration, or contact the webhook owner.\n"
-			deps.Slack.Post(msg)
-			recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-				Namespace: ns, Workload: ev.InvolvedObject.Name, Reason: "WebhookBlocking",
-				Message: ev.Message})
-			obs.IncidentsTotal.WithLabelValues("WebhookBlocking", ns, ev.InvolvedObject.Name).Inc()
+			report(ctx, deps, eventFinding(&ev, "WebhookBlocking", summary, fix))
 		}
 	}
 }
 
-// CheckRBACDenied detects RBAC permission errors in events.
+// rbacRefusal matches the API server's RBAC denial: `User "x" cannot list
+// resource "pods"`. The audit found any "forbidden", "RBAC" or "cannot"
+// matched, which quota refusals and messages such as "cannot allocate
+// memory" also contain.
+var rbacRefusal = regexp.MustCompile(`cannot [a-z]+ resource "([^"]+)"`)
+
+// CheckRBACDenied reports recent events where a controller or workload was
+// refused by RBAC.
 func CheckRBACDenied(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
-		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			countAPIError(err, "events", ns)
-			continue
-		}
-		for _, ev := range events.Items {
-			if !containsAny(ev.Message, "forbidden", "RBAC", "cannot") {
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		for _, ev := range recentEvents(ctx, deps, ns) {
+			m := rbacRefusal.FindStringSubmatch(ev.Message)
+			if m == nil {
 				continue
 			}
-			if time.Since(ev.LastTimestamp.Time) > 10*time.Minute {
-				continue
-			}
-			key := dedupKey(ns, ev.InvolvedObject.Name, "RBACDenied")
-			if !deps.Dedup.Check(key) {
-				continue
-			}
-			klog.V(3).Infof("security: RBAC denied in %s: %s", ns, ev.Message)
-			msg := fmt.Sprintf("*RBACDenied* in `%s` for `%s/%s`\n", ns, ev.InvolvedObject.Kind, ev.InvolvedObject.Name)
-			msg += fmt.Sprintf("Message: %s\n", ev.Message)
-			msg += "_Check_: ServiceAccount permissions, Role/RoleBinding.\n"
-			deps.Slack.Post(msg)
-			recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-				Namespace: ns, Workload: ev.InvolvedObject.Name, Reason: "RBACDenied", Message: ev.Message})
-			obs.IncidentsTotal.WithLabelValues("RBACDenied", ns, ev.InvolvedObject.Name).Inc()
+			report(ctx, deps, eventFinding(&ev, "RBACDenied", fmt.Sprintf("refused by RBAC on `%s`", m[1]),
+				"grant the ServiceAccount the verb on that resource with a Role and RoleBinding, or stop the call"))
 		}
 	}
 }

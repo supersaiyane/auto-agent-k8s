@@ -74,72 +74,73 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 	obs.IncidentsTotal.WithLabelValues(reason, ns, wl).Inc()
 }
 
-// CheckDeadlineExceeded detects pods that exceeded their activeDeadlineSeconds.
-func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
-		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-			FieldSelector: "status.phase=Failed",
-		})
-		if err != nil {
-			countAPIError(err, "pods", ns)
-			continue
-		}
-		for _, pod := range pods.Items {
-			if pod.Status.Reason != "DeadlineExceeded" {
-				continue
-			}
-			key := dedupKey(ns, pod.Name, "DeadlineExceeded")
-			if !deps.Dedup.Check(key) {
-				continue
-			}
-			wl := ownerName(&pod)
-			msg := fmt.Sprintf("*DeadlineExceeded* pod `%s/%s` exceeded its activeDeadlineSeconds\n", ns, pod.Name)
-			if pod.Spec.ActiveDeadlineSeconds != nil {
-				msg += fmt.Sprintf("Deadline: %ds\n", *pod.Spec.ActiveDeadlineSeconds)
-			}
-			msg += "_Check_: increase activeDeadlineSeconds or investigate why pod is slow.\n"
+// terminalPodWindow is how long one failed pod stays reported once: a
+// Failed pod does not change until it is deleted (phase 12 audit).
+const terminalPodWindow = 24 * time.Hour
 
-			deps.Slack.Post(msg)
-			fireAlert(ctx, deps, "DeadlineExceeded", ns, wl, pod.Name, msg, "warning")
-			recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-				Namespace: ns, Workload: wl, Pod: pod.Name, Reason: "DeadlineExceeded",
-				Message: "Pod exceeded activeDeadlineSeconds"})
-			obs.IncidentsTotal.WithLabelValues("DeadlineExceeded", ns, wl).Inc()
+// failedPods lists the Failed pods in ns; a failed read is counted.
+func failedPods(ctx context.Context, deps *Deps, ns string) []corev1.Pod {
+	pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{FieldSelector: "status.phase=Failed"})
+	if err != nil {
+		countAPIError(err, "pods", ns)
+		return nil
+	}
+	return pods.Items
+}
+
+// CheckDeadlineExceeded reports a pod killed because it ran past its
+// activeDeadlineSeconds, once per pod.
+func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		for _, pod := range failedPods(ctx, deps, ns) {
+			if pod.Status.Phase != corev1.PodFailed || pod.Status.Reason != "DeadlineExceeded" ||
+				!deps.Dedup.CheckFor(dedupKey(ns, string(pod.UID), "DeadlineExceeded"), terminalPodWindow) {
+				continue
+			}
+			f := finding{Reason: "DeadlineExceeded", Namespace: ns, Workload: ownerName(&pod), Pod: pod.Name, Node: pod.Spec.NodeName,
+				Severity: eventsvc.SevWarning, Rung: RungGuided, Subject: pod.Name,
+				Summary: "the pod ran past its activeDeadlineSeconds and was stopped",
+				Fix:     "make the work finish sooner, or raise activeDeadlineSeconds if the run time is expected"}
+			if d := pod.Spec.ActiveDeadlineSeconds; d != nil {
+				f.Details = []string{fmt.Sprintf("Deadline: %ds", *d)}
+			}
+			report(ctx, deps, f)
 		}
 	}
 }
 
-// CheckEphemeralStorageFull detects pods evicted due to ephemeral storage.
+// ephemeralMarkers are the phrases the kubelet uses when it evicts a pod for
+// local storage: node pressure ("low on resource: ephemeral-storage") and a
+// container or pod over its limit ("local ephemeral storage limit",
+// "ephemeral local storage usage"). The audit found only the first matched.
+var ephemeralMarkers = []string{"ephemeral-storage", "ephemeral storage", "ephemeral local storage"}
+
+// CheckEphemeralStorageFull reports pods evicted for local storage, once per
+// pod and at most once per workload per dedup window.
 func CheckEphemeralStorageFull(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
-		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-			FieldSelector: "status.phase=Failed",
-		})
-		if err != nil {
-			countAPIError(err, "pods", ns)
-			continue
-		}
-		for _, pod := range pods.Items {
-			if pod.Status.Reason != "Evicted" {
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		for _, pod := range failedPods(ctx, deps, ns) {
+			if pod.Status.Phase != corev1.PodFailed || pod.Status.Reason != "Evicted" || !mentionsEphemeral(pod.Status.Message) ||
+				!deps.Dedup.CheckFor(dedupKey(ns, string(pod.UID), "EphemeralStorageFull"), terminalPodWindow) {
 				continue
 			}
-			if !strings.Contains(pod.Status.Message, "ephemeral-storage") {
-				continue
-			}
-			key := dedupKey(ns, ownerName(&pod), "EphemeralStorageFull")
-			if !deps.Dedup.Check(key) {
-				continue
-			}
-			wl := ownerName(&pod)
-			msg := fmt.Sprintf("*EphemeralStorageFull* pod `%s/%s` evicted\n%s\n", ns, pod.Name, pod.Status.Message)
-			msg += "_Check_: reduce log output, clean temp files, or increase ephemeral-storage limit.\n"
-			deps.Slack.Post(msg)
-			recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-				Namespace: ns, Workload: wl, Pod: pod.Name, Reason: "EphemeralStorageFull",
-				Message: pod.Status.Message})
-			obs.IncidentsTotal.WithLabelValues("EphemeralStorageFull", ns, wl).Inc()
+			report(ctx, deps, finding{Reason: "EphemeralStorageFull", Namespace: ns, Workload: ownerName(&pod), Pod: pod.Name,
+				Node: pod.Spec.NodeName, Severity: eventsvc.SevWarning, Rung: RungGuided,
+				Summary: "evicted for local (ephemeral) storage",
+				Details: []string{pod.Status.Message},
+				Fix:     "write less to the container filesystem and emptyDir (logs, temp files), or raise the ephemeral-storage request and limit"})
 		}
 	}
+}
+
+func mentionsEphemeral(msg string) bool {
+	m := strings.ToLower(msg)
+	for _, k := range ephemeralMarkers {
+		if strings.Contains(m, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // isAdditionalPodReason returns true if this is a reason we handle in the extended handler.

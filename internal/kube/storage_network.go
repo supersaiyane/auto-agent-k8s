@@ -6,221 +6,231 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
-// CheckStorageIssues detects PVC Lost, VolumeAttachment stuck, and StorageClass problems.
+// defaultClassAnnotation marks the cluster's default StorageClass.
+const defaultClassAnnotation = "storageclass.kubernetes.io/is-default-class"
+
+// CheckStorageIssues reports claims whose volume is gone (Lost), pending
+// claims that name a StorageClass that does not exist, and pending claims
+// with no class when the cluster has no default class (phase 12 audit).
 func CheckStorageIssues(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	classes, ok := storageClasses(ctx, deps)
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "persistentvolumeclaims", ns)
 			continue
 		}
-		for _, pvc := range pvcs.Items {
-			switch pvc.Status.Phase {
-			case corev1.ClaimLost:
-				key := dedupKey(ns, pvc.Name, "PVCLost")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*PVCLost* `%s/%s`: underlying PersistentVolume was deleted\n", ns, pvc.Name)
-				msg += "_Action required_: data may be lost. Restore from backup or create new PV.\n"
-				deps.Slack.Post(msg)
-				fireAlert(ctx, deps, "PVCLost", ns, pvc.Name, "", msg, "critical")
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-					Namespace: ns, Workload: pvc.Name, Reason: "PVCLost", Message: "PV deleted, data at risk"})
-				obs.IncidentsTotal.WithLabelValues("PVCLost", ns, pvc.Name).Inc()
-
-			case corev1.ClaimPending:
-				// Already handled by CheckPendingPVCs, but check for StorageClass issues
-				if pvc.Spec.StorageClassName != nil {
-					scName := *pvc.Spec.StorageClassName
-					_, err := deps.Client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
-					if err != nil {
-						// Only a real NotFound means the class is missing; a
-						// forbidden read must not be reported as one.
-						if !apierrors.IsNotFound(err) {
-							countAPIError(err, "storageclasses", "")
-							continue
-						}
-						key := dedupKey(ns, pvc.Name, "StorageClassNotFound")
-						if !deps.Dedup.Check(key) {
-							continue
-						}
-						msg := fmt.Sprintf("*StorageClassNotFound* PVC `%s/%s` references StorageClass `%s` which doesn't exist\n",
-							ns, pvc.Name, scName)
-						msg += "_Fix_: create the StorageClass or update the PVC.\n"
-						deps.Slack.Post(msg)
-						recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-							Namespace: ns, Workload: pvc.Name, Reason: "StorageClassNotFound",
-							Message: fmt.Sprintf("StorageClass %s not found", scName)})
-						obs.IncidentsTotal.WithLabelValues("StorageClassNotFound", ns, pvc.Name).Inc()
-					}
+		for i := range pvcs.Items {
+			pvc := &pvcs.Items[i]
+			switch {
+			case pvc.Status.Phase == corev1.ClaimLost:
+				report(ctx, deps, finding{Reason: "PVCLost", Namespace: ns, Workload: "pvc/" + pvc.Name,
+					Severity: eventsvc.SevCritical, Rung: RungGuided,
+					Summary: "the PersistentVolume behind this claim is gone; its data may be lost",
+					Fix:     "restore the data from a backup into a new volume, then recreate the claim"})
+			case pvc.Status.Phase == corev1.ClaimPending && ok:
+				if f, bad := classProblem(pvc, classes); bad {
+					report(ctx, deps, f)
 				}
 			}
 		}
 	}
 }
 
-// CheckNetworkIssues detects DNS failures, LoadBalancer pending, and Ingress backend errors.
+// storageClasses lists the cluster's classes by name; a failed read is
+// counted and the class checks are skipped rather than guessed.
+func storageClasses(ctx context.Context, deps *Deps) (map[string]*storagev1.StorageClass, bool) {
+	list, err := deps.Client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		countAPIError(err, "storageclasses", "")
+		return nil, false
+	}
+	out := map[string]*storagev1.StorageClass{}
+	for i := range list.Items {
+		out[list.Items[i].Name] = &list.Items[i]
+	}
+	return out, true
+}
+
+// classProblem explains a pending claim's StorageClass trouble, if any. An
+// empty class name asks for static binding and is not a class problem.
+func classProblem(pvc *corev1.PersistentVolumeClaim, classes map[string]*storagev1.StorageClass) (finding, bool) {
+	f := finding{Namespace: pvc.Namespace, Workload: "pvc/" + pvc.Name, Severity: eventsvc.SevCritical, Rung: RungGuided}
+	if name := pvc.Spec.StorageClassName; name != nil {
+		if *name == "" || classes[*name] != nil {
+			return f, false
+		}
+		f.Reason = "StorageClassNotFound"
+		f.Summary = fmt.Sprintf("names StorageClass `%s`, which does not exist", *name)
+		f.Fix = "create that StorageClass, or recreate the claim with one from `kubectl get storageclass`"
+		return f, true
+	}
+	for _, c := range classes {
+		if c.Annotations[defaultClassAnnotation] == "true" {
+			return f, false
+		}
+	}
+	f.Reason = "NoDefaultStorageClass"
+	f.Summary = "names no StorageClass and the cluster has no default one, so nothing will provision it"
+	f.Fix = fmt.Sprintf("mark a class as default (`kubectl annotate storageclass <name> %s=true`) or set storageClassName on the claim", defaultClassAnnotation)
+	return f, true
+}
+
+// CheckNetworkIssues reports CoreDNS down, LoadBalancers without an address
+// and Ingress backends that cannot serve.
 func CheckNetworkIssues(ctx context.Context, deps *Deps) {
 	checkDNSHealth(ctx, deps)
 	checkLoadBalancerPending(ctx, deps)
 	checkIngressBackends(ctx, deps)
 }
 
+// checkDNSHealth reads the CoreDNS pods in kube-system. kube-system is
+// outside the default watch scope, and reads follow the watch scope
+// (constraint 4), so it runs only where kube-system is watched; the phase 12
+// audit found it read there regardless. Resolution checks that need no pod
+// reads are PLAN-002 phase 14 (ISS-033).
 func checkDNSHealth(ctx context.Context, deps *Deps) {
-	// Check CoreDNS pods in kube-system
-	pods, err := deps.Client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
-		LabelSelector: "k8s-app=kube-dns",
-	})
-	if err != nil {
-		countAPIError(err, "pods", "kube-system")
+	const ns = "kube-system"
+	if !deps.Policy().Watched(ns) {
 		return
 	}
-	if pods == nil || len(pods.Items) == 0 {
-		// Try coredns label
-		pods, err = deps.Client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
-			LabelSelector: "app.kubernetes.io/name=coredns",
-		})
-		if err != nil || pods == nil {
+	var pods []corev1.Pod
+	for _, sel := range []string{"k8s-app=kube-dns", "app.kubernetes.io/name=coredns"} {
+		list, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
+		if err != nil {
+			countAPIError(err, "pods", ns)
 			return
 		}
-	}
-
-	totalDNS := len(pods.Items)
-	readyDNS := 0
-	for _, p := range pods.Items {
-		for _, cs := range p.Status.ContainerStatuses {
-			if cs.Ready {
-				readyDNS++
-				break
-			}
+		if pods = list.Items; len(pods) > 0 {
+			break
 		}
 	}
-	if readyDNS == 0 && totalDNS > 0 {
-		key := dedupKey("kube-system", "coredns", "DNSDown")
-		if !deps.Dedup.Check(key) {
-			return
+	ready := 0
+	for i := range pods {
+		if _, ok := notReadyFor(&pods[i], deps.clock()); ok {
+			ready++
 		}
-		msg := fmt.Sprintf("*DNSDown*: ALL CoreDNS pods are down (%d/%d ready)\n", readyDNS, totalDNS)
-		msg += "_CRITICAL_: cluster DNS resolution will fail for all pods.\n"
-		deps.Slack.Post(msg)
-		fireAlert(ctx, deps, "DNSDown", "kube-system", "coredns", "", msg, "critical")
-		recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-			Namespace: "kube-system", Workload: "coredns", Reason: "DNSDown",
-			Message: fmt.Sprintf("0/%d DNS pods ready", totalDNS)})
-		obs.IncidentsTotal.WithLabelValues("DNSDown", "kube-system", "coredns").Inc()
-	} else if readyDNS < totalDNS {
-		key := dedupKey("kube-system", "coredns", "DNSDegraded")
-		if !deps.Dedup.Check(key) {
-			return
-		}
-		msg := fmt.Sprintf("*DNSDegraded*: CoreDNS partially down (%d/%d ready)\n", readyDNS, totalDNS)
-		deps.Slack.Post(msg)
-		recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-			Namespace: "kube-system", Workload: "coredns", Reason: "DNSDegraded",
-			Message: fmt.Sprintf("%d/%d DNS pods ready", readyDNS, totalDNS)})
-		obs.IncidentsTotal.WithLabelValues("DNSDegraded", "kube-system", "coredns").Inc()
 	}
+	f := finding{Namespace: ns, Workload: "coredns", Rung: RungGuided,
+		Fix: "describe the CoreDNS pods (`kubectl -n kube-system describe pods -l k8s-app=kube-dns`) and read their logs"}
+	switch {
+	case len(pods) == 0 || ready == len(pods):
+		return
+	case ready == 0:
+		f.Reason, f.Severity = "DNSDown", eventsvc.SevCritical
+		f.Summary = fmt.Sprintf("no CoreDNS pod is ready (0/%d): name resolution fails for every pod", len(pods))
+	default:
+		f.Reason, f.Severity = "DNSDegraded", eventsvc.SevWarning
+		f.Summary = fmt.Sprintf("%d/%d CoreDNS pods ready", ready, len(pods))
+	}
+	report(ctx, deps, f)
 }
 
+// lbPendingFor is how long a LoadBalancer Service may wait for an address.
+const lbPendingFor = 5 * time.Minute
+
 func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	now := deps.clock()
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		svcs, err := deps.Client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "services", ns)
 			continue
 		}
-		for _, svc := range svcs.Items {
-			if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		for i := range svcs.Items {
+			svc := &svcs.Items[i]
+			if svc.Spec.Type != corev1.ServiceTypeLoadBalancer || len(svc.Status.LoadBalancer.Ingress) > 0 ||
+				now.Sub(svc.CreationTimestamp.Time) < lbPendingFor {
 				continue
 			}
-			if len(svc.Status.LoadBalancer.Ingress) == 0 {
-				// Check if pending for >5 min
-				if time.Since(svc.CreationTimestamp.Time) < 5*time.Minute {
-					continue
-				}
-				key := dedupKey(ns, svc.Name, "LoadBalancerPending")
-				if !deps.Dedup.Check(key) {
-					continue
-				}
-				msg := fmt.Sprintf("*LoadBalancerPending* `%s/%s` has no external IP (>5 min)\n", ns, svc.Name)
-				msg += "_Check_: cloud provider LB quota, IP pool exhaustion, or service annotations.\n"
-				deps.Slack.Post(msg)
-				recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
-					Namespace: ns, Workload: svc.Name, Reason: "LoadBalancerPending",
-					Message: "No external IP assigned"})
-				obs.IncidentsTotal.WithLabelValues("LoadBalancerPending", ns, svc.Name).Inc()
-			}
+			report(ctx, deps, finding{Reason: "LoadBalancerPending", Namespace: ns, Workload: "service/" + svc.Name,
+				Severity: eventsvc.SevWarning, Rung: RungAlert,
+				Summary: fmt.Sprintf("no external address after %s", now.Sub(svc.CreationTimestamp.Time).Round(time.Minute)),
+				Fix:     fmt.Sprintf("the cause is usually outside the cluster: cloud load balancer quota, the IP pool, or a missing controller; `kubectl describe service %s -n %s` shows its events", svc.Name, ns)})
 		}
 	}
 }
 
+// checkIngressBackends reports Ingress paths, and default backends, whose
+// Service is missing or has no ready endpoint. Endpoints come from
+// EndpointSlices (ISS-035). Resource backends are not Services and are
+// skipped; the phase 12 audit found they crashed the check.
 func checkIngressBackends(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		ingresses, err := deps.Client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "ingresses", ns)
 			continue
 		}
-		for _, ing := range ingresses.Items {
-			for _, rule := range ing.Spec.Rules {
-				if rule.HTTP == nil {
-					continue
-				}
-				for _, path := range rule.HTTP.Paths {
-					svcName := path.Backend.Service.Name
-					if svcName == "" {
-						continue
-					}
-					// Check if the backend service has endpoints
-					ep, err := deps.Client.CoreV1().Endpoints(ns).Get(ctx, svcName, metav1.GetOptions{})
-					if err != nil {
-						if !apierrors.IsNotFound(err) {
-							countAPIError(err, "endpoints", ns)
-							continue
-						}
-						key := dedupKey(ns, ing.Name, "IngressBackendMissing-"+svcName)
-						if deps.Dedup.Check(key) {
-							msg := fmt.Sprintf("*IngressBackendMissing* ingress `%s/%s` backend `%s` not found\n",
-								ns, ing.Name, svcName)
-							msg += fmt.Sprintf("Host: %s, Path: %s\n", rule.Host, path.Path)
-							msg += "_Fix_: create the backend service or update ingress rules.\n"
-							deps.Slack.Post(msg)
-							recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-								Namespace: ns, Workload: ing.Name, Reason: "IngressBackendMissing",
-								Message: fmt.Sprintf("Backend %s not found", svcName)})
-							obs.IncidentsTotal.WithLabelValues("IngressBackendMissing", ns, ing.Name).Inc()
-						}
-						continue
-					}
-					readyCount := 0
-					for _, subset := range ep.Subsets {
-						readyCount += len(subset.Addresses)
-					}
-					if readyCount == 0 {
-						key := dedupKey(ns, ing.Name, "IngressNoBackends-"+svcName)
-						if deps.Dedup.Check(key) {
-							msg := fmt.Sprintf("*IngressNoBackends* ingress `%s/%s` backend `%s` has 0 ready endpoints\n",
-								ns, ing.Name, svcName)
-							msg += fmt.Sprintf("Host: %s: requests to this path will get 502/503.\n", rule.Host)
-							deps.Slack.Post(msg)
-							recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
-								Namespace: ns, Workload: ing.Name, Reason: "IngressNoBackends",
-								Message: fmt.Sprintf("Backend %s: 0 endpoints", svcName)})
-							obs.IncidentsTotal.WithLabelValues("IngressNoBackends", ns, ing.Name).Inc()
-						}
-					}
+		if len(ingresses.Items) == 0 {
+			continue
+		}
+		svcs, err := deps.Client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			countAPIError(err, "services", ns)
+			continue
+		}
+		exists := map[string]bool{}
+		for i := range svcs.Items {
+			exists[svcs.Items[i].Name] = true
+		}
+		ready, err := readyEndpointsByService(ctx, deps, ns)
+		if err != nil {
+			countAPIError(err, "endpointslices", ns)
+			continue
+		}
+		for i := range ingresses.Items {
+			for _, b := range ingressBackends(&ingresses.Items[i]) {
+				if f, bad := backendProblem(&ingresses.Items[i], b, exists, ready); bad {
+					report(ctx, deps, f)
 				}
 			}
 		}
 	}
 }
 
-// checkCertExpiry is in security.go
+// ingressBackend is one Service an Ingress routes to, and where.
+type ingressBackend struct{ service, where string }
+
+func ingressBackends(ing *networkingv1.Ingress) []ingressBackend {
+	var out []ingressBackend
+	if d := ing.Spec.DefaultBackend; d != nil && d.Service != nil {
+		out = append(out, ingressBackend{d.Service.Name, "default backend"})
+	}
+	for _, rule := range ing.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		for _, p := range rule.HTTP.Paths {
+			if p.Backend.Service != nil && p.Backend.Service.Name != "" {
+				out = append(out, ingressBackend{p.Backend.Service.Name, fmt.Sprintf("host %q path %q", rule.Host, p.Path)})
+			}
+		}
+	}
+	return out
+}
+
+func backendProblem(ing *networkingv1.Ingress, b ingressBackend, exists map[string]bool, ready map[string]int) (finding, bool) {
+	f := finding{Namespace: ing.Namespace, Workload: "ingress/" + ing.Name, Subject: b.service,
+		Severity: eventsvc.SevCritical, Rung: RungGuided, Details: []string{"Route: " + b.where}}
+	switch {
+	case !exists[b.service]:
+		f.Reason = "IngressBackendMissing"
+		f.Summary = fmt.Sprintf("routes to Service `%s`, which does not exist", b.service)
+		f.Fix = "create the Service or correct the backend name in the Ingress"
+	case ready[b.service] == 0:
+		f.Reason = "IngressNoBackends"
+		f.Summary = fmt.Sprintf("routes to Service `%s`, which has no ready endpoint: requests get 502 or 503", b.service)
+		f.Fix = "see the NoEndpoints finding for that Service: its selector or its pods' readiness"
+	default:
+		return f, false
+	}
+	return f, true
+}

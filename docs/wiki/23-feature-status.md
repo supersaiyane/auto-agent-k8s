@@ -6,18 +6,21 @@ This page documents the honest status of every feature: what's actually working 
 
 | Feature | Proof | Notes |
 |---------|-------|-------|
-| **74 issue detectors** | 462+ incidents detected in dashboard | All pod, node, workload, storage, network, security detectors active |
+| **Issue detectors** | Pod handlers in `internal/kube/watcher.go`; leader checks listed in `leaderChecks` (`cmd/auto-agent/run.go`); each audited and tested in `internal/kube/*_audit_test.go` (PLAN-002 phase 12); `TestEveryDetectorHasATest`, `TestEveryLeaderCheckHasATest` | Pod, node, workload, storage, network and security checks, each with its fix-ladder rung |
 | **Pod deletion (fix mode)** | `tryFixAction: SUCCESS` in agent logs | Deletes crashing pods, controller recreates them |
 | **Fix verification** | FixTracker confirmed 2+ fixes | Verifies deployment healthy after action (checks ReadyReplicas) |
-| **Dashboard UI (10 tabs)** | Accessible at http://localhost:8080 | Events, K8s Events, Actions, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal |
+| **Dashboard UI (16 tabs, counted 2026-10-08)** | `internal/httpapi/ui/`; `make ui-test` opens every tab | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |
 | **Event persistence** | 258+ events on disk | Survives pod restarts via `events.jsonl` on hostPath volume |
-| **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | 8-layer safety system active |
+| **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | Fix scope, dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval |
 | **Node-local pod informer** | Filtered by `NODE_NAME` env var | Each pod watches only its own node's pods |
-| **Leader election** | One pod acquires lease, runs periodic scans | Lease-based via `kube-system/auto-agent-leader` |
+| **Leader election** | One pod acquires lease, runs periodic scans | Lease `auto-agent-leader` in the agent's namespace |
 | **Config hot-reload** | ConfigMap changes picked up every 30s | No pod restart needed for config changes |
 | **Cost estimation** | Working with built-in instance prices | 40+ AWS/GCP/Azure instance types hardcoded |
 | **Resource efficiency** | Pod overuse/underuse/no-limits analysis | Based on requests vs limits comparison |
 | **kubectl terminal** | Commands execute via K8s Go client | get, describe, logs, version: read-only |
+| **Watch scope and fix scope** (ADR-002) | `internal/policy/scope.go`, gate check in `internal/kube/gate.go`; tests `internal/policy/scope_test.go`, `TestGate_OutsideFixScopeOnlySuggests`; kind e2e scope case in `scripts/e2e-kind.sh` | Watches every non-system namespace; acts only in the fix scope, inside the Helm ceiling; suggests elsewhere |
+| **Settings tab** (fix scope from the dashboard) | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/httpapi/ui/app.js` (`viewSettings`); tests `internal/httpapi/scope_test.go`, `TestSaveFixScope`, `make ui-test` | Changes stored in the `auto-agent-scope` ConfigMap, kept across Helm upgrades, audited |
+| **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
 | **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
@@ -92,8 +95,8 @@ Go code reads them. Setting them changes nothing.
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **S3 storage** | Persists incident logs to AWS S3 | Set `LOG_STORE=s3`, `LOG_S3_BUCKET`, `LOG_S3_PREFIX` + AWS credentials (IRSA) | Logs go to filesystem `/var/log/auto-agent/` on the node |
-| **Kubecost** | Real cluster cost data from Kubecost API | Set `COST_PROVIDER=kubecost`: deploy.sh auto-installs | Uses built-in instance-type price estimates |
-| **OpenCost** | Real cluster cost data from OpenCost API | Set `COST_PROVIDER=opencost`: deploy.sh auto-installs | Same as above |
+| **Kubecost** | Real cluster cost data from Kubecost API | Set `KUBECOST_URL` to Kubecost's API | Uses built-in instance-type price estimates |
+| **OpenCost** | Real cluster cost data from OpenCost API | Set `OPENCOST_URL`; `deploy.sh --with-opencost` installs OpenCost | Same as above |
 
 ### Security
 
@@ -118,7 +121,7 @@ AUTO_MODE: "fix"
 METRICS_PROVIDER: "prometheus"
 PROMETHEUS_URL: "http://prometheus:9090"
 ALERTMANAGER_URL: "http://alertmanager:9093"
-COST_PROVIDER: "kubecost"
+KUBECOST_URL: "http://kubecost-cost-analyzer.kubecost:9090"
 LLM_ENABLED: "true"
 LEARNING_ENABLED: "true"
 
@@ -136,7 +139,7 @@ AUTO_MODE: "fix"
 METRICS_PROVIDER: "prometheus"
 PROMETHEUS_URL: "http://prometheus:9090"
 ALERTMANAGER_URL: "http://alertmanager:9093"
-COST_PROVIDER: "kubecost"
+KUBECOST_URL: "http://kubecost-cost-analyzer.kubecost:9090"
 LLM_ENABLED: "true"
 LEARNING_ENABLED: "true"
 TICKETS_ENABLED: "true"

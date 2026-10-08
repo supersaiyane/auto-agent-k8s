@@ -3,7 +3,6 @@ package policy
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"k8s.io/klog/v2"
 )
@@ -24,7 +23,6 @@ type Policy struct {
 	ScaleWindow        string
 	MaxScaleStep       int
 	MaxActionsPer10m   int
-	NamespaceAllow     map[string]struct{}
 	ExcludedAnnotation string
 	LLMEnabled         bool
 	LogLevel           string
@@ -41,6 +39,16 @@ type Policy struct {
 	// Timeouts (seconds)
 	LLMTimeoutSec   int
 	SlackTimeoutSec int
+
+	// Namespace scopes (ADR-002, scope.go). Never assign these on a shared
+	// policy: build a new snapshot (WithFixOverride, the hot reloader).
+	WatchAll        bool                // watch every namespace except System
+	WatchNamespaces map[string]struct{} // the watch list when WatchAll is false
+	System          map[string]struct{} // system namespaces and the agent's own
+	FixNamespaces   map[string]struct{} // FIX_NAMESPACES, the initial fix scope
+	FixCeiling      map[string]struct{} // FIX_CEILING, where the chart granted writes
+	FixAnywhere     bool                // FIX_ANYWHERE: the ceiling is every non-system namespace
+	FixOverride     map[string]struct{} // the dashboard choice; nil when none
 }
 
 // Getenv looks up one variable. internal/config passes os.Getenv; tests pass
@@ -51,13 +59,6 @@ type Getenv func(string) string
 // internal/config calls it with the real environment (PLAN-002 task 8.3).
 func Load(get Getenv) *Policy {
 	g := envReader{get}
-	ns := map[string]struct{}{}
-	for _, n := range strings.Split(g.str("NAMESPACE_ALLOWLIST", "default"), ",") {
-		n = strings.TrimSpace(n)
-		if n != "" {
-			ns[n] = struct{}{}
-		}
-	}
 
 	m := Mode(g.str("AUTO_MODE", string(DryRun)))
 	switch m {
@@ -74,7 +75,6 @@ func Load(get Getenv) *Policy {
 		ScaleWindow:        g.str("SCALE_WINDOW", "5m"),
 		MaxScaleStep:       g.int("MAX_SCALE_STEP", 2),
 		MaxActionsPer10m:   g.int("MAX_ACTIONS_PER_10M", 10),
-		NamespaceAllow:     ns,
 		ExcludedAnnotation: g.str("EXCLUDED_ANNOTATION", "auto-agent.io/disable"),
 		LLMEnabled:         g.bool("LLM_ENABLED", false),
 		LogLevel:           g.str("LOG_LEVEL", "info"),
@@ -86,6 +86,7 @@ func Load(get Getenv) *Policy {
 		LLMTimeoutSec:      g.int("LLM_TIMEOUT_SEC", 10),
 		SlackTimeoutSec:    g.int("SLACK_TIMEOUT_SEC", 5),
 	}
+	loadScope(p, g)
 	if err := p.Validate(); err != nil {
 		klog.Fatalf("invalid policy: %v", err)
 	}
@@ -93,8 +94,8 @@ func Load(get Getenv) *Policy {
 }
 
 func (p *Policy) Validate() error {
-	if len(p.NamespaceAllow) == 0 {
-		return fmt.Errorf("NAMESPACE_ALLOWLIST must not be empty")
+	if !p.WatchAll && len(p.WatchNamespaces) == 0 {
+		return fmt.Errorf("WATCH_NAMESPACES names no namespace; leave it empty to watch every non-system namespace")
 	}
 	if p.CPUThreshold <= 0 || p.CPUThreshold > 1.0 {
 		return fmt.Errorf("SCALE_CPU_THRESHOLD must be in (0, 1.0], got %f", p.CPUThreshold)
@@ -109,23 +110,6 @@ func (p *Policy) Validate() error {
 		return fmt.Errorf("MAX_REPLICAS (%d) must be >= MIN_REPLICAS (%d)", p.MaxReplicas, p.MinReplicas)
 	}
 	return nil
-}
-
-// AllowedNamespace returns true if the namespace is in the allowlist.
-func (p *Policy) AllowedNamespace(ns string) bool {
-	_, ok := p.NamespaceAllow[ns]
-	return ok
-}
-
-func parseNamespaceList(s string) map[string]struct{} {
-	ns := map[string]struct{}{}
-	for _, n := range strings.Split(s, ",") {
-		n = strings.TrimSpace(n)
-		if n != "" {
-			ns[n] = struct{}{}
-		}
-	}
-	return ns
 }
 
 func envIntVal(s string, fallback int) int {

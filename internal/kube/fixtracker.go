@@ -122,8 +122,10 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 		}
 	}
 
+	// Actions recorded while this pass ran were appended after the snapshot;
+	// keep them (phase 12 audit: they were overwritten and lost).
 	deps.FixTracker.mu.Lock()
-	deps.FixTracker.pending = stillPending
+	deps.FixTracker.pending = append(stillPending, deps.FixTracker.pending[len(pending):]...)
 	deps.FixTracker.mu.Unlock()
 }
 

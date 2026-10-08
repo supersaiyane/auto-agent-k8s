@@ -52,12 +52,12 @@ Think of it as an **always-on SRE** that watches your cluster 24/7, catches prob
 
 | Category | Count | Capabilities |
 |----------|-------|-------------|
-| **Detection** | 74 | Every K8s issue across pod, node, workload, storage, network, security, config |
+| **Detection** | see [Detection](04-detection.md) | Every K8s issue across pod, node, workload, storage, network, security, config |
 | **Actions** | 7 | Pod delete, node cordon/uncordon, rollback, eviction cleanup, job cleanup, scaling |
 | **Safety** | 8 layers | Dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval, HPA awareness |
 | **Integrations** | 9 | Slack, LLM, GitHub/GitLab PRs, GitHub Issues/Jira, Alertmanager, PagerDuty, OpsGenie, Email |
 | **Intelligence** | 4 | Learning mode, incident correlation, cost estimation, compliance reporting |
-| **Dashboard** | 10 tabs | Events, K8s Events, Actions, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal |
+| **Dashboard** | 16 tabs (counted 2026-10-08) | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |
 | **APIs** | 17 | Full REST API for all data |
 
 ## Tech Stack
@@ -75,6 +75,6 @@ Think of it as an **always-on SRE** that watches your cluster 24/7, catches prob
 ## Project Stats
 
 - **65 Go files** | **10,800+ lines** | **18 packages**
-- **74 issue detectors** | **7 remediation actions**
+- Detectors and remediation actions: [Detection](04-detection.md), [Safety](05-safety.md)
 - **17 REST API endpoints** | **10 dashboard tabs**
 - **8 safety layers** | **9 integrations**

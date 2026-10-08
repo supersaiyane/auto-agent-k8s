@@ -10,7 +10,9 @@
   const RUNGS = { R0: 'alert only', R1: 'guided fix', R2: 'pull request', R3: 'approve to fix', R4: 'automatic fix' };
   const hooks = { renders: 0 }; // read by the browser test
   const state = { tab: 'events', type: '', ns: '', sev: '', result: '', q: '', fixes: 'all', days: 30,
-    detail: null, refreshMs: 5000, timer: null, startedAt: null, namespaces: new Set(), busy: false };
+    detail: null, refreshMs: 5000, timer: null, startedAt: null, namespaces: new Set(), busy: false,
+    scope: null, scopeAt: 0, pending: null, confirm: {}, review: false, resetAsk: false, notice: null };
+  const inNs = (n) => !state.ns || n === state.ns;
 
   // ---------- escaping and formatting ----------
   const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -42,25 +44,44 @@
     return r.json();
   }
 
+  // apiSend changes something and reports the server's own refusal text.
+  async function apiSend(method, path, body) {
+    const token = load(sessionStorage, TOKEN_KEY);
+    if (!token) { showLogin(); throw new AuthError('signed out'); }
+    const r = await fetch(path, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+    if (r.status === 401) { store(sessionStorage, TOKEN_KEY); showLogin('The token was refused.'); throw new AuthError('refused'); }
+    if (!r.ok) throw new Error((await r.text()).trim() || `${path} answered ${r.status}`);
+  }
+
   // ---------- filters ----------
-  const FILTERS = { events: ['ns', 'sev', 'search'], audit: ['ns', 'sev', 'result', 'search'], dryrun: ['ns', 'search'],
-    deploys: ['ns', 'search'], baselines: ['ns', 'search'], k8sevents: ['ns', 'search'] };
+  // The namespace selector is in the header and filters every tab (ADR-002).
+  const FILTERS = { events: ['sev', 'search'], audit: ['sev', 'result', 'search'], dryrun: ['search'],
+    deploys: ['search'], baselines: ['search'], k8sevents: ['search'] };
   function showToolbar() {
     const on = FILTERS[state.tab] || [];
     $('toolbar').hidden = on.length === 0;
-    for (const f of ['ns', 'sev', 'result', 'search']) {
+    for (const f of ['sev', 'result', 'search']) {
       const ctl = $('f-' + f);
       ctl.hidden = !on.includes(f);
       document.querySelector(`label[for="f-${f}"]`).hidden = !on.includes(f);
     }
   }
   function rememberNamespaces(items) {
-    let added = false;
-    for (const it of items) if (it.namespace && !state.namespaces.has(it.namespace)) { state.namespaces.add(it.namespace); added = true; }
-    if (!added) return;
-    const sel = $('f-ns');
-    sel.innerHTML = '<option value="">all</option>' + [...state.namespaces].sort()
-      .map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    for (const it of items) if (it.namespace) state.namespaces.add(it.namespace);
+    fillNamespaces();
+  }
+  // fillNamespaces lists the watched namespaces, plus any seen in events.
+  function fillNamespaces() {
+    const names = new Set(state.namespaces);
+    for (const n of (state.scope && state.scope.namespaces) || []) names.add(n.name);
+    if (state.ns) names.add(state.ns);
+    const sorted = [...names].sort();
+    const sel = $('view-ns');
+    if (sel.dataset.key !== sorted.join(',')) {
+      sel.dataset.key = sorted.join(',');
+      sel.innerHTML = '<option value="">All namespaces</option>' + sorted.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    }
     sel.value = state.ns;
   }
   function filtered(items, fields) {
@@ -114,7 +135,7 @@
       <span class="label">${label}</span><span class="val ${color}">${num(value)}</span></button>`;
     let h = `<div class="mini-row">${box('all', 'All', num(d.fixedCount) + num(d.pendingCount) + num(d.failedCount), 'accent')}
       ${box('fixed', 'Verified fixed', d.fixedCount, 'green')}${box('pending', 'Verifying', d.pendingCount, 'yellow')}${box('failed', 'Not fixed', d.failedCount, 'red')}</div>`;
-    const group = (items, label, color) => (items || []).map((f) => `<div class="event sev-${color === 'red' ? 'critical' : color === 'yellow' ? 'warning' : 'info'}">
+    const group = (items, label, color) => (items || []).filter((f) => inNs(f.namespace)).map((f) => `<div class="event sev-${color === 'red' ? 'critical' : color === 'yellow' ? 'warning' : 'info'}">
       <div class="time">${when(f.timestamp)}</div><div>${pill(label, color)}</div>
       <div><span class="ns">${esc(f.namespace)}</span> <span class="reason">${esc(f.reason)}</span>${esc(f.detail || f.action || '')}</div>
       <div class="muted">${esc(f.workload)}</div></div>`);
@@ -136,7 +157,7 @@
       ${stat('Incidents', num(r.totalIncidents), 'red')}${stat('Remediated', num(r.autoRemediated), 'green')}
       ${stat('Manual', num(r.manualRequired), 'yellow')}${stat('Blocked', num(r.blocked), 'purple')}
       ${stat('Remediation rate', num(r.remediationRate).toFixed(1) + '%', 'accent')}${stat('Mean time to recover', Math.round(num(r.avgMttrSeconds)) + 's', 'accent')}</div>
-      <div class="chart-row"><div>${table('Incidents by reason', r.incidentsByReason)}</div><div>${table('Incidents by namespace', r.incidentsByNamespace)}</div><div>${table('Actions applied', r.actionsByType)}</div></div>`;
+      <div class="chart-row"><div>${table('Incidents by reason', r.incidentsByReason)}</div><div>${table('Incidents by namespace', Object.fromEntries(Object.entries(r.incidentsByNamespace || {}).filter(([k]) => inNs(k))))}</div><div>${table('Actions applied', r.actionsByType)}</div></div>`;
   }
   async function viewDeploys() {
     const all = await api('/api/deploys');
@@ -202,7 +223,9 @@
     return `<svg viewBox="0 0 ${w} 160" width="100%" height="170" role="img" aria-label="bar chart">${cols}</svg>`;
   }
   async function viewCharts() {
-    const [evts, fixes, resources, cost] = await Promise.all([api('/api/events?limit=500'), api('/api/fixes'), api('/api/resources'), api('/api/cost')]);
+    const [all, fixes, allRes, cost] = await Promise.all([api('/api/events?limit=500'), api('/api/fixes'), api('/api/resources'), api('/api/cost')]);
+    const evts = all.filter((e) => inNs(e.namespace));
+    const resources = (allRes || []).filter((n) => inNs(n.name));
     const byType = {}; const byReason = {}; const byNs = {};
     for (const e of evts) {
       byType[e.type] = (byType[e.type] || 0) + 1;
@@ -223,12 +246,13 @@
       + '</div><div class="chart-row">'
       + card('Top incident reasons', bars(top(byReason, 10)))
       + card('Events by namespace', bars(top(byNs, 8), '#38bdf8')) + '</div>';
-    const costNs = (cost && cost.namespaces || []).filter((n) => num(n.monthly) > 0).sort((a, b) => b.monthly - a.monthly).slice(0, 8);
+    const costNs = (cost && cost.namespaces || []).filter((n) => num(n.monthly) > 0 && inNs(n.name)).sort((a, b) => b.monthly - a.monthly).slice(0, 8);
     if (costNs.length) h += `<div class="chart-row">${card('Monthly cost by namespace', bars(costNs.map((n) => [n.name, num(n.monthly)]), '#22c55e'))}</div>`;
     return h;
   }
   async function viewReport() {
-    const [evts, fixes] = await Promise.all([api('/api/events?limit=500'), api('/api/fixes')]);
+    const [all, fixes] = await Promise.all([api('/api/events?limit=500'), api('/api/fixes')]);
+    const evts = all.filter((e) => inNs(e.namespace));
     const services = {}; const reasons = {};
     let incidents = 0;
     for (const e of evts) {
@@ -252,7 +276,7 @@
   }
   async function viewCluster() {
     if (state.detail) return viewNamespace(state.detail);
-    const data = await api('/api/cluster');
+    const data = (await api('/api/cluster')).filter((ns) => inNs(ns.name));
     if (!data.length) return empty('No namespaces');
     const n = (v, color) => (num(v) ? pill(num(v), color) : '0');
     return `<table><tr><th>Namespace</th><th>Pods</th><th>Running</th><th>Pending</th><th>Failed</th><th>Crashloop</th><th>Not ready</th><th>Deployments</th><th>Services</th><th>Jobs</th></tr>${data.map((ns) => `<tr class="clickable" data-action="ns" data-arg="${esc(ns.name)}">
@@ -277,7 +301,8 @@
   async function viewNodes() {
     const nodes = await api('/api/nodes');
     if (!nodes.length) return empty('No nodes');
-    return nodes.map((n) => {
+    const note = state.ns ? '<p class="muted small">Nodes are not namespaced, so the namespace selector does not filter them.</p>' : '';
+    return note + nodes.map((n) => {
       const flags = [n.status, n.unschedulable && 'cordoned', n.memoryPressure && 'memory pressure', n.diskPressure && 'disk pressure'].filter(Boolean).join(', ');
       const color = n.status !== 'Ready' || n.memoryPressure || n.diskPressure ? 'red' : n.unschedulable ? 'yellow' : 'green';
       return `<div class="node-card"><div><div class="nn">${esc(n.name)}</div><div class="muted">${esc(n.roles)} &middot; ${esc(n.version)}</div><div class="muted">${esc(n.os)}</div></div>
@@ -298,7 +323,8 @@
     if ((d.nodes || []).length) h += `<h4>Nodes</h4><table><tr><th>Node</th><th>Instance</th><th>CPU</th><th>Memory</th><th>Pods</th><th>CPU used</th><th>Memory used</th><th>Per hour</th><th>Per month</th></tr>${d.nodes.map((n) => `<tr>
       <td><strong>${esc(n.name)}</strong></td><td class="mono">${esc(n.instanceType || '-')}</td><td>${num(n.cpuCores)}</td><td>${num(n.memoryGiB)}Gi</td><td>${num(n.pods)}</td>
       <td>${usage(n.cpuUsedPct)}</td><td>${usage(n.memUsedPct)}</td><td class="mono">${money(n.hourlyRate, 4)}</td><td><strong>${money(n.monthly)}</strong></td></tr>`).join('')}</table>`;
-    if ((d.topWorkloads || []).length) h += `<h4>Top workloads</h4><table><tr><th>Namespace</th><th>Name</th><th>Kind</th><th>Replicas</th><th>CPU</th><th>Memory</th><th>Per month</th></tr>${d.topWorkloads.map((w) => `<tr>
+    const top = (d.topWorkloads || []).filter((w) => inNs(w.namespace));
+    if (top.length) h += `<h4>Top workloads</h4><table><tr><th>Namespace</th><th>Name</th><th>Kind</th><th>Replicas</th><th>CPU</th><th>Memory</th><th>Per month</th></tr>${top.map((w) => `<tr>
       <td><span class="ns">${esc(w.namespace)}</span></td><td><strong>${esc(w.name)}</strong></td><td>${pill(w.kind, 'blue')}</td><td>${num(w.replicas)}</td>
       <td>${esc(w.cpuRequests)}</td><td>${num(w.memRequestsMiB)}Mi</td><td><strong>${money(w.monthly, 2)}</strong></td></tr>`).join('')}</table>`;
     return h;
@@ -313,16 +339,96 @@
         <td class="mono">${esc(trunc(p.name, 40))}</td><td>${pill(p.status, p.status === 'Running' ? 'green' : 'red')}</td><td>${pill(p.efficiency, oneOf(p.effColor, ['green', 'red', 'yellow'], 'green'))}</td>
         <td>${esc(p.cpuRequest)}</td><td>${esc(p.cpuLimit)}</td><td>${esc(p.memRequest)}</td><td>${esc(p.memLimit)}</td><td>${money(p.monthly, 2)}</td><td class="small">${esc(p.advice)}</td></tr>`).join('')}</table>`;
     }
-    const data = (await api('/api/resources')).filter((n) => num(n.pods) > 0).sort((a, b) => num(b.monthly) - num(a.monthly));
+    const data = (await api('/api/resources')).filter((n) => num(n.pods) > 0 && inNs(n.name)).sort((a, b) => num(b.monthly) - num(a.monthly));
     const n = (v, color) => (num(v) ? pill(num(v), color) : '0');
     return data.length ? `<table><tr><th>Namespace</th><th>Pods</th><th>CPU requests</th><th>CPU limits</th><th>Memory requests</th><th>Memory limits</th><th>Right</th><th>Over</th><th>Under</th><th>No limits</th><th>Per month</th></tr>${data.map((x) => `<tr class="clickable" data-action="ns" data-arg="${esc(x.name)}">
       <td><strong>${esc(x.name)}</strong></td><td>${num(x.pods)}</td><td>${esc(x.cpuRequests)}</td><td>${esc(x.cpuLimits)}</td><td>${num(x.memRequestsMi)}Mi</td><td>${num(x.memLimitsMi)}Mi</td>
       <td>${n(x.healthy, 'green')}</td><td>${n(x.overuse, 'red')}</td><td>${n(x.underuse, 'yellow')}</td><td>${n(x.noLimits, 'red')}</td><td><strong>${money(x.monthly)}</strong></td></tr>`).join('')}</table>` : empty('No pods');
   }
 
+  // ---------- settings: watch scope, fix ceiling, fix scope (ADR-002) ----------
+  const SCOPE_TEXT = [
+    ['Watch scope', 'Where the agent reads, detects and reports, and what this dashboard shows.',
+      'Set in Helm with agent.watchNamespaces. Empty means every namespace except kube-system, kube-public, kube-node-lease and the agent\'s own.',
+      'Reading never changes anything, so seeing the whole cluster is safe.'],
+    ['Fix ceiling', 'The most this page can ever enable.',
+      'Set in Helm with agent.fixCeiling (or rbac.fixAnywhere). The chart creates write permissions only there, so Kubernetes itself refuses anything wider.',
+      'A leaked dashboard token can do no harm outside the ceiling.'],
+    ['Fix scope', 'Where the agent may change things today.',
+      'Starts from Helm (agent.fixNamespaces); this page changes it. The choice is stored in the auto-agent-scope ConfigMap, which a Helm upgrade never touches, and every agent applies it within seconds.',
+      'Outside the fix scope the agent only suggests fixes, in every mode.'],
+  ];
+  async function loadScope(force) {
+    if (!force && state.scope && Date.now() - state.scopeAt < 30000) return state.scope;
+    try {
+      state.scope = await api('/api/scope');
+      state.scopeAt = Date.now();
+      fillNamespaces();
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      state.scope = null;
+    }
+    return state.scope;
+  }
+  function resetEdit() { state.pending = null; state.confirm = {}; state.review = false; state.resetAsk = false; }
+  function scopeDiff() {
+    const before = new Set((state.scope && state.scope.fixScope) || []);
+    const after = state.pending || before;
+    return { before, after, added: [...after].filter((n) => !before.has(n)).sort(), removed: [...before].filter((n) => !after.has(n)).sort() };
+  }
+  const allConfirmed = () => scopeDiff().added.every((n) => (state.confirm[n] || '').trim() === n);
+  const names = (set) => esc([...set].sort().join(', ') || 'nowhere');
+  async function viewSettings() {
+    const sc = state.pending || state.resetAsk ? state.scope : await loadScope(true);
+    if (!sc) return empty('Scope settings are served by the controller and are not available here.');
+    const { before, after, added, removed } = scopeDiff();
+    let h = '';
+    if (state.notice) h += `<p class="${state.notice.ok ? 'ok-box' : 'warn-box'}" role="status">${esc(state.notice.text)}</p>`;
+    h += '<div class="chart-row">' + SCOPE_TEXT.map(([t, what, how, why]) => `<div class="chart-card"><h4>${esc(t)}</h4>
+      <p><strong>What.</strong> ${esc(what)}</p><p><strong>How.</strong> ${esc(how)}</p><p><strong>Why.</strong> ${esc(why)}</p></div>`).join('') + '</div>';
+    if (sc.fixAnywhere) {
+      h += `<p class="warn-box">${pill('fix anywhere', 'red')} The chart granted write permissions in every namespace (rbac.fixAnywhere). This page can enable fixing in any non-system namespace, and a leaked dashboard or agent token can disrupt any of them. Prefer agent.fixCeiling.</p>`;
+    }
+    h += `<p class="muted small">Anyone with the dashboard token can change the fix scope until named approvers arrive (PLAN-002 phase 15). Every change, and every refused attempt, is recorded in the Audit tab.</p>
+      <p>Watching ${sc.watchAll ? 'every non-system namespace' : 'the namespaces set in Helm'}. Fixing in <strong>${names(before)}</strong>, ${sc.choice ? 'chosen on this page' : 'from Helm (agent.fixNamespaces)'}.</p>`;
+    h += `<table><tr><th>Fix here</th><th>Namespace</th><th>Now</th></tr>${sc.namespaces.map((n) => `<tr>
+      <td><input type="checkbox" data-action="scope-toggle" data-arg="${esc(n.name)}" aria-label="fix in ${esc(n.name)}"${after.has(n.name) ? ' checked' : ''}${n.inCeiling ? '' : ' disabled'}></td>
+      <td><strong>${esc(n.name)}</strong></td>
+      <td>${n.fixable ? pill('fixing', 'green') : n.inCeiling ? pill('suggest only', 'blue') : pill('outside the ceiling: change agent.fixCeiling in Helm', 'muted')}</td></tr>`).join('')}</table>`;
+    if (state.pending && !state.review) {
+      h += `<div class="scope-actions"><button type="button" class="btn primary" data-action="scope-review">Review change</button>
+        <button type="button" class="btn" data-action="scope-cancel">Cancel</button></div>`;
+    } else if (state.pending) {
+      h += `<div class="review"><h4>Review</h4><p>Before: <strong>${names(before)}</strong></p><p>After: <strong>${names(after)}</strong></p>`;
+      if (removed.length) h += `<p>The agent stops fixing in ${esc(removed.join(', '))} and only suggests there.</p>`;
+      for (const n of added) h += `<label>Type <code>${esc(n)}</code> to let the agent change things there<input data-confirm="${esc(n)}" value="${esc(state.confirm[n] || '')}" autocomplete="off" spellcheck="false"></label>`;
+      h += `<div class="scope-actions"><button type="button" class="btn primary" id="scope-apply" data-action="scope-apply"${allConfirmed() ? '' : ' disabled'}>Apply</button>
+        <button type="button" class="btn" data-action="scope-cancel">Cancel</button></div></div>`;
+    } else if (state.resetAsk) {
+      h += `<div class="review"><p>Clear the choice made here and return to the Helm list (${esc((sc.helmFix || []).join(', ') || 'nowhere')})?</p>
+        <div class="scope-actions"><button type="button" class="btn primary" data-action="scope-reset-yes">Yes, return to the Helm values</button>
+        <button type="button" class="btn" data-action="scope-cancel">Cancel</button></div></div>`;
+    } else if (sc.choice) {
+      h += '<div class="scope-actions"><button type="button" class="btn" data-action="scope-reset">Return to the Helm values</button></div>';
+    }
+    return h;
+  }
+  async function saveScope(method, body, done) {
+    try {
+      await apiSend(method, '/api/scope', body);
+      state.notice = { ok: true, text: done + ' Recorded in the Audit tab.' };
+      resetEdit();
+      await loadScope(true);
+    } catch (e) {
+      if (e instanceof AuthError) return;
+      state.notice = { ok: false, text: e.message };
+    }
+    render();
+  }
+
   const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes,
     compliance: viewCompliance, deploys: viewDeploys, baselines: viewBaselines, k8sevents: viewK8sEvents, charts: viewCharts,
-    report: viewReport, cluster: viewCluster, nodes: viewNodes, cost: viewCost, resources: viewResources };
+    report: viewReport, cluster: viewCluster, nodes: viewNodes, cost: viewCost, resources: viewResources, settings: viewSettings };
 
   // ---------- header, render loop ----------
   async function header() {
@@ -332,12 +438,14 @@
     const mode = oneOf(s.mode, ['fix', 'suggest', 'observe', 'dry-run'], 'observe');
     $('mode-badge').textContent = s.mode || '';
     $('mode-badge').className = 'badge badge-' + mode;
+    $('anywhere-badge').hidden = !s.fixAnywhere;
     $('leader-badge').textContent = s.isLeader ? 'leader' : 'standby';
     $('leader-badge').className = 'badge ' + (s.isLeader ? 'badge-leader' : 'badge-follower');
     if (s.startedAt && !state.startedAt) state.startedAt = new Date(s.startedAt).getTime();
     const t = st.byType || {};
     $('stat-total').textContent = num(st.total);
     for (const k of ['incident', 'action', 'audit']) $('stat-' + k).textContent = num(t[k]);
+    if (state.tab !== 'settings') await loadScope(false);
   }
   async function render() {
     if (state.busy || state.tab === 'terminal') return;
@@ -359,12 +467,14 @@
   }
   function schedule() {
     clearTimeout(state.timer);
-    if (state.refreshMs > 0) state.timer = setTimeout(async () => { if (!document.hidden) await render(); schedule(); }, state.refreshMs);
+    const editing = () => state.tab === 'settings' && (state.pending || state.resetAsk);
+    if (state.refreshMs > 0) state.timer = setTimeout(async () => { if (!document.hidden && !editing()) await render(); schedule(); }, state.refreshMs);
   }
 
   // ---------- navigation ----------
   function selectTab(tab, push = true) {
     if (!VIEWS[tab] && tab !== 'terminal') tab = 'events';
+    if (tab !== state.tab) { resetEdit(); state.notice = null; }
     state.tab = tab;
     state.detail = null;
     document.querySelectorAll('[role=tab]').forEach((b) => {
@@ -384,13 +494,31 @@
   }
   const ACTIONS = {
     'filter-type': (el) => { state.type = el.dataset.arg; markTypeBoxes(); selectTab('events'); },
-    workload: (el) => { state.ns = el.dataset.ns || ''; state.q = el.dataset.wl || ''; $('f-ns').value = state.ns; $('f-search').value = state.q; selectTab('events'); },
+    workload: (el) => { state.ns = el.dataset.ns || ''; state.q = el.dataset.wl || ''; fillNamespaces(); $('f-search').value = state.q; selectTab('events'); },
     reason: (el) => { state.type = 'incident'; state.q = el.dataset.arg; $('f-search').value = state.q; markTypeBoxes(); selectTab('events'); },
     ns: (el) => { state.detail = el.dataset.arg; render(); },
     'ns-back': () => { state.detail = null; render(); },
     fixes: (el) => { state.fixes = el.dataset.arg; render(); },
     days: (el) => { state.days = num(el.dataset.arg) || 30; render(); },
     'refresh-now': () => render(),
+    'scope-toggle': (el) => {
+      const next = new Set(state.pending || (state.scope && state.scope.fixScope) || []);
+      if (el.checked) next.add(el.dataset.arg); else next.delete(el.dataset.arg);
+      state.pending = next;
+      state.review = false;
+      state.notice = null;
+      if (!scopeDiff().added.length && !scopeDiff().removed.length) resetEdit();
+      render();
+    },
+    'scope-review': () => { state.review = true; render(); },
+    'scope-cancel': () => { resetEdit(); render(); },
+    'scope-apply': () => {
+      if (!allConfirmed()) return;
+      const { after, added } = scopeDiff();
+      saveScope('PUT', { fixNamespaces: [...after].sort(), confirm: added.map((n) => state.confirm[n].trim()) }, `Fix scope saved: ${[...after].sort().join(', ') || 'nowhere'}.`);
+    },
+    'scope-reset': () => { state.resetAsk = true; state.notice = null; render(); },
+    'scope-reset-yes': () => saveScope('DELETE', undefined, 'Returned to the Helm values.'),
     'sign-out': () => { store(sessionStorage, TOKEN_KEY); showLogin('Signed out.'); },
   };
   document.addEventListener('click', (ev) => {
@@ -407,7 +535,15 @@
     next.focus();
     selectTab(next.dataset.tab);
   });
-  for (const [id, key] of [['f-ns', 'ns'], ['f-sev', 'sev'], ['f-result', 'result']]) {
+  $('view-ns').addEventListener('change', (ev) => { state.ns = ev.target.value; state.detail = null; render(); });
+  document.addEventListener('input', (ev) => {
+    const n = ev.target.dataset && ev.target.dataset.confirm;
+    if (n === undefined) return;
+    state.confirm[n] = ev.target.value;
+    const apply = $('scope-apply');
+    if (apply) apply.disabled = !allConfirmed();
+  });
+  for (const [id, key] of [['f-sev', 'sev'], ['f-result', 'result']]) {
     $(id).addEventListener('change', (ev) => { state[key] = ev.target.value; render(); });
   }
   let searchTimer = null;

@@ -37,11 +37,20 @@ type mutation struct {
 }
 
 // applyMutation is the only path by which the agent changes the cluster.
-// It checks the mode, then the guardrails, then the rate limiter, and only
-// then calls m.Apply. TestMutationsOnlyThroughGate fails if any mutating
+// It checks the fix scope, the mode, then the guardrails, then the rate
+// limiter, and only then calls m.Apply. TestMutationsOnlyThroughGate fails if any mutating
 // client call in this package is made outside a closure handed to this gate.
 func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, string) {
-	switch deps.Policy().Mode {
+	pol := deps.Policy()
+	// Outside the fix scope (ADR-002) the change is only described, in every
+	// mode but observe, even where RBAC would allow it. Cluster-scoped
+	// changes (nodes) have no namespace and are governed by mode and guardrails.
+	if m.Namespace != "" && !pol.Fixable(m.Namespace) && pol.Mode != policy.Observe {
+		why := fmt.Sprintf("%s is outside the fix scope", m.Namespace)
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "suggested", why+": "+m.SuggestMsg)
+		return gateSuggested, fmt.Sprintf("_Suggest_ (%s): %s.\n", why, m.SuggestMsg)
+	}
+	switch pol.Mode {
 	case policy.Fix:
 	case policy.Suggest:
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "suggested", m.SuggestMsg)

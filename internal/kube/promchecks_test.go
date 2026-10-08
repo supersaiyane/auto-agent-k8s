@@ -91,7 +91,7 @@ func TestCPUThrottling(t *testing.T) {
 			t.Errorf("message lacks %q:\n%s", want, msg)
 		}
 	}
-	if q := allowlistMatcher(h.deps); q != "default" {
+	if q := watchMatcher(context.Background(), h.deps); q != "default" {
 		t.Fatalf("the query is limited to the allowlist: %q", q)
 	}
 	if metricsLabel(`a"b|c`) != "a_b_c" || roundUp(751, 50) != 800 {

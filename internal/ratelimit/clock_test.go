@@ -91,3 +91,23 @@ func TestActionLimiter_Remaining(t *testing.T) {
 		t.Fatal("never negative")
 	}
 }
+
+// A state that does not change by itself is reported once per its own
+// window, independent of the default TTL.
+func TestDeduplicator_CheckForOwnWindow(t *testing.T) {
+	c := newClock()
+	d := NewDeduplicator(time.Minute)
+	defer d.Stop()
+	d.now = c.now
+	if !d.CheckFor("job", 24*time.Hour) || d.CheckFor("job", 24*time.Hour) {
+		t.Fatal("first CheckFor passes, a repeat is suppressed")
+	}
+	c.advance(2 * time.Hour)
+	if d.Check("job") || d.CheckFor("job", 24*time.Hour) {
+		t.Fatal("the long window holds past the default TTL")
+	}
+	c.advance(23 * time.Hour)
+	if !d.CheckFor("job", 24*time.Hour) {
+		t.Fatal("after its window the key passes again")
+	}
+}

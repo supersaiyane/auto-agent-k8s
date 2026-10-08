@@ -177,7 +177,8 @@ func (g funcGraph) reach(t *testing.T, roots ...string) map[perm]bool {
 var (
 	nodeRoots = []string{"kube.StartWatchers", "kube.StartLogRetention", "policy.HotReloader.Start", "crd.StartController"}
 	ctrlRoots = []string{"main.leaderLoops", "main.newLeaderTarget", "main.newPeerResolver", "leader.Start", "httpapi.NewServer",
-		"policy.HotReloader.Start", "crd.StartController"}
+		"policy.HotReloader.Start", "crd.StartController",
+		"kube.SaveFixScope"} // handed to httpapi as a closure in run.go, which the graph cannot follow
 )
 
 // Library permissions per role: informers, leader election and the CRD
@@ -255,9 +256,18 @@ func grantsByAccount(t *testing.T, args ...string) map[string]map[perm]bool {
 
 // ADR-001, constraint 7: each ServiceAccount grants exactly what the code its
 // role runs uses, found by walking the call graph from the role's entry points.
+// Checked with writes in one ceiling namespace and with fix-anywhere (ADR-002).
 func TestRBAC_EachRoleMatchesItsCode(t *testing.T) {
 	g := buildFuncGraph(t)
-	granted := grantsByAccount(t)
+	for _, args := range [][]string{
+		{"--set", "agent.fixNamespaces={default}"},
+		{"--set", "rbac.fixAnywhere=true"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) { eachRoleMatchesItsCode(t, g, grantsByAccount(t, args...)) })
+	}
+}
+
+func eachRoleMatchesItsCode(t *testing.T, g funcGraph, granted map[string]map[perm]bool) {
 	for _, role := range []struct {
 		account string
 		roots   []string

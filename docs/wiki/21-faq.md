@@ -6,7 +6,7 @@
 A: The DaemonSet controller restarts it. Events persist to disk (`events.jsonl`). Leader election transfers in ~15s. No data loss.
 
 **Q: Can I run it in one namespace only?**
-A: Yes. Set `NAMESPACE_ALLOWLIST: "my-namespace"`. The agent ignores everything else.
+A: Yes. Set `agent.watchNamespaces` and `agent.fixNamespaces` to it (see `docs/CONFIGURATION.md`). The agent ignores everything else.
 
 **Q: Does it work with Istio/Linkerd service mesh?**
 A: Yes. The agent watches pod status via the K8s API, not network traffic. Sidecar containers are included in the container status checks.
@@ -20,7 +20,7 @@ A: Built against client-go v0.30 (K8s 1.30). Should work on 1.26+.
 ## Detection
 
 **Q: Why is the agent not fixing my pods?**
-A: Check in order: (1) Is `AUTO_MODE` set to `fix`? (2) Is the namespace in `NAMESPACE_ALLOWLIST`? (3) Does the pod have `auto-agent.io/disable` annotation? (4) Check `kubectl logs -n auto-agent -l app=auto-agent` for "BLOCKED" messages.
+A: Check in order: (1) Is `AUTO_MODE` set to `fix`? (2) Is the namespace in the fix scope (`agent.fixNamespaces` or the Settings tab)? (3) Does the pod have `auto-agent.io/disable` annotation? (4) Check `kubectl logs -n auto-agent -l app=auto-agent` for "BLOCKED" messages.
 
 **Q: Why does it detect everything as ImagePullBackOff?**
 A: Your cluster can't pull the image (registry unreachable, no credentials). Fix the underlying image pull issue first.
@@ -34,7 +34,7 @@ A: Some are configurable (CPU threshold, cooldowns). Others are hardcoded (3min 
 ## Safety
 
 **Q: Can the agent make things worse?**
-A: The 8-layer safety system prevents cascading failures. Circuit breaker stops after 5 actions on the same workload. Blast radius limits to 5 namespaces/hour. Start in `observe` mode to build confidence.
+A: The guardrails prevent cascading failures: the fix scope, the mode, quiet hours, blast radius, the circuit breaker and the rate limit. Circuit breaker stops after 5 actions on the same workload. Blast radius limits to 5 namespaces/hour. Start in `observe` mode to build confidence.
 
 **Q: How do I disable the agent for one deployment?**
 A: Add annotation: `auto-agent.io/disable: "true"` to the pod template.
@@ -59,7 +59,7 @@ A: Yes. Events are persisted to `events.jsonl` on the hostPath volume and reload
 ## Cost
 
 **Q: How accurate is the cost estimation?**
-A: With built-in pricing: approximate (within 20%). With Kubecost/OpenCost: highly accurate (real cloud billing data). Set `COST_PROVIDER` to improve accuracy.
+A: With built-in pricing: approximate (within 20%). With Kubecost/OpenCost: highly accurate (real cloud billing data). Set `KUBECOST_URL` or `OPENCOST_URL` to improve accuracy.
 
 **Q: Does it include storage and network costs?**
 A: Currently compute only (CPU + memory). Kubecost integration includes PV costs.

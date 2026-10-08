@@ -45,8 +45,9 @@ rate limit.
 | **DaemonSet** | One copy of the agent runs on every node. Each copy watches the pods on its own node. |
 | **Leader** | One copy is elected leader (a Kubernetes Lease named `auto-agent-leader`). Only the leader runs the cluster-wide checks, so they are not done N times. |
 | **Mode** | How much the agent may do: `observe` (alert only), `suggest` (alert and say what it would do), `dry-run` (record the exact action it would take, the default), `fix` (take the action). |
-| **Allowlist** | The namespaces the agent may look at and act in (`agent.namespaceAllowlist`). It ignores everything else, dashboard included. |
-| **Gate** | The single function every cluster change goes through (`applyMutation` in `internal/kube/gate.go`). It checks mode, guardrails and the rate limit. |
+| **Watch scope** | The namespaces the agent reads and reports on, dashboard included (`agent.watchNamespaces`; empty means every namespace except the system ones). |
+| **Fix scope** | The namespaces the agent may act in today (`agent.fixNamespaces` at install, then the dashboard Settings tab), always inside the **fix ceiling** (`agent.fixCeiling`, where the chart grants writes). Outside it, fixes are only suggested (ADR-002). |
+| **Gate** | The single function every cluster change goes through (`applyMutation` in `internal/kube/gate.go`). It checks the fix scope, mode, guardrails and the rate limit. |
 | **Guardrails** | Quiet hours, blast radius (max distinct namespaces acted on per hour), circuit breaker (max actions per workload per hour), and CRD `requireApproval`. |
 | **Detector** | A check for one failure pattern, for example CrashLoopBackOff or a stuck rollout. |
 | **Remediation** | The fix for a detected problem, for example deleting a crashlooping pod so it restarts. |
@@ -81,19 +82,19 @@ docker build -t auto-agent:dev .
 kind load docker-image auto-agent:dev
 
 TOKEN=$(openssl rand -hex 32)
-helm upgrade --install auto-agent charts/auto-agent -n kube-system \
+helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace \
   --set image.repository=auto-agent --set image.tag=dev --set image.pullPolicy=Never \
-  --set "agent.namespaceAllowlist={default}" \
+  --set "agent.fixNamespaces={default}" \
   --set dashboard.token="$TOKEN"
 
-kubectl -n kube-system rollout status ds/auto-agent
+kubectl -n auto-agent rollout status ds/auto-agent
 ```
 
 Make something break and watch the agent notice:
 
 ```bash
 kubectl run crasher --image=busybox:1.36 --restart=Always -- sh -c 'echo boom; exit 1'
-kubectl -n kube-system logs -l app=auto-agent -c agent -f | grep crasher
+kubectl -n auto-agent logs -l app=auto-agent -c agent -f | grep crasher
 ```
 
 You should see `CrashLoopBackOff detected on default/crasher` within a
@@ -101,7 +102,7 @@ minute. The pod is **not** deleted, because the agent is in dry-run. See what
 it would have done:
 
 ```bash
-kubectl -n kube-system port-forward svc/auto-agent 8080:8080 &
+kubectl -n auto-agent port-forward svc/auto-agent 8080:8080 &
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/dry-run
 ```
 
@@ -147,7 +148,7 @@ Write your settings in a values file rather than on the command line:
 # my-values.yaml
 agent:
   mode: dry-run
-  namespaceAllowlist: ["payments", "orders"]
+  fixNamespaces: ["payments", "orders"]   # watched: every non-system namespace
 dashboard:
   token: "<from your secret store>"
 networkPolicy:
@@ -157,8 +158,8 @@ slack:
 ```
 
 ```bash
-helm upgrade --install auto-agent charts/auto-agent -n kube-system -f my-values.yaml
-kubectl -n kube-system rollout status ds/auto-agent
+helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace -f my-values.yaml
+kubectl -n auto-agent rollout status ds/auto-agent
 ```
 
 Secrets (`dashboard.token`, `slack.webhookUrl`, `slack.signingSecret`) end
@@ -181,13 +182,13 @@ Let it run in dry-run for a few days. Check:
 When the simulated actions look right:
 
 ```bash
-helm upgrade auto-agent charts/auto-agent -n kube-system -f my-values.yaml --set agent.mode=fix
+helm upgrade auto-agent charts/auto-agent -n auto-agent -f my-values.yaml --set agent.mode=fix
 ```
 
 or, without a rollout, edit the ConfigMap (the agent reloads it live):
 
 ```bash
-kubectl -n kube-system patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}'
+kubectl -n auto-agent patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}'
 ```
 
 To stop all actions immediately, set `AUTO_MODE` back to `dry-run` the same
@@ -196,8 +197,8 @@ way.
 ### 4.5 Upgrade and uninstall
 
 ```bash
-helm upgrade auto-agent charts/auto-agent -n kube-system -f my-values.yaml
-helm uninstall auto-agent -n kube-system
+helm upgrade auto-agent charts/auto-agent -n auto-agent -f my-values.yaml
+helm uninstall auto-agent -n auto-agent
 ```
 
 Uninstall leaves the `auto-agent-leader` Lease and any nodes the agent
@@ -223,11 +224,14 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | Value | Default | What it does |
 | --- | --- | --- |
 | `agent.mode` | `dry-run` | `observe`, `suggest`, `dry-run` or `fix` |
-| `agent.namespaceAllowlist` | `["default"]` | Namespaces to watch and act in; each must exist |
+| `agent.watchNamespaces` | `[]` (every non-system namespace) | Namespaces to read and report on |
+| `agent.fixNamespaces` | `[]` (nowhere) | Namespaces to act in at install; each must exist |
+| `agent.fixCeiling` | `[]` (same as `fixNamespaces`) | Where write Roles exist, so the most the dashboard can enable |
+| `rbac.fixAnywhere` | `false` | One write ClusterRole; a leaked token can then disrupt any namespace |
 | `agent.excludedAnnotation` | `auto-agent.io/disable` | Put this annotation on a pod to make the agent ignore it |
 | `agent.maxActionsPer10m` | `10` | Global rate limit |
 | `agent.dedupTtlSeconds` | `300` | Same problem on the same workload is reported once per window |
-| `namespace` | `kube-system` | Where the agent itself runs |
+| `namespace` | empty: the release namespace (`helm -n auto-agent`) | Where the agent itself runs; never watched |
 
 ### 5.2 Guardrails
 
@@ -287,7 +291,7 @@ ISS-012): `escalation.*` (PagerDuty, OpsGenie, email), `gitops.mode`,
 | `networkPolicy.enabled` | `true` | Restrict who can reach port 8080 |
 | `networkPolicy.allowFromNamespaces` | `["monitoring"]` | Namespaces allowed in |
 | `rbac.readTLSSecrets` | `false` | Grants secret list in allowlisted namespaces and turns on the certificate expiry check |
-| `leaderElection.namespace` | `kube-system` | Where the leader Lease lives (the Role follows it) |
+| `leaderElection.namespace` | empty: the agent's namespace | Where the leader Lease lives (the Role follows it) |
 | `webhook.enabled` | `false` | Admission webhook that rejects workloads without limits or probes |
 
 ### 5.6 Timing (advanced)
@@ -304,7 +308,7 @@ gates (`scalingGates.*`); see [CONFIGURATION.md](CONFIGURATION.md#scaling).
 ### 6.1 Open it
 
 ```bash
-kubectl -n kube-system port-forward svc/auto-agent 8080:8080
+kubectl -n auto-agent port-forward svc/auto-agent 8080:8080
 ```
 
 Open `http://localhost:8080` and sign in with the dashboard token. It stays in
@@ -326,18 +330,22 @@ prints the command to read the generated token.
 | **Compliance** | Incidents, remediation rate, blocked actions and mean time to recover over 7, 30 or 90 days |
 | **Deploys** | Rollouts the leader recorded: revision, image, replicas |
 | **Baselines** | Learned normal CPU, restarts and replicas per workload, when learning mode is on |
-| **K8s events** | Kubernetes events in allowlisted namespaces |
+| **K8s events** | Kubernetes events in watched namespaces |
 | **Charts** | Events by type, remediation, pod sizing, top reasons, cost by namespace |
 | **Report** | Incidents by service and by reason; rows open the matching events |
-| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs; rows open a namespace |
+| **Cluster** | Watched namespaces: pods, deployments, services, jobs; rows open a namespace |
 | **Nodes** | Nodes, conditions, pod counts |
-| **Cost** | Estimated cost per node and workload (allowlisted namespaces) |
-| **Resources** | Requests, limits and right-sizing per allowlisted namespace |
+| **Cost** | Estimated cost per node and workload (watched namespaces) |
+| **Resources** | Requests, limits and right-sizing per watched namespace |
 | **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `version`, `help` |
+| **Settings** | The watch scope, fix ceiling and fix scope, each with what it does, how it works and why it exists; one checkbox per watched namespace to change where the agent may fix (see 6.4) |
 
-The toolbar filters list views by namespace, severity, gate result and free
-text. The top bar shows version, mode, leader or standby, the refresh rate
-(5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
+The **Namespace** selector in the top bar ("All namespaces" or one) filters
+every tab. It only changes what the page shows, never what the agent does;
+Nodes are not namespaced and are not filtered. The toolbar filters list views
+by severity, gate result and free text. The top bar also shows version, mode,
+a red **fix anywhere** badge when `rbac.fixAnywhere` is on, leader or
+standby, the refresh rate (5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
 (`#audit`, `#compliance`, ...), and the tabs work with the arrow keys.
 
 The page loads no inline script or style, so the server's
@@ -355,9 +363,36 @@ top pods -n payments
 get nodes
 ```
 
-Only allowlisted namespaces are readable; `-A` and other namespaces are
+Only watched namespaces are readable; `-A` and other namespaces are
 refused. Nodes and namespaces are always readable. Nothing in the terminal
 can change the cluster.
+
+### 6.4 The Settings tab: where the agent may fix
+
+The agent reads every watched namespace but changes things only in the fix
+scope (ADR-002). The tab lists every watched namespace with a checkbox:
+
+- **Ticked**: the agent may act there (in `fix` mode; other modes still only
+  suggest or simulate).
+- **Unticked**: the agent reports and suggests fixes, and never acts.
+- **Greyed out**: outside the fix ceiling. The chart granted no write
+  permissions there, so this page cannot enable it; add the namespace to
+  `agent.fixCeiling` and run `helm upgrade` first.
+
+A change goes through **Review change**, which shows the fix scope before and
+after. Each namespace being enabled must be typed again before **Apply**
+works; narrowing needs no typing. The choice is stored in the
+`auto-agent-scope` ConfigMap in the agent's namespace, which Helm does not
+manage, so a `helm upgrade` never undoes it. Every controller and node agent
+applies it within seconds; until an agent has read it after a restart, that
+agent fixes nowhere. **Return to the Helm values** clears the choice, after
+its own confirmation, and `agent.fixNamespaces` applies again. Every change
+and every refused attempt is an audit event (Audit tab).
+
+Until named approvers arrive (PLAN-002 phase 15), anyone with the dashboard
+token can change the fix scope; the tab says so. With `rbac.fixAnywhere` the
+tab can enable any non-system namespace and shows a warning: a leaked token
+could then disrupt any namespace.
 
 ---
 
@@ -367,15 +402,18 @@ Every `/api/` call needs `Authorization: Bearer <token>`. Port 8080.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /api/status` | Version, mode, leader, node |
+| `GET /api/status` | Version, live mode, leader, node, fix scope, fix-anywhere |
+| `GET /api/scope` | Watched namespaces, each with whether fixing may be enabled and whether it is on; Helm list; dashboard choice |
+| `PUT /api/scope` | Body `{"fixNamespaces": [...], "confirm": [...]}`: sets the fix scope; each namespace being enabled must be repeated in `confirm`; refused outside the ceiling; audited |
+| `DELETE /api/scope` | Clears the dashboard choice; `agent.fixNamespaces` applies again; audited |
 | `GET /api/events?limit=200&type=incident` | Recorded incidents and actions |
 | `GET /api/stats` | Counters for the overview |
 | `GET /api/fixes` | Actions and whether recovery was verified |
 | `GET /api/dry-run` | What the agent would have done |
-| `GET /api/cluster` | Per-namespace overview (allowlisted) |
-| `GET /api/namespace/<ns>` | Detail of one allowlisted namespace (403 otherwise) |
+| `GET /api/cluster` | Per-namespace overview (watched namespaces) |
+| `GET /api/namespace/<ns>` | Detail of one watched namespace (403 otherwise) |
 | `GET /api/nodes` | Nodes |
-| `GET /api/k8s-events?namespace=<ns>` | Kubernetes events (allowlisted) |
+| `GET /api/k8s-events?namespace=<ns>` | Kubernetes events (watched namespaces) |
 | `GET /api/resources`, `GET /api/resources/<ns>` | Resource usage |
 | `GET /api/cost` | Cost estimate |
 | `GET /api/compliance`, `/api/baselines`, `/api/deploys` | Compliance checks, learned baselines, recent deploys |
@@ -416,7 +454,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -X POST -d '{"command":"get pods -n de
 ### 8.1 Change the mode without a restart
 
 ```bash
-kubectl -n kube-system patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}'
+kubectl -n auto-agent patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}'
 ```
 
 Takes effect within seconds; an invalid value is ignored with a warning and
@@ -480,8 +518,9 @@ anomaly alerts). Parsed but **not used yet**: `actions.restartStuckPods`,
 
 ### 8.6 Add a namespace
 
-Create the namespace, add it to `agent.namespaceAllowlist`, and
-`helm upgrade`. The upgrade creates its write Role.
+It is watched as soon as it exists. To let the agent act there, add it to
+`agent.fixNamespaces` (or to `agent.fixCeiling` and enable it from the
+Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 
 ---
 
@@ -489,22 +528,35 @@ Create the namespace, add it to `agent.namespaceAllowlist`, and
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `helm install` fails: namespace not found | Every allowlisted namespace must exist first; create it |
+| `helm install` fails: namespace not found | Every namespace in `agent.fixCeiling` (or `agent.fixNamespaces`) must exist first; create it |
+| A setting seems to have no effect | Run `auto-agent check-config` in the pod: it prints every setting the agent reads (secrets redacted) and names any key it does not read, such as a misspelling. The agent also logs `config: X is set but the agent does not read it` at start |
 | Dashboard panels are empty | Wrong or missing token. Reload the tab to re-enter it; check `curl /api/status` returns 200 |
 | `/api/...` returns 503 | `dashboard.token` is not set |
-| Problems detected but nothing is fixed | Check the mode (`/api/status`). In `fix`, look for `gate: BLOCKED` in the logs: quiet hours, blast radius, circuit breaker or `requireApproval` stopped it, or `RATE LIMITED` |
-| Node pressure ignored | Node actions are taken only by the agent pod on that node; check it runs there (`kubectl -n kube-system get pods -o wide`) and that `NODE_NAME` is set |
+| Problems detected but nothing is fixed | Check the mode (`/api/status`) and the fix scope (Settings tab): outside it fixes are only suggested. In `fix`, look for `gate: BLOCKED` in the logs: quiet hours, blast radius, circuit breaker or `requireApproval` stopped it, or `RATE LIMITED` |
+| Node pressure ignored | Node actions are taken only by the agent pod on that node; check it runs there (`kubectl -n auto-agent get pods -o wide`) and that `NODE_NAME` is set |
 | `auto_agent_api_errors_total{reason="forbidden"}` rising | The chart is missing a grant for that resource. The warning log names it. Please open an issue; `TestRBAC_ChartMatchesCode` should have caught it |
-| Kubectl panel says "not in the namespace allowlist" | Expected for namespaces outside the allowlist and for `-A` |
+| Kubectl panel says "outside the watch scope" | Expected for namespaces outside `agent.watchNamespaces`, the system namespaces and the agent's own; `-A` is not supported yet (PLAN-003) |
 | Slack buttons answer "no action was taken" | Buttons are not wired yet (ISS-012) |
 | No leader | Look for `acquired leader lease` in the logs and check the Lease in `leaderElection.namespace` |
 
 Useful commands:
 
 ```bash
-kubectl -n kube-system logs -l app=auto-agent -c agent --tail=200
-kubectl -n kube-system get lease auto-agent-leader -o yaml
-kubectl -n kube-system get configmap auto-agent-config -o yaml
+kubectl -n auto-agent exec deploy/auto-agent-controller -c agent -- /auto-agent check-config
+kubectl -n auto-agent exec deploy/auto-agent-controller -c agent -- /auto-agent version
+```
+
+Outside a cluster the agent uses your kubeconfig (`KUBECONFIG` or
+`~/.kube/config`), so `go run ./cmd/auto-agent` works against a kind cluster.
+On SIGTERM it stops taking API requests, waits up to 15 seconds for running
+handlers and leader loops (so a fix in flight is still audited), sends its
+last events, and only then closes the event and audit logs. Slack gets one
+"leading" notice per leader term and one stop notice from the leader.
+
+```bash
+kubectl -n auto-agent logs -l app=auto-agent -c agent --tail=200
+kubectl -n auto-agent get lease auto-agent-leader -o yaml
+kubectl -n auto-agent get configmap auto-agent-config -o yaml
 ```
 
 ---

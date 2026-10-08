@@ -77,13 +77,20 @@ outage generator.
    evict goes through the single gate in `internal/kube` that checks mode,
    guardrails (quiet hours, blast radius, circuit breaker) and the rate
    limiter. No other code calls a mutating client method. A test enforces it.
+   The one other entry point, `writeAgentSetting`, writes only the agent's
+   own `auto-agent-scope` ConfigMap (ADR-002), never a workload, and audits
+   every attempt. A typed client is never stored in a variable, because the
+   guard and the RBAC scan only see calls written as one chain.
 2. **Safe by default.** The default mode is `dry-run`. `fix` is an explicit
    opt-in per cluster, never a shipped default.
 3. **One actor per target.** Node actions are taken only by the agent running
    on that node, or only by the leader. Cluster-wide loops run only on the
    leader. Two replicas must never act on the same object.
-4. **The namespace allowlist applies to every read and every write**,
-   including evictions, polling and the dashboard.
+4. **Reads follow the watch scope; writes follow the fix scope** (ADR-002),
+   including evictions, polling and the dashboard. The fix scope is always
+   inside the fix ceiling the chart grants; the dashboard can narrow or widen
+   it only inside that ceiling, and the gate refuses any action outside it
+   even where RBAC would allow it.
 5. **Policy is a snapshot.** Code reads policy through an atomic pointer or the
    hot reloader's getter, never a shared field that can be reassigned.
 6. **Writes are conflict safe.** Use `Patch`, the scale subresource or
@@ -131,7 +138,7 @@ One logical change per commit. No dashes other than hyphens in the message.
 ```
 cmd/auto-agent/     entry point, dependency wiring, leader-only loops
 internal/kube/      detection, the mutation gate, remediation actions
-internal/policy/    mode, allowlist, thresholds, hot reload
+internal/policy/    mode, watch and fix scope, thresholds, hot reload
 internal/*/         integrations, HTTP API, leader election, storage
 charts/             Helm chart, the deployment of record
 deployment/         raw manifests, kept in sync with the chart

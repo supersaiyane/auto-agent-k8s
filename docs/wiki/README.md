@@ -13,12 +13,12 @@ Complete documentation for the Kubernetes auto-remediation agent.
 4. [CRD Reference](17-crd-reference.md): AutoRemediationPolicy per-workload policies
 
 ## Detection & Safety
-5. [All 74 Issue Detectors](04-detection.md): Every issue by category with severity, timing, action
-6. [Safety & Guardrails](05-safety.md): 8-layer protection model
+5. [Issue Detectors](04-detection.md): Every issue by category with severity, timing, action
+6. [Safety & Guardrails](05-safety.md): fix scope, mode, guardrails and rate limit
 7. [Operator Runbooks](12-runbooks.md): Manual steps for each issue type
 
 ## Dashboard & APIs
-8. [Dashboard Guide](06-dashboard.md): All 10 tabs, charts, filtering, cross-tab navigation
+8. [Dashboard Guide](06-dashboard.md): points to GUIDE section 6
 9. [API Reference](16-api-reference.md): All 17 REST endpoints with examples
 10. [Metrics & Alerting](18-metrics-alerting.md): Prometheus metrics, Grafana, alert rules
 

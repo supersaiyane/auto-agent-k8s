@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: auto-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
   labels:
     {{- include "auto-agent.labels" . | nindent 4 }}
 spec:
@@ -53,7 +53,7 @@ spec:
           mountPath: /var/log/auto-agent
       containers:
       - name: agent
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        image: "{{ include "auto-agent.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         envFrom:
           - configMapRef: { name: auto-agent-config }
@@ -63,7 +63,7 @@ spec:
         - name: AGENT_ROLE
           value: node
         - name: CONTROLLER_URL
-          value: "http://auto-agent.{{ .Values.namespace }}.svc:8080"
+          value: "http://auto-agent.{{ include "auto-agent.namespace" . }}.svc:8080"
         - name: POD_NAME
           valueFrom: { fieldRef: { fieldPath: metadata.name } }
         - name: POD_NAMESPACE

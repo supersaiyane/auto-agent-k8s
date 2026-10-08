@@ -28,7 +28,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 	cooldownUp := parseDuration(pol.CooldownUp, "2m")
 	cooldownDown := parseDuration(pol.CooldownDown, "10m")
 
-	for ns := range pol.NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		dl, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(2).Infof("scaler: failed to list deployments in %s: %v", ns, err)

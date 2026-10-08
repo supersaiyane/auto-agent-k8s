@@ -17,9 +17,25 @@ coverage 51.5 percent measured. Phase 11 added from an architect review
 11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
 done and passing the kind e2e; per-role ServiceAccounts and generated raw
 manifests done 2026-10-08; ISS-059 fixed. 11.1, 11.2 and 11.4 are
-complete. Next: 11.8 (ADR-002: watch every namespace, fix inside a Helm
-ceiling, Settings tab to change the fix scope, namespace dropdown), then
-11.3 remainder, 11.5, 11.6. Old phases 11 to 16
+complete. PR #2 merged 2026-10-08 (c5298ac). 11.8 done 2026-10-08 (ADR-002, ISS-062): watch scope and fix scope; the
+gate only suggests outside the fix scope; `/api/scope` and the Settings tab
+change the fix scope inside the Helm ceiling (`auto-agent-scope` ConfigMap,
+kept across Helm upgrades, audited); a header namespace selector filters
+every tab; ISS-064 (guard blind to stored clients) found and fixed. 11.5 done
+2026-10-08 (ISS-054, ISS-055, ISS-056): shutdown waits for handlers and
+loops before closing the audit log; leader-only Slack notices; `auto-agent
+version` and `check-config`; kubeconfig fallback; `KUBE_API_QPS` and
+`KUBE_API_BURST`; `run()` split under 50 lines; `cmd` coverage 86.6%
+(measured). 11.6 done 2026-10-08 (ISS-057): wiki pages link to their owners,
+counts computed or removed, changelog generated from git, docs check test.
+11.3 done 2026-10-08 (ISS-050): the chart defaults to the release namespace
+(`auto-agent`), `image.digest`, helm test fixed; ISS-065 opened. `make e2e` and
+`make e2e-raw` pass on kind. 11.7 done: coverage floor 56.4 (measured),
+changelog regenerated. **Phase 11 is complete.** Phase 12 done 2026-10-08
+(ISS-039, ISS-034, ISS-035): 20 detectors and 4 leader loops audited and
+tested; ISS-066 to ISS-076 found and fixed; every leader check must have a
+test. Coverage 70.7% total (measured), floor raised to it. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+(config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).
 

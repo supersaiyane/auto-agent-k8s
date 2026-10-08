@@ -1,7 +1,70 @@
 # Namespaced permissions (CLAUDE.md constraints 4 and 7).
-# Workload writes: one Role per role per allowlisted namespace, nowhere else
-# (ADR-001: the controller fixes workloads, node agents act on pods).
-{{- range .Values.agent.namespaceAllowlist }}
+# Workload writes (ADR-001: the controller fixes workloads, node agents act on
+# pods) exist only inside the fix ceiling (ADR-002): one Role per role per
+# ceiling namespace, or with rbac.fixAnywhere one ClusterRole per role.
+{{- $ceiling := include "auto-agent.fixCeiling" . }}
+{{- if .Values.rbac.fixAnywhere }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auto-agent-write
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["patch", "update"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["delete"]
+{{- if .Values.rbac.readTLSSecrets }}
+# Certificate expiry check reads TLS secrets. Off by default (ISS-009).
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-agent-write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auto-agent-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ include "auto-agent.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auto-agent-node-write
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-agent-node-write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auto-agent-node-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent-node
+  namespace: {{ include "auto-agent.namespace" . }}
+{{- else }}
+{{- range splitList "," $ceiling | compact }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -37,7 +100,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
-  namespace: {{ $.Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" $ }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -64,7 +127,8 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent-node
-  namespace: {{ $.Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" $ }}
+{{- end }}
 {{- end }}
 ---
 # Leader election in leaderElection.namespace (LEADER_LEASE_NAMESPACE). get and update are pinned to the agent's own lease; create cannot
@@ -73,7 +137,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: auto-agent-leader
-  namespace: {{ .Values.leaderElection.namespace }}
+  namespace: {{ include "auto-agent.leaseNamespace" . }}
 rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
@@ -87,7 +151,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: auto-agent-leader
-  namespace: {{ .Values.leaderElection.namespace }}
+  namespace: {{ include "auto-agent.leaseNamespace" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -95,14 +159,45 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
+---
+# The dashboard's fix scope choice (ADR-002): the controller writes only the
+# auto-agent-scope ConfigMap. patch is pinned to it; create cannot be pinned.
+# Both roles read it through the hot reload Role below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-scope
+  namespace: {{ include "auto-agent.namespace" . }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["auto-agent-scope"]
+  verbs: ["patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-scope
+  namespace: {{ include "auto-agent.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-scope
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ include "auto-agent.namespace" . }}
 ---
 # Policy hot reload reads the agent's ConfigMap in its own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: auto-agent-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
@@ -112,7 +207,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: auto-agent-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -120,7 +215,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 - kind: ServiceAccount
   name: auto-agent-node
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}

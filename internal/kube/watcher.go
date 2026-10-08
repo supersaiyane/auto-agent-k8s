@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,8 +36,16 @@ func runHandler(parentCtx context.Context, deps *Deps, fn func(ctx context.Conte
 		klog.V(2).Infof("watcher: handler pool full (%d), dropping event", maxConcurrentHandlers)
 		return
 	}
+	if deps.inflight != nil {
+		deps.inflight.Add(1)
+	}
 	go func() {
-		defer func() { <-deps.handlerSlots }()
+		defer func() {
+			<-deps.handlerSlots
+			if deps.inflight != nil {
+				deps.inflight.Done()
+			}
+		}()
 		ctx, cancel := context.WithTimeout(parentCtx, handlerTimeout)
 		defer cancel()
 		fn(ctx)
@@ -46,6 +55,7 @@ func runHandler(parentCtx context.Context, deps *Deps, fn func(ctx context.Conte
 // StartWatchers initializes pod and node informers with event handlers.
 func StartWatchers(ctx context.Context, deps *Deps) {
 	deps.handlerSlots = make(chan struct{}, maxConcurrentHandlers)
+	deps.inflight = &sync.WaitGroup{}
 	// Pod informer: filter to local node only (NODE_NAME set via downward API)
 	nodeName := deps.NodeName
 	var factory informers.SharedInformerFactory
@@ -110,7 +120,7 @@ func StartWatchers(ctx context.Context, deps *Deps) {
 
 // handlePodUpdate dispatches pod status changes to appropriate handlers.
 func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod) {
-	if !deps.Policy().AllowedNamespace(newPod.Namespace) {
+	if !deps.Policy().Watched(newPod.Namespace) {
 		return
 	}
 	if hasAnnotation(newPod, deps.Policy().ExcludedAnnotation) {

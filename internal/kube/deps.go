@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -58,7 +59,10 @@ type Deps struct {
 	HTTPClient *http.Client
 
 	// handlerSlots bounds concurrent handlers; StartWatchers creates it.
-	handlerSlots  chan struct{}
+	handlerSlots chan struct{}
+	// inflight counts running handlers, so shutdown can wait for them
+	// before closing the audit log (ISS-054). A pointer: Deps is copied.
+	inflight      *sync.WaitGroup
 	Slack         SlackPoster
 	LLM           LLMDiagnoser
 	Dedup         *ratelimit.Deduplicator
@@ -105,4 +109,21 @@ func (d *Deps) clock() time.Time {
 		return d.Now()
 	}
 	return time.Now()
+}
+
+// WaitIdle waits up to timeout for running handlers to finish and reports
+// whether they did. Shutdown calls it after intake has stopped and before
+// the audit log closes, so an action in flight is still recorded (ISS-054).
+func (d *Deps) WaitIdle(timeout time.Duration) bool {
+	if d.inflight == nil {
+		return true
+	}
+	done := make(chan struct{})
+	go func() { d.inflight.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }

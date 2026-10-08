@@ -30,12 +30,10 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 	// Check Slack connectivity
 	slackURL := deps.Endpoints.SlackWebhookURL
 	if slackURL != "" {
-		// Don't POST to slack, just check DNS/TCP
+		// A GET only proves the host answers; a 4xx (Slack answers a GET with
+		// 400) counts as reachable because httpCheck fails only on 5xx.
 		if err := httpCheck(ctx, deps.HTTPClient, slackURL); err != nil {
-			// Slack webhooks return 400 for GET but connection succeeding is enough
-			if err.Error() != "status 400" && err.Error() != "status 404" && err.Error() != "status 405" {
-				issues = append(issues, fmt.Sprintf("Slack webhook unreachable: %v", err))
-			}
+			issues = append(issues, fmt.Sprintf("Slack webhook unreachable: %v", err))
 		}
 	}
 
@@ -55,7 +53,9 @@ func SelfCheck(ctx context.Context, deps *Deps) {
 				msg += fmt.Sprintf("- %s\n", issue)
 				klog.Warningf("selfcheck: %s", issue)
 			}
-			deps.Slack.Post(msg)
+			if err := deps.Slack.Post(msg); err != nil {
+				obs.HandlerErrorsTotal.WithLabelValues("selfcheck", "slack").Inc()
+			}
 			recordEvent(deps, eventsvc.Event{Type: eventsvc.Info, Severity: eventsvc.SevWarning,
 				Reason: "SelfCheckFailed", Message: fmt.Sprintf("%d dependency issues detected", len(issues))})
 			obs.HandlerErrorsTotal.WithLabelValues("selfcheck", "dependency").Inc()

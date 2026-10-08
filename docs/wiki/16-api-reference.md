@@ -65,6 +65,25 @@ Node health: status, roles, version, OS, CPU, memory, pod count, pressure, cordo
 }
 ```
 
+## Scope (ADR-002)
+
+### `GET /api/scope`
+```json
+{
+  "watchAll": true, "fixAnywhere": false,
+  "fixScope": ["payments"], "helmFix": ["payments"], "choice": null,
+  "namespaces": [{"name": "payments", "inCeiling": true, "fixable": true}]
+}
+```
+
+### `PUT /api/scope`
+Body `{"fixNamespaces": ["payments", "orders"], "confirm": ["orders"]}`. Every
+namespace being enabled must be repeated in `confirm`. A namespace outside
+`agent.fixCeiling` is refused with 400. Every attempt is an audit event.
+
+### `DELETE /api/scope`
+Clears the dashboard choice, so `agent.fixNamespaces` applies again.
+
 ## Cost
 
 ### `GET /api/cost`

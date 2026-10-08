@@ -10,7 +10,7 @@ import (
 type Deduplicator struct {
 	now  func() time.Time // injectable clock (PLAN-002 8.5); nil means time.Now
 	mu   sync.Mutex
-	seen map[string]time.Time
+	seen map[string]time.Time // key -> when it may be processed again
 	ttl  time.Duration
 	done chan struct{}
 }
@@ -26,13 +26,19 @@ func NewDeduplicator(ttl time.Duration) *Deduplicator {
 }
 
 // Check returns true if this key should be processed (not seen within TTL).
-func (d *Deduplicator) Check(key string) bool {
+func (d *Deduplicator) Check(key string) bool { return d.CheckFor(key, d.ttl) }
+
+// CheckFor is Check with its own window, for states that do not change by
+// themselves, such as a failed Job: reported once per window, not once per
+// default TTL.
+func (d *Deduplicator) CheckFor(key string, ttl time.Duration) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if t, ok := d.seen[key]; ok && d.clock().Sub(t) < d.ttl {
+	now := d.clock()
+	if until, ok := d.seen[key]; ok && now.Before(until) {
 		return false
 	}
-	d.seen[key] = d.clock()
+	d.seen[key] = now.Add(ttl)
 	return true
 }
 
@@ -57,8 +63,8 @@ func (d *Deduplicator) cleanup() {
 		case <-ticker.C:
 			d.mu.Lock()
 			now := d.clock()
-			for k, t := range d.seen {
-				if now.Sub(t) >= d.ttl {
+			for k, until := range d.seen {
+				if !now.Before(until) {
 					delete(d.seen, k)
 				}
 			}

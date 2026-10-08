@@ -68,9 +68,12 @@ refuses an action outside the fix scope even where RBAC would allow it.
 
 - The whole cluster becomes visible by default, which also sends more logs
   and events to outbound integrations; redaction still applies to all of it.
-- The controller gains `get`, `update` (pinned to `auto-agent-scope`) and
-  `create` (namespaced) on one ConfigMap, and node agents gain `get` and
-  `watch` on it, so both roles apply the same fix scope.
+- The controller gains `patch` (pinned to `auto-agent-scope`) and `create`
+  (namespaced) on ConfigMaps in its own namespace. Both roles already list
+  and watch ConfigMaps there for the policy reload, so both apply the same
+  fix scope. Until that ConfigMap has been read, the fix scope is empty.
+  (Built 2026-10-08; `patch` instead of the `update` first written here, per
+  constraint 6.)
 - `fixAnywhere` trades least privilege for flexibility; the default does not.
 - `NAMESPACE_ALLOWLIST` stays readable for one release as an alias for both
   the watch scope and the initial fix scope, with a deprecation warning.

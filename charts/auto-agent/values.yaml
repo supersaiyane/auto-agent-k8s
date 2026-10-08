@@ -1,9 +1,14 @@
 image:
   repository: ghcr.io/supersaiyane/auto-agent-k8s
   tag: "1.0.0"
+  # Pin the image by digest in production (CLAUDE.md constraint 11): when set,
+  # the pods use repository@digest and tag is ignored.
+  digest: ""
   pullPolicy: IfNotPresent
 
-namespace: kube-system
+# The agent's namespace. Empty means the release namespace, so install with
+# helm -n auto-agent --create-namespace. Watched namespaces never include it.
+namespace: ""
 # Kept on purpose (reviewed 2026-10-07, ISS-010): node actions are taken only
 # by the agent on that node (ISS-004), so it must run on every node and must
 # not be evicted by the node pressure it is handling.
@@ -18,9 +23,17 @@ agent:
   scaleWindow: 5m
   maxScaleStep: 2
   maxActionsPer10m: 10
-  # Namespaces the agent reads and may act in. Each gets a write Role, so each
-  # must exist before install. Add production namespaces explicitly.
-  namespaceAllowlist: ["default"]
+  # Namespace scopes (ADR-002). watchNamespaces: where the agent reads,
+  # detects and reports, and what the dashboard shows. Empty means every
+  # namespace except kube-system, kube-public, kube-node-lease and its own.
+  watchNamespaces: []
+  # fixNamespaces: where the agent may act at install. The dashboard Settings
+  # tab changes this later, always inside fixCeiling. Empty means nowhere.
+  fixNamespaces: []
+  # fixCeiling: where write Roles are rendered, so the most the Settings tab
+  # can ever enable. Empty means the same as fixNamespaces. Each namespace
+  # must exist before install. Ignored when rbac.fixAnywhere is true.
+  fixCeiling: []
   excludedAnnotation: "auto-agent.io/disable"
   logLevel: info
   cooldownUp: 2m                   # minimum time between scale-ups
@@ -30,6 +43,8 @@ agent:
   dedupTtlSeconds: 300             # deduplication TTL (5 min)
   llmTimeoutSec: 10
   slackTimeoutSec: 5
+  apiQps: 50                       # Kubernetes API requests per second, per pod
+  apiBurst: 100                    # short bursts above apiQps, per pod
 
 llm:
   apiUrl: "https://llm-gateway.internal/v1/chat/completions"
@@ -82,9 +97,14 @@ rbac:
   # Lets the certificate expiry check list TLS secrets in allowlisted
   # namespaces. Off by default: reading secrets is a large grant.
   readTLSSecrets: false
+  # One write ClusterRole instead of a Role per fixCeiling namespace, so the
+  # Settings tab can enable fixing in any non-system namespace. WARNING: a
+  # leaked dashboard or agent token can then disrupt any namespace. The agent
+  # logs a warning at every start and the dashboard shows the mode.
+  fixAnywhere: false
 
 leaderElection:
-  namespace: kube-system           # where the auto-agent-leader Lease lives
+  namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 
 guardrails:
   circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips

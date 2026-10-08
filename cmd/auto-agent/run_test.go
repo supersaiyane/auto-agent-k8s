@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
@@ -32,15 +36,18 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-type agent struct {
+type bootedAgent struct {
+	dir    string // holds audit.jsonl and events.jsonl
 	addr   string
 	kube   *fake.Clientset
 	cancel context.CancelFunc
 	done   chan error
 }
 
-// boot starts run() against fake clients and waits for OnReady.
-func boot(t *testing.T, extra map[string]string) *agent {
+// boot starts run() against fake clients and waits for OnReady. prep runs
+// before the agent starts: a fake clientset's reactors are not safe to
+// change while it is in use.
+func boot(t *testing.T, extra map[string]string, prep ...func(*fake.Clientset)) *bootedAgent {
 	t.Helper()
 	dir := t.TempDir()
 	env := map[string]string{
@@ -59,7 +66,10 @@ func boot(t *testing.T, extra map[string]string) *agent {
 		{Group: "autoagent.io", Version: "v1alpha1", Resource: "autoremediationpolicies"}: "AutoRemediationPolicyList",
 	})
 
-	a := &agent{addr: freeAddr(t), kube: fake.NewClientset(), done: make(chan error, 1)}
+	a := &bootedAgent{dir: dir, addr: freeAddr(t), kube: fake.NewClientset(), done: make(chan error, 1)}
+	for _, p := range prep {
+		p(a.kube)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	t.Cleanup(cancel)
@@ -80,7 +90,7 @@ func boot(t *testing.T, extra map[string]string) *agent {
 }
 
 // stop ends the context and expects a clean, prompt return.
-func (a *agent) stop(t *testing.T) {
+func (a *bootedAgent) stop(t *testing.T) {
 	t.Helper()
 	a.cancel()
 	select {
@@ -113,6 +123,55 @@ func TestRun_BootsReadyAndShutsDown(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	a.stop(t)
+}
+
+// ISS-054: a fix in flight when shutdown starts is still in the audit log.
+// The pod delete blocks in the API call until the context has ended, so
+// without the wait for handlers the audit log would close first.
+func TestRun_ShutdownKeepsTheAuditOfAnActionInFlight(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	a := boot(t, map[string]string{"AUTO_MODE": "fix", "WATCH_NAMESPACES": "default", "FIX_NAMESPACES": "default"},
+		func(kc *fake.Clientset) {
+			kc.PrependReactor("delete", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
+				once.Do(func() { close(entered) })
+				<-release
+				return true, nil, nil
+			})
+		})
+	ctx := context.Background()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "crasher", Namespace: "default"},
+		Spec:   corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "app", Image: "busybox"}}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+	if _, err := a.kube.CoreV1().Pods("default").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // let the informer see the pod before it changes
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "app", RestartCount: 5,
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}}}
+	if _, err := a.kube.CoreV1().Pods("default").UpdateStatus(ctx, pod, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the crashloop fix never reached the API server")
+	}
+	a.cancel()
+	time.Sleep(200 * time.Millisecond) // shutdown is under way while the delete is still in flight
+	close(release)
+	select {
+	case err := <-a.done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("run did not return")
+	}
+	audit, err := os.ReadFile(a.dir + "/audit.jsonl")
+	if err != nil || !strings.Contains(string(audit), "delete_pod") || !strings.Contains(string(audit), "crasher") {
+		t.Fatalf("the in-flight action is missing from the audit log (%v):\n%s", err, audit)
+	}
 }
 
 // With short intervals the leader loops run every check against the fake
@@ -164,9 +223,12 @@ func TestIntegrationSelection(t *testing.T) {
 	if hostname() == "" {
 		t.Fatal("hostname is never empty")
 	}
-	nss := namespaceList(&policy.Policy{NamespaceAllow: map[string]struct{}{"a": {}, "b": {}}})
-	if len(nss) != 2 {
-		t.Fatalf("namespaceList: %v", nss)
+	both := policy.NamespaceSet("a", "b")
+	if got := scopeSummary(&policy.Policy{WatchNamespaces: both, FixNamespaces: both, FixCeiling: policy.NamespaceSet("a")}); got != "watch=a,b fix=a anywhere=false" {
+		t.Fatalf("scopeSummary: %s", got)
+	}
+	if got := scopeSummary(&policy.Policy{WatchAll: true}); got != "watch=all non-system namespaces fix= anywhere=false" {
+		t.Fatalf("scopeSummary: %s", got)
 	}
 }
 

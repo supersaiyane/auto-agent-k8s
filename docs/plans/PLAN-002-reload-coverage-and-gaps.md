@@ -284,6 +284,7 @@ Work: E.2 is phase 10 (new detectors, test first); E.1 runs inside phase 12 (exi
 | 11 | **Architect review fixes** (added 2026-10-07): one cluster-wide dashboard and a complete UI, deployment manifests generated from the chart, safe scripts, entry point and shutdown, docs with one owner per topic (ISS-047 to ISS-058) | The dashboard and the install path are what every user touches first; ISS-047 and ISS-048 mislead or lose data today | 14 to 23 days |
 | 12 | D5 tests for every existing detector with the E.1 audit (ISS-039); ISS-034, ISS-035 fixed on the way | Network and storage checks are the weakest existing code | 6 to 10 days |
 | 13 | Part A, config reload (A1 to A3), with tests at 100 percent | The headline feature | 6 to 9 days |
+| after 13 | **PLAN-003** (`docs/plans/PLAN-003-terminal.md`): read-only terminal with more commands, agent commands and a "can run / cannot run" panel | Owner decision 2026-10-08: after config reload, before the network work | 2 to 2.5 days |
 | 14 | Part B network (ISS-033, ISS-036) | Builds on phase 12 tests | 4 to 6 days |
 | 15 | Part C approval queue and ladder moves | Needs reload's rollout verification and the escalation wiring | 6 to 9 days |
 | 16 | Part B remaining (escalation, learning, CRD fields, webhook certs, tracing, ISS-025, ISS-038), D6, D8 | Reaches the coverage target | 6 to 10 days |
@@ -405,8 +406,25 @@ rungs, filters, refresh control and deep links (ISS-053, ISS-060);
 process killing, opt-in cost tools and ownership labels; demo apps in
 labelled namespaces `test1`, `test2`, `chaos` (the raw allowlist); `make
 e2e-raw` runs both scripts on kind; shellcheck in CI (ISS-049, ISS-052).
-Next: 11.8 (ADR-002, watch and fix scope with the Settings tab), then the
-11.3 remainder (one namespace name, image digest), 11.5, 11.6.
+11.8 done 2026-10-08 (c3e88c4, 826d32f): watch scope and fix scope
+(ADR-002, ISS-062); `/api/scope` and the Settings tab; header namespace
+selector; ISS-064 found and fixed. 11.5 done (ed4ddab): ordered shutdown,
+leader-only notices, `check-config`, kubeconfig fallback, API limits
+(ISS-054, ISS-055, ISS-056). 11.6 done (bace559): one owner per topic,
+generated changelog, docs check (ISS-057). 11.3 done: the chart defaults to
+the release namespace, `image.digest`, the helm test fixed (ISS-050;
+ISS-065 opened for the rest). 11.7: records, coverage floor raised to the
+measured total. **Phase 11 is complete.**
+
+Phase 12 done 2026-10-08 (ISS-039, ISS-034, ISS-035): every detector and
+leader loop without a test was audited in writing in its test file
+(`*_audit_test.go`: claims, condition, misses, noise, rung) and tested with
+its positive case, a healthy control and each documented miss. The audit
+found and fixed ISS-066 to ISS-076, including a crash on Ingress resource
+backends (ISS-072). Every old detector now reports through `report()` with
+a rung; the untested list is empty and `TestEveryLeaderCheckHasATest` keeps
+every leader check tested. Coverage 70.7% total (measured), floor raised
+to it. Next: phase 13.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong
