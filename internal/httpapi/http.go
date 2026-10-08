@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"path"
 	"strconv"
@@ -182,11 +183,21 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) Start() {
-	klog.Infof("httpapi: listening on %s", s.srv.Addr)
-	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		klog.Errorf("httpapi: server error: %v", err)
+// Start binds the address now and serves in the background. Binding first
+// means a port in use fails the start, and the agent reports ready only
+// once connections are accepted (ISS-079).
+func (s *Server) Start() error {
+	ln, err := net.Listen("tcp", s.srv.Addr)
+	if err != nil {
+		return fmt.Errorf("httpapi: listen on %s: %w", s.srv.Addr, err)
 	}
+	klog.Infof("httpapi: listening on %s", ln.Addr())
+	go func() {
+		if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			klog.Errorf("httpapi: server error: %v", err)
+		}
+	}()
+	return nil
 }
 
 func (s *Server) SetLeaderFunc(fn func() bool) { s.meta.IsLeaderFn = fn }

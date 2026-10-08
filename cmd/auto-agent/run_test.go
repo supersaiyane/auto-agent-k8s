@@ -247,6 +247,31 @@ func TestRun_RejectsBadRoleSettings(t *testing.T) {
 	}
 }
 
+// ISS-079: a port already in use stops the start instead of leaving an
+// agent with no probes or API that still says it is ready.
+func TestRun_PortInUseFailsStart(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	conf := config.Load(func(k string) string {
+		return map[string]string{"AGENT_ROLE": "controller", "POD_NAMESPACE": "auto-agent", "LOG_STORE": "none",
+			"AUDIT_LOG_PATH": t.TempDir() + "/audit.jsonl"}[k]
+	})
+	dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		{Group: "autoagent.io", Version: "v1alpha1", Resource: "autoremediationpolicies"}: "AutoRemediationPolicyList",
+	})
+	ready := false
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	err = run(ctx, conf, Clients{Kube: fake.NewClientset(), Dynamic: dyn, HTTP: &http.Client{Timeout: time.Second}},
+		RunOptions{HTTPAddr: ln.Addr().String(), EventsPath: t.TempDir() + "/events.jsonl", OnReady: func() { ready = true }})
+	if err == nil || !strings.Contains(err.Error(), "listen on") || ready {
+		t.Fatalf("run with the port taken: err=%v ready=%v", err, ready)
+	}
+}
+
 // ADR-001, PLAN-002 11.1: a finding made by a node agent appears in the
 // controller's event log, and the node agent serves no dashboard.
 func TestRun_NodeAgentForwardsToController(t *testing.T) {

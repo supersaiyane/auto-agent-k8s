@@ -121,7 +121,9 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		a.reloader = kube.NewReloader(a.deps, conf.Reload, a.isLeader)
 	}
 	a.srv = a.newServer(cl, opts, leaderTarget)
-	go a.srv.Start()
+	if err := a.srv.Start(); err != nil {
+		return err
+	}
 	a.startWork(ctx)
 	if opts.OnReady != nil {
 		opts.OnReady()

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -143,4 +144,31 @@ func TestAPI_NoRouteLeaksNonAllowlistedNamespaces(t *testing.T) {
 			t.Errorf("%s leaked a non-allowlisted namespace (status %d): %.300s", p, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+// ISS-079: Start binds before it returns, so a port in use is an error and
+// a free port accepts connections as soon as Start returns.
+func TestServer_StartBindsBeforeReturning(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken := NewServer(ln.Addr().String(), events.NewRecorder(10), &AgentMeta{}, fake.NewSimpleClientset(), Options{HealthOnly: true})
+	if err := taken.Start(); err == nil || !strings.Contains(err.Error(), "listen on") {
+		t.Fatalf("port in use: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(addr, events.NewRecorder(10), &AgentMeta{}, fake.NewSimpleClientset(), Options{HealthOnly: true})
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.srv.Close() })
+	resp, err := http.Get("http://" + addr + "/healthz")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz right after Start: %v %v", resp, err)
+	}
+	resp.Body.Close()
 }
