@@ -68,7 +68,7 @@ func IsDryRun(pol *policy.Policy) bool {
 
 // SimulateAction records what would happen without executing it.
 // Returns the message string describing the simulated action.
-func SimulateAction(deps *Deps, ns, wl, pod, reason, actionType, description string) string {
+func SimulateAction(deps *Deps, ns, wl, pod string, labels map[string]string, reason, actionType, description string) string {
 	if deps.DryRunLog == nil {
 		return ""
 	}
@@ -80,9 +80,8 @@ func SimulateAction(deps *Deps, ns, wl, pod, reason, actionType, description str
 	} else if deps.BlastRadius != nil && !deps.BlastRadius.WouldAllow(ns) {
 		blocked = "blast radius"
 	} else {
-		crdPol := effectivePolicy(deps, ns, nil)
-		if !policyAllowsAction(crdPol) {
-			blocked = "requires approval"
+		if why := policyRefusal(deps, effectivePolicy(deps, ns, labels), actionType); why != "" {
+			blocked = why // the same answer the gate gives in fix mode (ISS-081)
 		} else if deps.Breaker != nil && deps.Breaker.IsTripped(ns, wl) {
 			blocked = "circuit breaker"
 		}

@@ -37,7 +37,7 @@ func CheckPendingPVCs(ctx context.Context, deps *Deps) {
 				continue
 			}
 			if f := pendingPVCFinding(pvc, latest, now); report(ctx, deps, f) {
-				createTicket(ctx, deps, fmt.Sprintf("pvc-%s-%s", ns, pvc.Name), fmt.Sprintf("PVC Pending: %s/%s", ns, pvc.Name), f.message())
+				createTicket(ctx, deps, ns, nil, fmt.Sprintf("pvc-%s-%s", ns, pvc.Name), fmt.Sprintf("PVC Pending: %s/%s", ns, pvc.Name), f.message())
 			}
 		}
 	}

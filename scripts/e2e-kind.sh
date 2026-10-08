@@ -50,6 +50,28 @@ helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" 
 	--set "env[1].name=QUOTA_INTERVAL" --set "env[1].value=40s" \
 	--wait --timeout 180s
 
+log "running the chart's own helm test (ISS-065: pinned image, admitted by the NetworkPolicy)"
+helm test auto-agent --kube-context "$CTX" -n "$NS_AGENT" --timeout 120s --logs > /tmp/e2e-helm-test.txt 2>&1 \
+	|| { tail -20 /tmp/e2e-helm-test.txt; fail "helm test failed"; }
+grep -q "All tests passed." /tmp/e2e-helm-test.txt || { tail -20 /tmp/e2e-helm-test.txt; fail "helm test did not report its checks"; }
+log "helm test passed"
+
+log "applying an AutoRemediationPolicy that turns off restarts for the crasher (ISS-037)"
+kubectl --context "$CTX" apply -f - <<YAML
+apiVersion: autoagent.io/v1alpha1
+kind: AutoRemediationPolicy
+metadata:
+  name: crasher-no-restart
+  namespace: $NS_TEST
+spec:
+  targetSelector:
+    matchLabels:
+      run: crasher
+  actions:
+    restartStuckPods: false
+YAML
+sleep 5
+
 log "starting a crashlooping pod in $NS_TEST"
 kubectl --context "$CTX" -n "$NS_TEST" delete pod crasher --ignore-not-found --wait
 kubectl --context "$CTX" -n "$NS_TEST" run crasher --image=busybox:1.36 --restart=Always -- sh -c 'echo boom; exit 1'
@@ -124,6 +146,23 @@ sleep 3
 NODE_API=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18081/api/status)
 kill "$PF" 2>/dev/null || true
 [ "$NODE_API" = "404" ] || fail "a node agent served /api/status ($NODE_API); only controllers may"
+
+log "checking dry-run reports the policy refusal the gate would apply (ISS-081)"
+FIRST=${CONTROLLERS%% *}
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$FIRST" 18089:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+refused=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+	if curl -s -H 'Authorization: Bearer e2e-token' "http://127.0.0.1:18089/api/events?limit=500" | grep -q "crasher-no-restart turns off pod restarts"; then
+		refused=1
+		break
+	fi
+	sleep 5
+done
+kill "$PF" 2>/dev/null || true
+[ "$refused" = "1" ] || fail "dry-run did not report the crasher-no-restart policy refusal"
+log "dry-run reports: blocked by CRD policy crasher-no-restart"
 
 log "checking every controller shows the node agent's finding (ADR-001, PLAN-002 11.1)"
 port=18090

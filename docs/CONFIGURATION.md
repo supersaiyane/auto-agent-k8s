@@ -101,6 +101,7 @@ env:
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
 | `SLACK_WEBHOOK_URL` | `slack.webhookUrl` (Secret) | Slack incoming webhook URL | empty (Slack off) | Incident messages, redacted | `cmd/auto-agent/run.go`, `internal/kube/selfcheck.go` |
+| `SLACK_CHANNEL_WEBHOOKS` | `slack.channelWebhooks` (Secret) | `#channel=webhook` pairs, comma separated | empty | Webhooks for the channels an AutoRemediationPolicy names in `escalation.slackChannel`; an unlisted channel falls back to `SLACK_WEBHOOK_URL` | `cmd/auto-agent/run.go` (`newSlack`) |
 | `SLACK_TIMEOUT_SEC` | `agent.slackTimeoutSec` | positive integer | `5` | Timeout for Slack calls | `internal/policy/policy.go` |
 | `SLACK_SIGNING_SECRET` | `slack.signingSecret` (Secret) | Slack app signing secret | empty | Verifies Slack button callbacks; without it they get 503 | `internal/httpapi/http.go` |
 | `ALERTMANAGER_URL` | `alertmanager.url` | URL | empty (off) | Sends `AutoAgentIncident` and `AutoAgentCircuitBreaker` alerts, annotations redacted | `cmd/auto-agent/run.go`, `internal/kube/selfcheck.go` |

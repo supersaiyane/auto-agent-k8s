@@ -112,3 +112,23 @@ func TestKlogVerbosity(t *testing.T) {
 		}
 	}
 }
+
+// SLACK_CHANNEL_WEBHOOKS: channel=webhook pairs; the value keeps any later
+// "=", and an entry without "=" is skipped.
+func TestLoad_ChannelWebhooks(t *testing.T) {
+	c := Load(func(k string) string {
+		if k == "SLACK_CHANNEL_WEBHOOKS" {
+			return " #ops = https://hooks.test/a?x=1 , broken, =nokey, #pay=https://hooks.test/b"
+		}
+		return ""
+	})
+	want := map[string]string{"#ops": "https://hooks.test/a?x=1", "#pay": "https://hooks.test/b"}
+	if len(c.SlackChannelWebhooks) != len(want) {
+		t.Fatalf("got %v", c.SlackChannelWebhooks)
+	}
+	for k, v := range want {
+		if c.SlackChannelWebhooks[k] != v {
+			t.Fatalf("%s = %q, want %q", k, c.SlackChannelWebhooks[k], v)
+		}
+	}
+}

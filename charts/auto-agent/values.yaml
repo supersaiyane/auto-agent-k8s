@@ -15,6 +15,8 @@ namespace: ""
 priorityClassName: system-node-critical
 # Init container that chowns the hostPath log directory. Pinned by digest.
 initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+# Image of the `helm test` pod, pinned by digest (constraint 11, ISS-065).
+testImage: curlimages/curl:8.5.0@sha256:08e466006f0860e54fc299378de998935333e0e130a15f6f98482e9f8dab3058
 
 agent:
   mode: dry-run                    # observe|suggest|dry-run|fix (fix is an explicit opt-in)
@@ -54,6 +56,10 @@ llm:
 slack:
   webhookUrl: ""                   # put in secret or here for POC
   signingSecret: ""                # Slack app signing secret; buttons are rejected without it
+  # Webhooks for the channels AutoRemediationPolicy escalation.slackChannel
+  # names, e.g. {"#payments-oncall": "https://hooks.slack.com/..."}. A
+  # channel not listed here falls back to webhookUrl.
+  channelWebhooks: {}
 
 metricsProvider:
   type: "prometheus"               # "metrics-server" or "prometheus"

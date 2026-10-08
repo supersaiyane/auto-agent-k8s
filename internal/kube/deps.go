@@ -83,6 +83,13 @@ type Deps struct {
 	DeployTracker *DeployTracker
 	LearningMode  *LearningMode
 	Approvals     *Approvals // R3 approval queue; nil or no approvers: off
+	// PolicyBudget counts actions for safety.maxActionsPerHour; nil refuses
+	// actions under a policy that sets it (fail closed, like the limiter).
+	PolicyBudget *PolicyBudget
+	// TicketerFor returns a ticketer for a policy's escalation.ticketing
+	// provider and project, using the agent's credentials; nil when that
+	// provider is not configured.
+	TicketerFor func(provider, project string) integrations.Ticketer
 }
 
 // PolicySource returns the current immutable policy snapshot. In production

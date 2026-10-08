@@ -36,12 +36,12 @@ func handleInitContainerFailure(ctx context.Context, deps *Deps, pod *corev1.Pod
 		"deleted pod to retry init containers", "delete the pod to retry init containers")
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Init container failure: "+reason, logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "InitContainerFailed", ns, wl, name, msg, "warning")
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "InitContainerFailed",
 		Message: fmt.Sprintf("Init container %s: %s", initName, reason), LogURL: url})
-	createTicket(ctx, deps, fmt.Sprintf("init-%s-%s", ns, wl), fmt.Sprintf("InitContainerFailed: %s/%s", ns, wl), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("init-%s-%s", ns, wl), fmt.Sprintf("InitContainerFailed: %s/%s", ns, wl), msg)
 	obs.IncidentsTotal.WithLabelValues("InitContainerFailed", ns, wl).Inc()
 }
 
@@ -62,11 +62,11 @@ func handleConfigError(ctx context.Context, deps *Deps, pod *corev1.Pod, cname, 
 		ns, name, cname, reason, url)
 	msg += "_Check_: referenced ConfigMaps and Secrets exist in namespace `" + ns + "`.\n"
 
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "ConfigError", ns, wl, name, msg, "critical")
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ConfigError", Message: reason, LogURL: url})
-	createTicket(ctx, deps, fmt.Sprintf("config-%s-%s", ns, wl), fmt.Sprintf("ConfigError: %s/%s", ns, wl), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("config-%s-%s", ns, wl), fmt.Sprintf("ConfigError: %s/%s", ns, wl), msg)
 	obs.IncidentsTotal.WithLabelValues("ConfigError", ns, wl).Inc()
 }
 
@@ -89,7 +89,7 @@ func handleRestartStorm(ctx context.Context, deps *Deps, pod *corev1.Pod, cname 
 	msg += "_Warning_: container restarting rapidly. Likely heading toward CrashLoopBackOff.\n"
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Container restart storm", logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "RestartStorm", ns, wl, name, msg, "warning")
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "RestartStorm",

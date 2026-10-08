@@ -33,12 +33,14 @@
 | 2026-10-08 | PLAN-003 read-only terminal (phases 1 to 4) | Done: `make e2e` and `make e2e-raw` PASS on kind, `make verify` coverage 76.2% (measured, floor raised); panel check falsified; committed, not pushed | `internal/httpapi/terminal.go` (command table), `terminal_get.go`, `terminal_describe.go`, `terminal_read.go`, `terminal_agent.go`, `internal/kube/gate_preview.go`, `cmd/auto-agent/terminal_agent.go`, UI panel, GUIDE 6.3, chart read grants | `internal/httpapi/terminal.go` (`termCommands`, `executeKubectl`), `internal/httpapi/terminal_test.go`, `internal/httpapi/docs_test.go` (`TestDocs_TerminalSectionMatchesTable`) |
 | 2026-10-08 | PLAN-002 phase 14: network checks (ISS-033, ISS-036) | Done: `make e2e` (node agents start the probes; no DNSResolutionFailed on a healthy cluster) and `make e2e-raw` PASS on kind; `make verify` coverage 76.5% (measured, floor raised); committed, not pushed | `internal/kube/netprobe.go`, `netchecks.go`, chart `probes.*`, node role reads, GUIDE 8.9 | `internal/kube/netprobe.go` (`probeOnce`), `internal/kube/netchecks.go` (`policyBlocks`) |
 | 2026-10-08 | PLAN-002 phase 15: approve to fix (Part C, C1.1 to C1.3, C2) | Done: `make verify` exit 0, coverage 76.9% (measured), floor raised; kind e2e results in the commit body | Approval queue, Slack Approve and Reject, `/api/approvals` and Approvals tab, six R3 fixes behind approval, RBAC for HPA and PVC patch and Job create; ISS-077 OPEN, ISS-078 | `internal/kube/approvals.go:1`, `internal/kube/approval_fixes.go:1`, `internal/httpapi/approvals.go:1`, `cmd/auto-agent/approvals.go:1`, `docs/plans/PLAN-002-reload-coverage-and-gaps.md` (phase 15 as built) |
+| 2026-10-08 | PR #4 opened; ISS-079 startup race fixed and pushed; PLAN-002 phase 16 in progress | ISS-079, ISS-080 (escalation), ISS-038 (fix verification) committed (17c0e51, 48dcab3); ISS-037, ISS-081, ISS-082 (CRD policy fields, dry-run policy refusals, counted Slack errors) and ISS-065 (helm test pod) verified with `make verify` exit 0, coverage 77.5% measured, not yet committed; kind e2e with the policy step running | Escalation wired after Slack, bounded; fix verification needs a finished rollout and a minute of health; every AutoRemediationPolicy field applied; helm test image pinned by digest | `internal/kube/policycheck.go:1`, `internal/kube/scaler.go` (`scaleLimitsFor`), `internal/kube/handlers.go` (`postIncident`, `createTicket`), `internal/kube/fixtracker.go:90`, `scripts/e2e-kind.sh` (policy step), `charts/auto-agent/templates/tests/test-connection.yaml` |
 
 ## Next action
 
-1. Phases 13, 14, 15 and PLAN-003 are committed.
-2. Next: PLAN-002 phase 16: escalation wired, learning, CRD fields (ISS-037),
-   webhook certs, tracing, ISS-025, ISS-038, D6, D8 mutation testing,
-   ISS-065. Then phase 17 (Argo Rollouts, gitops and image mirror behind
-   flags, final coverage floor).
-3. `plan-002` is ahead of origin; push and PR on the owner's go.
+1. Read the kind e2e result (policy refusal step), run `helm test` on the kind
+   release for ISS-065, then commit ISS-037, ISS-081, ISS-082 and ISS-065.
+2. Merge PR #4 once its e2e check is green (owner approved), then push the
+   phase 16 commits.
+3. Rest of phase 16: learned CPU baselines as scale thresholds, webhook certs
+   (ISS-032), gitops valuesFile and author, tracing and metric cardinality
+   (ISS-018), D6 tests, D8 mutation testing. ISS-025 waits on the owner.

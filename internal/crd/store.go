@@ -32,7 +32,7 @@ type Policy struct {
 	Namespace         string
 	Name              string
 	Selector          labels.Selector
-	RestartStuckPods  bool
+	RestartStuckPods  *bool // nil: not set (restarts allowed); false turns pod restarts off
 	BumpMemoryPercent int
 	Scale             ScaleConfig
 	SlackChannel      string
@@ -63,13 +63,22 @@ func (s *Store) Delete(ns string) {
 	delete(s.byNS, ns)
 }
 
+// List returns the policies in ns; a nil store has none.
 func (s *Store) List(ns string) []Policy {
+	if s == nil {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]Policy(nil), s.byNS[ns]...)
 }
 
+// Match returns the policies in ns whose selector matches lbls; a nil store
+// has none.
 func (s *Store) Match(ns string, lbls map[string]string) []Policy {
+	if s == nil {
+		return []Policy{}
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []Policy{}

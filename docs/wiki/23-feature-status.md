@@ -24,7 +24,7 @@ This page documents the honest status of every feature: what's actually working 
 | **Network checks** (PLAN-002 phase 14) | `internal/kube/netprobe.go` (node probes), `netchecks.go` (leader); `netchecks_test.go` | Per-node DNS, Service and egress probes; sandbox/CNI failures; kube-proxy and CNI pods (when kube-system is watched); NetworkPolicy blocks; conntrack and CoreDNS (Prometheus); Ingress TLS secrets |
 | **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
-| **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
+| **CRD controller** | Watches AutoRemediationPolicy resources; every field takes effect (ISS-037): restartStuckPods, scale min, max, step and allowHPAOverride, cooldown, maxActionsPerHour, requireApproval, slackChannel, ticketing. Dry-run and `agent gate` show the same refusals (ISS-081). Code: `internal/kube/policycheck.go`, `scaler.go` (`scaleLimitsFor`), `handlers.go` (`postIncident`, `createTicket`). Tests: `TestPolicyRefusal_GateAndDryRun`, `TestEvaluateAndScale_PolicyStepMinAndHPAOverride`, `TestEvaluateAndScale_PolicyCooldown`, `TestPolicySlackChannelAndTicketing` | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
 
 ## Added in PLAN-002 phase 10 (2026-10-08)

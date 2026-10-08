@@ -69,14 +69,14 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "suggested", m.SuggestMsg)
 		return gateSuggested, fmt.Sprintf("_Suggest_: %s.\n", m.SuggestMsg)
 	case policy.DryRun:
-		msg := SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Reason, m.ActionType, m.SuccessMsg)
+		msg := SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Labels, m.Reason, m.ActionType, m.SuccessMsg)
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "simulated", m.SuccessMsg)
 		return gateSimulated, msg
 	default:
 		return gateSkipped, ""
 	}
 
-	if blocked, why := checkGuardrails(ctx, deps, m.Namespace, m.Workload, m.Labels); blocked {
+	if blocked, why := checkGuardrails(ctx, deps, m); blocked {
 		klog.Infof("gate: BLOCKED %s %s/%s reason=%s by=%s", m.ActionType, m.Namespace, m.Workload, m.Reason, why)
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", approvalNote(m, why))
 		return gateBlocked, fmt.Sprintf("_Blocked_: %s.\n", why)
@@ -97,6 +97,7 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 		return gateFailed, fmt.Sprintf("_Action_: %s failed: %v\n", m.ActionType, err)
 	}
 
+	recordPolicyAction(deps, m)
 	klog.Infof("gate: APPLIED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
 	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace, m.Workload).Inc()
 	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", approvalNote(m, ""))

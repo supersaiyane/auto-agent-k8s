@@ -48,6 +48,9 @@ spec:
     - podSelector:
         matchLabels:
           app: auto-agent-controller
+    - podSelector:            # the chart's own `helm test` pod (ISS-065)
+        matchLabels:
+          app.kubernetes.io/component: helm-test
   {{- if .Values.webhook.enabled }}
   # The API server calls the admission webhook; its source is not a pod.
   - ports:

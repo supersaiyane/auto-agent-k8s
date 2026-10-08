@@ -402,3 +402,22 @@ func TestPeerResolver(t *testing.T) {
 		t.Fatalf("peers %v err %v", peers, err)
 	}
 }
+
+// ISS-037: a policy's ticketing provider uses the agent's own credentials,
+// and nothing when tickets are off or that provider has none.
+func TestTicketerFor(t *testing.T) {
+	if ticketerFor(config.Config{}, nil) != nil {
+		t.Fatal("tickets off: no factory")
+	}
+	f := ticketerFor(config.Config{TicketsEnabled: true, GitHubToken: "x", GitHubRepo: "corp/default"}, nil)
+	if f("github", "corp/payments") == nil || f("github", "") == nil {
+		t.Fatal("github with a token builds a ticketer")
+	}
+	if f("jira", "OPS") != nil || f("linear", "x") != nil {
+		t.Fatal("no jira credentials, unknown provider: nil")
+	}
+	j := ticketerFor(config.Config{TicketsEnabled: true, JiraToken: "x", JiraBaseURL: "https://jira.corp.test", JiraProjectKey: "OPS"}, nil)
+	if j("jira", "") == nil || j("github", "a/b") != nil {
+		t.Fatal("jira with credentials builds; github without a token does not")
+	}
+}

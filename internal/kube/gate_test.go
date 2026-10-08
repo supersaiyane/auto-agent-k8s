@@ -442,7 +442,7 @@ func TestDryRun_DoesNotSpendBlastRadius(t *testing.T) {
 	deps.BlastRadius = NewBlastRadiusTracker(1, time.Hour)
 	deps.Policy().Mode = policy.DryRun
 	for _, ns := range []string{"a", "b", "c"} {
-		SimulateAction(deps, ns, "api", "p", "CrashLoopBackOff", "delete_pod", "deleted pod")
+		SimulateAction(deps, ns, "api", "p", nil, "CrashLoopBackOff", "delete_pod", "deleted pod")
 	}
 	if got := deps.BlastRadius.AffectedNamespaces(); got != 0 {
 		t.Fatalf("dry-run recorded %d namespaces against the blast radius, want 0", got)

@@ -19,6 +19,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
@@ -64,10 +67,17 @@ func TestAudit_VerifyFixes(t *testing.T) {
 	if strings.Join(pending, ",") != "replicaset/gone-1,replicaset/late-1" {
 		t.Fatalf("the unhealthy one stays pending and the late one is kept: %v", pending)
 	}
+	pages := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 202, `{}`) })
+	defer pages.Close()
+	h.deps.Escalation = escalation.NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, pages.Client(time.Second))
 	now = now.Add(20 * time.Minute)
 	VerifyFixes(context.Background(), h.deps)
 	if len(ft.Failed()) != 2 {
 		t.Fatalf("after 15 minutes they are not fixed: %+v", ft.Failed())
+	}
+	h.deps.Escalation.Wait()
+	if r := pages.Requests(); len(r) != 2 || !strings.Contains(r[0].Body+r[1].Body, "FixNotRecovered") {
+		t.Fatalf("each fix that did not recover pages once (ISS-038): %+v", r)
 	}
 	VerifyFixes(context.Background(), &Deps{}) // no tracker: nothing to do
 }

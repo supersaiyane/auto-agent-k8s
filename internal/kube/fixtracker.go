@@ -98,6 +98,8 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 			rec.Detail = "timed out: workload did not recover within 15 minutes"
 			deps.FixTracker.addFailed(rec)
 			klog.V(3).Infof("fixtracker: timed out %s/%s reason=%s", rec.Namespace, rec.Workload, rec.Reason)
+			escalate(deps, "FixNotRecovered", rec.Namespace, rec.Workload, fmt.Sprintf("%s for %s did not bring %s back within %s",
+				rec.Action, rec.Reason, rec.Workload, fixGiveUpAfter)) // once: the record leaves pending here
 			continue
 		}
 

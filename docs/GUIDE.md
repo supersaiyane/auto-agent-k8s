@@ -539,13 +539,26 @@ spec:
       minSamples: 12
 ```
 
-Fields that take effect (checked 2026-10-07): `targetSelector.matchLabels`,
-`actions.bumpMemoryPercent`, `actions.scale.enabled` and `maxReplicas`,
-`safety.requireApproval`, `anomalies`, `escalation.runbookURL` (added to
-anomaly alerts). Parsed but **not used yet**: `actions.restartStuckPods`,
-`scale.minReplicas`, `scale.step`, `scale.allowHPAOverride`,
-`safety.cooldown`, `safety.maxActionsPerHour`, `escalation.slackChannel`,
-`escalation.ticketing`.
+Every field takes effect (ISS-037, 2026-10-08). The first policy whose
+`targetSelector` matches a workload's pod labels applies:
+
+| Field | Effect |
+| --- | --- |
+| `actions.bumpMemoryPercent` | OOM memory-bump pull requests raise memory by this percent |
+| `actions.restartStuckPods` | `false` refuses pod restarts (`delete_pod`) through the gate; unset allows them |
+| `actions.scale.enabled` | Turns on the `scale.*` fields below |
+| `scale.maxReplicas`, `scale.minReplicas`, `scale.step` | The scaler's ceiling, floor and step; a minimum above the maximum is ignored |
+| `scale.allowHPAOverride` | The scaler acts even where an HPA exists. The HPA will set replicas back on its next sync, so use it only while an HPA is being retired |
+| `safety.requireApproval` | Refuses every automated action for these pods |
+| `safety.cooldown` | Replaces both scaler cooldowns |
+| `safety.maxActionsPerHour` | Refuses actions beyond this many per hour for this policy |
+| `escalation.runbookURL` | Added to anomaly alerts |
+| `escalation.slackChannel` | Pod incident messages go to this channel's webhook (`slack.channelWebhooks`); unlisted channels use the default |
+| `escalation.ticketing` | Adds its assignees and labels to tickets; its provider and project are used when the agent has credentials for that provider |
+| `anomalies` | Prometheus z-score rules |
+
+Dry-run and the terminal's `agent gate` show the same policy refusals the
+gate applies in fix mode (ISS-081).
 
 ### 8.6 Add a namespace
 

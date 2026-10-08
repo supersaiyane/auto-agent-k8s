@@ -72,7 +72,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 	// Observe and suggest never reach the gate per pod: one suggestion is enough.
 	if deps.Policy().Mode != policy.Fix && deps.Policy().Mode != policy.DryRun {
 		msg += "_Suggest_: cordon node and evict non-critical pods.\n"
-		deps.Slack.Post(msg)
+		postSlack(deps, msg)
 		obs.IncidentsTotal.WithLabelValues("NodePressure", "", newNode.Name).Inc()
 		return
 	}
@@ -152,6 +152,6 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 		}
 	}
 
-	deps.Slack.Post(msg)
+	postSlack(deps, msg)
 	obs.IncidentsTotal.WithLabelValues("NodePressure", "", newNode.Name).Inc()
 }
