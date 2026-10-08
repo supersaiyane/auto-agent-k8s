@@ -112,14 +112,22 @@ func checkCPUThrottling(ctx context.Context, deps *Deps, nsRe string) {
 			continue // throttling needs a limit; nothing to propose
 		}
 		proposed := resource.NewMilliQuantity(roundUp(int64(float64(limit.MilliValue())*growthFactor), 50), resource.DecimalSI)
-		report(ctx, deps, finding{
+		f := finding{
 			Reason: "CPUThrottled", Namespace: ns, Workload: ownerName(p), Pod: podName, Node: p.Spec.NodeName,
-			Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove, Subject: podName + "/" + cname,
+			Severity: eventsvc.SevWarning, Rung: RungGuided, Subject: podName + "/" + cname,
 			Summary: fmt.Sprintf("container `%s` is throttled in %.0f percent of CPU periods", cname, s.Value*100),
 			Details: []string{fmt.Sprintf("CPU limit %s, request %s.", limit.String(), c.Resources.Requests.Cpu().String())},
 			Fix: fmt.Sprintf("raise the CPU limit of `%s` from %s to %s, or remove the CPU limit and keep the request; throttling adds latency even when the node has idle CPU",
 				cname, limit.String(), proposed.String()),
-		})
+		}
+		m, err := proposeCPULimit(deps, p, cname, proposed)
+		if err != nil {
+			klog.Warningf("cpu throttling: %s/%s: %v", ns, podName, err)
+		}
+		if m != nil {
+			f.Target, f.Proposal = RungApprove, m
+		}
+		report(ctx, deps, f)
 	}
 }
 
@@ -158,7 +166,7 @@ func checkVolumeFullness(ctx context.Context, deps *Deps, nsRe string) {
 		expandable, class := volumeExpandable(ctx, deps, pvc)
 		if expandable && !capacity.IsZero() {
 			gi := int64(math.Ceil(float64(capacity.Value()) * growthFactor / (1 << 30)))
-			f.Target = RungApprove
+			f.Target, f.Proposal = RungApprove, proposeExpandPVC(deps, ns, claim, gi)
 			f.Details = []string{fmt.Sprintf("Capacity %s; StorageClass `%s` allows expansion.", capacity.String(), class)}
 			f.Fix = fmt.Sprintf("expand the claim to %dGi: `kubectl patch pvc -n %s %s -p '{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"%dGi\"}}}}'`", gi, ns, claim, gi)
 		} else {

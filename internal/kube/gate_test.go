@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
@@ -118,6 +119,16 @@ func seedNode(t *testing.T, ctx context.Context, kc *fake.Clientset, pressure, c
 // server. TestMutationsOnlyThroughGate proves no write exists outside the
 // gate; this table proves the gate holds for each path that reaches it.
 var mutatingDrivers = []mutatingDriver{
+	{"config reload", func(t *testing.T, ctx context.Context, deps *Deps, kc *fake.Clientset) func() {
+		d := deployUsing("api", envSpec("app", "level"), nil)
+		_, err := kc.AppsV1().Deployments("default").Create(ctx, d, metav1.CreateOptions{})
+		mustCreate(t, err)
+		r := NewReloader(deps, config.Reload{Enabled: true, On: "auto"}, func() bool { return true })
+		return func() {
+			r.configMapChanged(cmap(map[string]string{"level": "1"}), cmap(map[string]string{"level": "2"}))
+			r.reloadTick(ctx)
+		}
+	}},
 	{"crashloop delete pod", func(t *testing.T, ctx context.Context, deps *Deps, kc *fake.Clientset) func() {
 		pod := seedPod(t, ctx, kc, "api-1", "node-1")
 		return func() { handleCrashLoop(ctx, deps, pod, "app") }

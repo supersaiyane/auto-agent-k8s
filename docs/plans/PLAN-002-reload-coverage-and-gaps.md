@@ -82,6 +82,23 @@ some of these.
   allowlisted namespaces; patch on deployments (exists), statefulsets,
   daemonsets, cronjobs. `TestRBAC_ChartMatchesCode` forces the chart to match.
 
+**As built (phase 13, 2026-10-08), where it differs from the design above.**
+The namespace allowlist became two scopes (ADR-002): ConfigMaps are watched
+in the watch scope (one informer that excludes the system namespaces by
+field selector, or one per listed namespace), Secrets only inside the fix
+ceiling, because only there can a reload act; the gate still acts only in
+the fix scope. No hashes are stored: the informer hands over the old and new
+object, so the changed keys are compared directly. The pod template gets one
+annotation per object, `auto-agent.io/reload-<id>: <hash of the keys used>`,
+instead of one `config-hash`, so two objects never overwrite each other's
+version and a repeated event is "up to date". A stalled Deployment is rolled
+back by the existing stuck rollout check (R4); the reload marks that version
+blocked for that workload, stops its wave and raises ConfigReloadFailed.
+StatefulSets and DaemonSets have no progress deadline, so a reload waits
+`reloadVerifyTimeout` (10 minutes) before calling them failed. A change that
+restarts nothing is not recorded. Code: `internal/kube/reload_refs.go`,
+`reload_policy.go`, `reload.go`, `reload_watch.go`.
+
 ### A.3 Tasks
 
 | Task | Change | Done when |
@@ -374,9 +391,8 @@ limits), ISS-045 (job failure reason missing) and ISS-046 (false HPA
 alerts), all fixed. 10.3 replaced `CheckVolumeAttachments`. Total coverage
 44.6 to 51.5 percent. Commits 7990933, e8a227c and the phase 10 completion.
 
-Rows 10.1, 10.9 and 10.10 reach their final rung when the approval queue
-lands in phase 15; until then they stop one rung lower and say so in the
-alert.
+Rows 10.9 and 10.10 reached R3 in phase 15. Row 10.1 stays at R1 by
+decision (see phase 15 as built).
 
 ### Phase 11: architect review fixes (14 to 23 days)
 
@@ -424,7 +440,43 @@ found and fixed ISS-066 to ISS-076, including a crash on Ingress resource
 backends (ISS-072). Every old detector now reports through `report()` with
 a rung; the untested list is empty and `TestEveryLeaderCheckHasATest` keeps
 every leader check tested. Coverage 70.7% total (measured), floor raised
-to it. Next: phase 13.
+to it.
+
+Phase 13 done 2026-10-08 (Part A, A1 to A3): see "As built" in A.2.
+Coverage 72.3% (measured). PLAN-003 done the same day.
+
+Phase 14 done 2026-10-08 (Part B network, ISS-033, ISS-036): node probes
+(`internal/kube/netprobe.go`) and leader checks (`netchecks.go`); kube-proxy
+and CNI pods are read only where kube-system is watched (constraint 4), and
+the Service probe covers the same failure without reading kube-system.
+
+Phase 15 done 2026-10-08 (Part C, C1.1 to C1.3, C2): as built,
+
+- `internal/kube/approvals.go` holds the queue. An item keeps the exact
+  mutation, expires after `approvals.ttl` (30m), and is applied once through
+  `applyMutation`, so mode, fix scope, guardrails and the rate limiter are
+  checked again. Replays, expired and rejected items are refused, unlisted
+  users are refused and audited, and the audit detail names the approver
+  (`mutation.ApprovedBy`). It is off with no `approvals.groups`, and it
+  queues only in fix mode inside the fix scope. The queue is in memory on
+  the leader (standbys proxy the callback), so a restart drops pending items
+  (ISS-078).
+- Slack: `approve_fix` and `reject_fix` on the signed callback, user
+  `slack:<id>`. The buttons are posted once per queued change and carry
+  only the id. Dashboard: an Approvals tab and `/api/approvals` (GET, and
+  DELETE to reject; approving is Slack only).
+- C2, live behind approval: HPA maxReplicas, CPU limit (strategic merge on
+  the Deployment, StatefulSet or DaemonSet), claim expansion, Deployment
+  resume, stuck DaemonSet pod delete, and CronJob run now. RBAC gained
+  `horizontalpodautoscalers` patch, `persistentvolumeclaims` patch and
+  `jobs` create in the write Roles.
+- They stay at R1 by decision: stuck terminating pods (a force delete of a
+  StatefulSet pod on a node that is not down runs two copies), forgotten
+  cordons (a controller node patch), network pods down (kube-system is
+  outside the fix scope), sandbox failures (no single change), and quota
+  exhaustion (no ceiling is defined, ISS-077).
+
+Next: phase 16.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

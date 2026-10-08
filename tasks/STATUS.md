@@ -34,7 +34,17 @@ counts computed or removed, changelog generated from git, docs check test.
 changelog regenerated. **Phase 11 is complete.** Phase 12 done 2026-10-08
 (ISS-039, ISS-034, ISS-035): 20 detectors and 4 leader loops audited and
 tested; ISS-066 to ISS-076 found and fixed; every leader check must have a
-test. Coverage 70.7% total (measured), floor raised to it. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+test. Coverage 70.7% total (measured), floor raised to it. Phase 13 code
+done 2026-10-08 (PLAN-002 Part A, A1 to A3): config reload with key-level
+detection, Stakater annotations, reloadOn, debounce, staged waves, rollback
+on stall, Secrets opt-in, Reloads tab, GUIDE 8.7 and 8.8. `make e2e` and
+`make e2e-raw` pass on kind; coverage 72.3% (measured), floor raised.
+**Phase 13 is complete.** PLAN-003 done 2026-10-08: the terminal runs from
+one command table (get 20 kinds, describe, logs, events, rollout, auth can-i,
+agent commands), refuses writes, exec and secrets with the reason, and shows
+the table in a panel; ISS-063 fixed. Phase 14 done 2026-10-08 (ISS-033,
+ISS-036): per-node DNS, Service and egress probes; sandbox and CNI events;
+NetworkPolicy analysis; conntrack and CoreDNS; Ingress TLS secrets. Phase 15 done 2026-10-08: approve to fix (R3), a queue applied once through the gate after a listed Slack approver presses Approve; six fixes live behind it; Approvals tab; ISS-077 (quota ceiling, OPEN) and ISS-078 (queue in memory) recorded. Next: phase 16; 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

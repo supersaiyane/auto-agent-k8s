@@ -1,8 +1,14 @@
 # PLAN-003: A more capable read-only terminal
 
-Status: planned 2026-10-08. Starts after PLAN-002 phase 13 (native config
-reload); PLAN-002 phases 14 to 17 follow it. Owner decision 2026-10-08.
-Estimates are modelled.
+Status: done 2026-10-08, after PLAN-002 phase 13, as the owner decided.
+Every phase below is built: the command table in
+`internal/httpapi/terminal.go` (with `terminal_get.go`,
+`terminal_describe.go`, `terminal_read.go`, `terminal_agent.go`), the panel,
+`/api/kubectl/help`, `kube.GatePreview`. Tests: `terminal_test.go`,
+`TestKubectl_NamespaceAllowlist`, `TestDocs_TerminalSectionMatchesTable`,
+`TestGatePreview`, the ui-test panel check. `top` and `get all` were removed:
+`top` only said it was not implemented, and `get all` is the explicit kinds.
+Estimates were modelled.
 
 ## Goal
 

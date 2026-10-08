@@ -17,9 +17,11 @@ This page documents the honest status of every feature: what's actually working 
 | **Config hot-reload** | ConfigMap changes picked up every 30s | No pod restart needed for config changes |
 | **Cost estimation** | Working with built-in instance prices | 40+ AWS/GCP/Azure instance types hardcoded |
 | **Resource efficiency** | Pod overuse/underuse/no-limits analysis | Based on requests vs limits comparison |
-| **kubectl terminal** | Commands execute via K8s Go client | get, describe, logs, version: read-only |
+| **kubectl terminal** (PLAN-003) | `internal/httpapi/terminal*.go`, one command table; `terminal_test.go`, `make ui-test` | Read-only: get (20 kinds), describe, logs, events, rollout status and history, auth can-i, agent scope/why/gate/status; writes, exec and secrets refused with the reason; outputs redacted |
 | **Watch scope and fix scope** (ADR-002) | `internal/policy/scope.go`, gate check in `internal/kube/gate.go`; tests `internal/policy/scope_test.go`, `TestGate_OutsideFixScopeOnlySuggests`; kind e2e scope case in `scripts/e2e-kind.sh` | Watches every non-system namespace; acts only in the fix scope, inside the Helm ceiling; suggests elsewhere |
 | **Settings tab** (fix scope from the dashboard) | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/httpapi/ui/app.js` (`viewSettings`); tests `internal/httpapi/scope_test.go`, `TestSaveFixScope`, `make ui-test` | Changes stored in the `auto-agent-scope` ConfigMap, kept across Helm upgrades, audited |
+| **Config reload** (PLAN-002 Part A) | `internal/kube/reload*.go`; tests `reload_refs_test.go`, `reload_test.go`, the gate driver "config reload"; kind e2e reload case | ConfigMaps by default, Secrets opt-in; key level; debounce; one workload at a time with rollback on stall; Stakater annotations; Reloads tab |
+| **Network checks** (PLAN-002 phase 14) | `internal/kube/netprobe.go` (node probes), `netchecks.go` (leader); `netchecks_test.go` | Per-node DNS, Service and egress probes; sandbox/CNI failures; kube-proxy and CNI pods (when kube-system is watched); NetworkPolicy blocks; conntrack and CoreDNS (Prometheus); Ingress TLS secrets |
 | **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
 | **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
@@ -28,13 +30,13 @@ This page documents the honest status of every feature: what's actually working 
 ## Added in PLAN-002 phase 10 (2026-10-08)
 
 Each runs on the leader, reports through one path that records its rung on
-the fix ladder (R0 alert, R1 guided fix, R3 approve to fix once the approval
-queue exists), and is tested with a bad case and a healthy control.
+the fix ladder (R0 alert, R1 guided fix, R3 approve to fix), and is tested
+with a bad case and a healthy control.
 Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
 
 | Detector | Reasons reported | Rung | Code | Test |
 | --- | --- | --- | --- | --- |
-| Pods stuck terminating | `PodStuckTerminating` | R1, R3 later | `internal/kube/podstate.go` | `TestStuckTerminating` |
+| Pods stuck terminating | `PodStuckTerminating` | R1 (force delete stays with a person: a StatefulSet pod on a node that is not really down could run twice) | `internal/kube/podstate.go` | `TestStuckTerminating` |
 | Volumes that do not attach or mount | `VolumeAttachFailed`, `VolumeMountFailed` | R1 | `internal/kube/podstate.go` | `TestVolumeFailures` |
 | Probes failing before a crashloop | `LivenessProbeFailing`, `ReadinessProbeFailing`, `StartupProbeFailing` | R1 | `internal/kube/podstate.go` | `TestProbeFailures` |
 | Why a pod cannot be scheduled (taint, affinity, resources, volume, topology spread) | `Unschedulable` | R1 | `internal/kube/podstate.go`, `scheduling.go` | `TestUnschedulable_ReportedByLeader`, `TestParseSchedulingFailure_OneCasePerCause` |
@@ -43,10 +45,10 @@ Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
 | Namespaces and claims held by finalizers | `NamespaceStuckTerminating`, `PVCStuckTerminating` | R1 | `internal/kube/lifecycle.go` | `TestStuckFinalizers_NamespaceAndPVC` |
 | Disruption budgets blocking evictions; refused evictions counted (`auto_agent_evictions_blocked_total`) | `PDBBlocksDisruption` | R1 | `internal/kube/lifecycle.go`, `nodes.go` | `TestDisruptionBudgets`, `TestNodePressure_EvictionRefusedByBudgetIsCounted` |
 | Job hit its retry limit or deadline, reason in the alert | `JobFailed` | R1 | `internal/kube/jobs.go` | `TestFailedJob_ReasonInAlert` |
-| HPA capped at its maximum for 15 minutes, higher maximum proposed within the policy ceiling | `HPAMaxedOut`, `HPAScalingFailed` | R1, R3 later | `internal/kube/workload_extended.go` | `TestHPA_StuckAtMaxOnlyWhenLimited` |
+| HPA capped at its maximum for 15 minutes, higher maximum proposed within the policy ceiling | `HPAMaxedOut`, `HPAScalingFailed` | R1; R3 with approval | `internal/kube/workload_extended.go` | `TestHPA_StuckAtMaxOnlyWhenLimited` |
 | Image pull cause: rate limit, unauthorized, not found, network; no retry where it cannot help | `ImagePullBackOff` | R1, or R4 for network | `internal/kube/handlers.go` | `TestImagePull_CauseDecidesRetry` |
-| CPU throttling (Prometheus) | `CPUThrottled` | R1, R3 later | `internal/kube/promchecks.go` | `TestCPUThrottling` |
-| Claims almost full; expansion offered only when the StorageClass allows it (Prometheus) | `VolumeAlmostFull` | R1, R3 later | `internal/kube/promchecks.go` | `TestVolumeAlmostFull` |
+| CPU throttling (Prometheus) | `CPUThrottled` | R1; R3 with approval | `internal/kube/promchecks.go` | `TestCPUThrottling` |
+| Claims almost full; expansion offered only when the StorageClass allows it (Prometheus) | `VolumeAlmostFull` | R1; R3 with approval | `internal/kube/promchecks.go` | `TestVolumeAlmostFull` |
 | etcd: no leader, leader churn, database near quota (Prometheus, self-managed control planes) | `EtcdNoLeader`, `EtcdLeaderChurn`, `EtcdDBNearQuota` | R0 | `internal/kube/promchecks.go` | `TestEtcdHealth` |
 | Deprecated API use, with the replacement (Prometheus scraping the API server) | `DeprecatedAPIInUse` | R1 | `internal/kube/promchecks.go` | `TestDeprecatedAPIs` |
 
@@ -176,3 +178,13 @@ ESCALATION_EMAIL_TO: "oncall@yourorg.com"
 | Kubecost | Dashboard Cost tab shows `source: kubecost` instead of `default` |
 | Learning | `curl http://localhost:8080/api/baselines`: should show `learning: true` with baseline data |
 | Prometheus | Agent logs should NOT show `metrics provider not implemented` |
+
+## Added in PLAN-002 phase 15 (2026-10-08): approve to fix (R3)
+
+| Feature | Status | Code | Test |
+| --- | --- | --- | --- |
+| Approval queue: holds the exact change, expires after `approvals.ttl` (30m), applied once through the mutation gate with guardrails checked again; replays, expired and rejected items refused; the audit names the approver | Working; off until `approvals.groups` is set; fix mode and fix scope only; in memory, lost on restart (ISS-078) | `internal/kube/approvals.go` | `TestApprovals_ApproveAppliesOnceAndRecordsApprover`, `TestApprovals_ExpiredAndRejectedAreRefused`, `TestApprovals_GuardrailsCheckedAgainAtApproval` |
+| Slack Approve and Reject buttons on the signed callback, listed users only | Working; needs `slack.signingSecret` and a Slack app with interactivity | `internal/httpapi/approvals.go`, `slack_actions.go` | `TestSlackActions_ApproveAndRejectNeedAListedApprover` |
+| Dashboard Approvals tab and `/api/approvals` (list, reject; never approve) | Working | `internal/httpapi/approvals.go`, `ui/app.js` | `TestAPI_ApprovalsListFiltersAndRejects` |
+| R3 changes: HPA maxReplicas, CPU limit (Deployment, StatefulSet, DaemonSet), claim expansion, Deployment resume, stuck DaemonSet pod delete, CronJob run now | Working behind approval | `internal/kube/approval_fixes.go` | `TestApprovalFixes_Changes`, `TestTemplateOwnerAndCPUPatch` |
+| Stay at R1: stuck terminating pods (force delete), forgotten cordon (node patch), quota exhaustion (no ceiling defined, ISS-077), network pods down (kube-system), sandbox failures | By decision | `podstate.go`, `node_extended.go`, `quotas.go`, `netchecks.go` | their detector tests |

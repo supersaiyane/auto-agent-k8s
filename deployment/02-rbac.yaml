@@ -54,8 +54,34 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list"]
 - apiGroups: ["apps"]
-  resources: ["replicasets", "statefulsets", "daemonsets"]
+  resources: ["replicasets", "controllerrevisions"]
+  verbs: ["list"]   # controllerrevisions: the terminal's rollout history sts/<name>
+# The terminal's describe (PLAN-003): one object at a time, read-only.
+- apiGroups: [""]
+  resources: ["services", "persistentvolumeclaims"]
+  verbs: ["get"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
   verbs: ["list"]
+# The terminal's auth can-i asks what the agent itself may do; nothing is stored.
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["selfsubjectaccessreviews"]
+  verbs: ["create"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["get", "list"]   # get: config reload checks the rollout
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["list", "watch"]   # config reload, in the watch scope (system namespaces excluded by field selector)
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
   verbs: ["list"]
@@ -91,6 +117,14 @@ rules:
   verbs: ["get"]
 - apiGroups: [""]
   resources: ["events"]
+  verbs: ["list"]
+# Network probes from each node (PLAN-002 phase 14): the watched namespaces,
+# and the Services with ready endpoints to dial.
+- apiGroups: [""]
+  resources: ["namespaces", "services"]
+  verbs: ["list"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
   verbs: ["list"]
 - apiGroups: [""]
   resources: ["nodes"]
@@ -140,9 +174,23 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -171,9 +219,23 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -202,9 +264,23 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 ---
 # Source: auto-agent/templates/roles.yaml
 apiVersion: rbac.authorization.k8s.io/v1

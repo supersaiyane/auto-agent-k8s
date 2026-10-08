@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net/http/httptest"
-	"sync"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,6 +59,8 @@ func TestDashboardInBrowser(t *testing.T) {
 	current := func() *policy.Policy { mu.Lock(); defer mu.Unlock(); return pol }
 	s := NewServer(":0", rec, &AgentMeta{Version: "ui-test", Mode: "dry-run", NodeName: "node-a"}, kc, Options{
 		DashboardToken: "ui-token", AllowNamespace: func(ns string) bool { return current().Watched(ns) },
+		Extended: ExtendedDeps{Reloads: uiReloads{{ID: 1, Timestamp: now, Namespace: "default", Object: "configmap/app", Keys: []string{"level"}, Done: true,
+			Workloads: []kube.ReloadOutcome{{Workload: "deployment/api", Result: "simulated", Detail: `<b onmouseover="window.__pwned=1">x</b>`}}}}},
 		Scope: ScopeOptions{Policy: current, Save: func(_ context.Context, names []string, _ string) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -80,3 +82,7 @@ func TestDashboardInBrowser(t *testing.T) {
 		t.Fatalf("browser test failed: %v", err)
 	}
 }
+
+type uiReloads []kube.ReloadRecord
+
+func (u uiReloads) Records() []kube.ReloadRecord { return u }

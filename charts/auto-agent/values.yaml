@@ -103,6 +103,40 @@ rbac:
   # logs a warning at every start and the dashboard shows the mode.
   fixAnywhere: false
 
+# Config reload (PLAN-002 Part A): restart the workloads that use a changed
+# ConfigMap key, one at a time, through the gate. It follows the mode, so
+# with the default dry-run it only records what it would restart.
+reload:
+  enabled: true
+  # Also reload on Secret changes. Off by default: it adds Secret list and
+  # watch inside the fix ceiling. Only key names and hashes are kept; values
+  # are never logged. See GUIDE section "Reloading on Secret changes".
+  secrets: false
+  reloadOn: auto                   # auto: skip plain volume mounts (updated in place); always: restart anyway
+  debounce: 10s                    # edits within this window give one reload
+
+# Network probes every node agent runs from its own pod network (PLAN-002
+# phase 14). They only resolve names and open TCP connections; they change
+# nothing.
+probes:
+  interval: 1m
+  dns: true                        # resolve kubernetes.default.svc.<clusterDomain>
+  clusterDomain: cluster.local
+  dnsExternalName: ""              # also resolve this name to test upstream DNS; empty: off
+  services: false                  # dial a sample of Services that have ready endpoints (opt-in)
+  egressTarget: ""                 # host:port to dial to test egress (opt-in); empty: off
+
+# Approve to fix, rung R3 (PLAN-002 phase 15). Some findings carry an exact
+# change (raise an HPA's maxReplicas, raise a CPU limit, expand a claim,
+# resume a Deployment, delete stuck DaemonSet pods, run a missed CronJob).
+# In fix mode, inside the fix scope, the change waits for one of these
+# Slack users to press Approve; it then goes through the same gate as every
+# other fix. No groups: approvals are off and these stay suggestions. Needs
+# slack.signingSecret so the callback can be verified.
+approvals:
+  ttl: 30m                         # a queued change expires after this
+  groups: []                       # who may approve, e.g. ["slack:U123ABC"]
+
 leaderElection:
   namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 

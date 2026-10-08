@@ -34,6 +34,18 @@ type mutation struct {
 	SuccessMsg string // shown when applied, e.g. "deleted pod"
 	SuggestMsg string // shown in suggest mode, e.g. "delete the pod"
 	Apply      func() error
+	ApprovedBy string // who approved an R3 change (phase 15); empty when none was needed
+}
+
+// approvalNote adds who approved the change to an audit detail.
+func approvalNote(m mutation, detail string) string {
+	if m.ApprovedBy == "" {
+		return detail
+	}
+	if detail == "" {
+		return "approved by " + m.ApprovedBy
+	}
+	return detail + "; approved by " + m.ApprovedBy
 }
 
 // applyMutation is the only path by which the agent changes the cluster.
@@ -65,27 +77,27 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 
 	if blocked, why := checkGuardrails(ctx, deps, m.Namespace, m.Workload, m.Labels); blocked {
 		klog.Infof("gate: BLOCKED %s %s/%s reason=%s by=%s", m.ActionType, m.Namespace, m.Workload, m.Reason, why)
-		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", why)
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", approvalNote(m, why))
 		return gateBlocked, fmt.Sprintf("_Blocked_: %s.\n", why)
 	}
 	// A missing limiter fails closed: no limiter means no budget, not no limit.
 	if deps.Limiter == nil || !deps.Limiter.Allow() {
 		klog.Infof("gate: RATE LIMITED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
 		obs.RateLimitedTotal.Inc()
-		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", "rate limited")
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", approvalNote(m, "rate limited"))
 		return gateBlocked, "_Action_: rate limited, skipping.\n"
 	}
 
 	if err := m.Apply(); err != nil {
 		klog.Warningf("gate: %s failed for %s/%s: %v", m.ActionType, m.Namespace, m.Workload, err)
 		obs.HandlerErrorsTotal.WithLabelValues(m.Reason, m.ActionType).Inc()
-		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "failed", err.Error())
+		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "failed", approvalNote(m, err.Error()))
 		return gateFailed, fmt.Sprintf("_Action_: %s failed: %v\n", m.ActionType, err)
 	}
 
 	klog.Infof("gate: APPLIED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
 	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace, m.Workload).Inc()
-	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", "")
+	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", approvalNote(m, ""))
 	return gateApplied, fmt.Sprintf("_Action_: %s.\n", m.SuccessMsg)
 }
 

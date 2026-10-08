@@ -168,3 +168,30 @@ func TestStatus_ReportsScope(t *testing.T) {
 		}
 	}
 }
+
+type fakeReloads []kube.ReloadRecord
+
+func (f fakeReloads) Records() []kube.ReloadRecord { return f }
+
+// PLAN-002 A3.3: the Reloads tab shows reloads in watched namespaces only.
+func TestReloadsAPI(t *testing.T) {
+	recs := fakeReloads{{ID: 2, Namespace: "default", Object: "configmap/app", Keys: []string{"level"},
+		Workloads: []kube.ReloadOutcome{{Workload: "deployment/api", Result: "simulated"}}},
+		{ID: 1, Namespace: "hidden-ns", Object: "configmap/x"}}
+	s := NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, fake.NewSimpleClientset(), Options{
+		DashboardToken: "dash", AllowNamespace: func(ns string) bool { return ns == "default" }, Extended: ExtendedDeps{Reloads: recs}})
+	r := httptest.NewRequest(http.MethodGet, "/api/reloads", nil)
+	r.Header.Set("Authorization", "Bearer dash")
+	w := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != http.StatusOK || !strings.Contains(body, `"configmap/app"`) || strings.Contains(body, "hidden-ns") || !strings.Contains(body, `"simulated"`) {
+		t.Fatalf("reloads: %d %s", w.Code, body)
+	}
+	empty := NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, fake.NewSimpleClientset(), Options{DashboardToken: "dash"})
+	w = httptest.NewRecorder()
+	empty.srv.Handler.ServeHTTP(w, r)
+	if strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Fatalf("reload off: %s", w.Body.String())
+	}
+}

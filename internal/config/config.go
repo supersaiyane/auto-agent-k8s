@@ -36,6 +36,15 @@ type Config struct {
 	PodName      string
 	PodNamespace string
 
+	// Config reload (PLAN-002 Part A).
+	Reload Reload
+
+	// Network probes run by every node agent (PLAN-002 phase 14).
+	Probes Probes
+
+	// R3 approvals (PLAN-002 phase 15).
+	Approvals Approvals
+
 	// API client rate limits, per pod (ISS-056).
 	APIQPS   float32
 	APIBurst int
@@ -178,6 +187,27 @@ func Load(get Getenv) Config {
 		NodeName:     r.str("NODE_NAME", ""),
 		PodName:      r.str("POD_NAME", ""),
 		PodNamespace: r.str("POD_NAMESPACE", ""),
+
+		Reload: Reload{
+			Enabled:  r.boolean("RELOAD_ENABLED", true),
+			Secrets:  r.boolean("RELOAD_SECRETS", false),
+			On:       r.str("RELOAD_ON", "auto"),
+			Debounce: r.duration("RELOAD_DEBOUNCE", 10*time.Second),
+		},
+
+		Probes: Probes{
+			Interval:      r.duration("NET_PROBE_INTERVAL", time.Minute),
+			DNS:           r.boolean("DNS_PROBE_ENABLED", true),
+			ClusterDomain: r.str("DNS_CLUSTER_DOMAIN", "cluster.local"),
+			ExternalName:  r.str("DNS_PROBE_EXTERNAL", ""),
+			Services:      r.boolean("SERVICE_PROBE_ENABLED", false),
+			EgressTarget:  r.str("EGRESS_PROBE_TARGET", ""),
+		},
+
+		Approvals: Approvals{
+			TTL:       r.duration("APPROVAL_TTL", 30*time.Minute),
+			Approvers: r.list("APPROVAL_GROUPS"),
+		},
 
 		APIQPS:   float32(r.positiveInt("KUBE_API_QPS", 50)),
 		APIBurst: r.positiveInt("KUBE_API_BURST", 100),
@@ -337,4 +367,38 @@ func KlogVerbosity(level string) (v int, ok bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+func (r reader) boolean(key string, def bool) bool {
+	b, err := strconv.ParseBool(r.get(key))
+	if err != nil {
+		return def
+	}
+	return b
+}
+
+// Reload is the config reload feature (PLAN-002 Part A).
+type Reload struct {
+	Enabled  bool          // RELOAD_ENABLED: watch ConfigMaps and reload workloads (still dry-run by mode)
+	Secrets  bool          // RELOAD_SECRETS: also Secrets, in the fix ceiling only (opt-in)
+	On       string        // RELOAD_ON: auto (skip in-place volume updates) or always
+	Debounce time.Duration // RELOAD_DEBOUNCE: edits within this window give one reload
+}
+
+// Probes are the network checks every node agent runs from its own pod
+// network (PLAN-002 phase 14, ISS-033, ISS-036).
+type Probes struct {
+	Interval      time.Duration // NET_PROBE_INTERVAL
+	DNS           bool          // DNS_PROBE_ENABLED: resolve the API server's Service name
+	ClusterDomain string        // DNS_CLUSTER_DOMAIN
+	ExternalName  string        // DNS_PROBE_EXTERNAL: also resolve this name (upstream DNS); empty: off
+	Services      bool          // SERVICE_PROBE_ENABLED: dial ready Services' ClusterIPs (opt-in)
+	EgressTarget  string        // EGRESS_PROBE_TARGET: host:port to dial (opt-in); empty: off
+}
+
+// Approvals is the R3 approval queue (PLAN-002 phase 15). With no
+// approvers it is off and R3 fixes stay suggestions.
+type Approvals struct {
+	TTL       time.Duration // APPROVAL_TTL: a queued change expires after this
+	Approvers []string      // APPROVAL_GROUPS: who may approve, e.g. slack:U123ABC
 }

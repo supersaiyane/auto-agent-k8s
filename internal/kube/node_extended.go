@@ -87,7 +87,7 @@ func forgottenCordon(node *corev1.Node, now time.Time, base finding) (finding, b
 		return finding{}, false
 	}
 	f := base
-	f.Reason, f.Severity, f.Rung, f.Target = "CordonedForgotten", eventsvc.SevInfo, RungGuided, RungApprove
+	f.Reason, f.Severity, f.Rung = "CordonedForgotten", eventsvc.SevInfo, RungGuided
 	f.Summary = fmt.Sprintf("Ready but cordoned for %s; nothing new is scheduled here", now.Sub(since.Time).Round(time.Minute))
 	f.Fix = fmt.Sprintf("if the maintenance is done: `kubectl uncordon %s`", node.Name)
 	return f, true

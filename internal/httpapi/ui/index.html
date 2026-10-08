@@ -61,6 +61,8 @@
       <button type="button" role="tab" data-tab="audit">Audit</button>
       <button type="button" role="tab" data-tab="dryrun">Dry run</button>
       <button type="button" role="tab" data-tab="actions">Fixes</button>
+      <button type="button" role="tab" data-tab="reloads">Reloads</button>
+      <button type="button" role="tab" data-tab="approvals">Approvals</button>
       <button type="button" role="tab" data-tab="compliance">Compliance</button>
       <button type="button" role="tab" data-tab="deploys">Deploys</button>
       <button type="button" role="tab" data-tab="baselines">Baselines</button>
@@ -94,13 +96,14 @@
     <section id="view" role="tabpanel" tabindex="0" aria-live="polite"><div class="empty">Loading...</div></section>
 
     <section id="terminal" class="terminal" role="tabpanel" hidden>
+      <aside id="term-help" class="term-help" aria-label="What the terminal can run"></aside>
       <div id="term-output" class="term-output"></div>
       <div class="term-line">
         <span class="term-prompt">$ kubectl</span>
         <label for="term-input" class="sr-only">kubectl command</label>
         <input id="term-input" type="text" placeholder="get pods -n default" autocomplete="off" spellcheck="false">
       </div>
-      <p class="muted small">Supports get, describe, logs and version, in watched namespaces only. Type help.</p>
+      <p class="muted small">Read-only. The panel lists what runs, what never will and why. Type help.</p>
     </section>
   </main>
 </body>

@@ -30,6 +30,13 @@ func isClientMutation(call *ast.CallExpr) bool {
 	if !ok || !mutatingVerbs[sel.Sel.Name] {
 		return false
 	}
+	// A SelfSubjectAccessReview is a question to the API server ("may I?"),
+	// not a change: nothing is stored. The terminal's `auth can-i` uses it.
+	if inner, ok := sel.X.(*ast.CallExpr); ok {
+		if s, ok := inner.Fun.(*ast.SelectorExpr); ok && s.Sel.Name == "SelfSubjectAccessReviews" {
+			return false
+		}
+	}
 	for x := sel.X; ; {
 		c, ok := x.(*ast.CallExpr)
 		if !ok {

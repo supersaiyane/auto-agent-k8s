@@ -185,7 +185,7 @@ func TestHPA_StuckAtMaxOnlyWhenLimited(t *testing.T) {
 	CheckHPAIssues(context.Background(), h.deps)
 	maxed := strings.Join(h.expect(t, "HPAMaxedOut", RungGuided, 2), "\n")
 	for _, want := range []string{"`default/deployment/api`", "from 10 to 15", "held at maxReplicas 10 for 1h0m0s",
-		"R3 approve to fix arrives", "from 48 to 50 (half again, within the policy ceiling of 50)"} {
+		"R3 approve to fix: approve to fix is off: no approvers are set", "from 48 to 50 (half again, within the policy ceiling of 50)"} {
 		if !strings.Contains(maxed, want) {
 			t.Errorf("maxed messages lack %q:\n%s", want, maxed)
 		}

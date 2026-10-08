@@ -82,6 +82,7 @@ type Deps struct {
 	Escalation    *escalation.Chain
 	DeployTracker *DeployTracker
 	LearningMode  *LearningMode
+	Approvals     *Approvals // R3 approval queue; nil or no approvers: off
 }
 
 // PolicySource returns the current immutable policy snapshot. In production

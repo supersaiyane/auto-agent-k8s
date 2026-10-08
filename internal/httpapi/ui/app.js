@@ -145,6 +145,46 @@
     if (state.fixes === 'all' || state.fixes === 'failed') rows.push(...group(d.failed, 'not fixed', 'red'));
     return h + list(rows, 'No remediation yet.');
   }
+  // Config reloads (PLAN-002 Part A): what changed (key names only) and what
+  // happened to each workload, one at a time.
+  async function viewReloads() {
+    const all = (await api('/api/reloads')).filter((r) => inNs(r.namespace));
+    setCount(all.length, all.length);
+    if (!all.length) return '<p class="muted small">When a ConfigMap (or, with reload.secrets, a Secret) changes, the workloads that use the changed keys restart one at a time. Nothing has changed yet.</p>';
+    const color = { restarted: 'green', healthy: 'green', simulated: 'purple', suggested: 'blue', 'up to date': 'muted', blocked: 'yellow', skipped: 'yellow', failed: 'red' };
+    return '<p class="muted small">Workloads restart one at a time; the next waits until the previous is healthy, and a failure stops the rest. In dry-run the restart is only recorded.</p>'
+      + `<table><tr><th>When</th><th>Object</th><th>Changed keys</th><th>Workloads</th></tr>${all.map((r) => `<tr>
+      <td class="time">${when(r.timestamp)}</td><td><span class="ns">${esc(r.namespace)}</span> <strong>${esc(r.object)}</strong>${r.done ? '' : ' ' + pill('in progress', 'blue')}</td>
+      <td class="mono">${esc((r.changedKeys || []).join(', '))}</td>
+      <td>${(r.workloads || []).map((w) => `<div>${esc(w.workload)} ${pill(w.result, color[w.result])} <span class="muted small">${esc(trunc(w.detail, 90))}</span></div>`).join('')}</td></tr>`).join('')}</table>`;
+  }
+  // Approve to fix, rung R3 (PLAN-002 phase 15): changes waiting for a
+  // listed approver. Approving happens only in Slack, where the person is
+  // known; the dashboard shares one token, so it can only reject.
+  async function viewApprovals() {
+    const all = (await api('/api/approvals')).filter((a) => inNs(a.namespace));
+    setCount(all.length, all.length);
+    const note = state.approvalNotice ? `<p class="small ${state.approvalNotice.ok ? 'green' : 'red'}">${esc(state.approvalNotice.text)}</p>` : '';
+    const intro = '<p class="muted small">In fix mode, inside the fix scope, some findings carry an exact change. It waits here until a listed approver presses Approve in Slack, then goes through the same gate as every other fix. Reject drops it.</p>';
+    if (!all.length) return intro + note + '<p class="muted small">Nothing is waiting. With no approvers set (approvals.groups) this stays empty.</p>';
+    const color = { pending: 'blue', approved: 'green', rejected: 'muted', expired: 'yellow' };
+    return intro + note + `<table><tr><th>Queued</th><th>Workload</th><th>Change</th><th>State</th><th></th></tr>${all.map((a) => `<tr>
+      <td class="time">${when(a.created)}</td><td><span class="ns">${esc(a.namespace)}</span> <strong>${esc(a.workload)}</strong> <span class="reason">${esc(a.reason)}</span></td>
+      <td>${esc(a.change)}<div class="muted small">${esc(trunc(a.summary, 120))}</div></td>
+      <td>${pill(a.state, color[a.state])}${a.by ? ` <span class="muted small">by ${esc(a.by)}</span>` : ''}${a.result ? ' ' + pill(a.result, a.result === 'applied' ? 'green' : 'yellow') : ''}
+        ${a.state === 'pending' ? `<div class="muted small">expires ${when(a.expires)}</div>` : ''}</td>
+      <td>${a.state === 'pending' ? `<button type="button" class="btn" data-action="approval-reject" data-arg="${esc(a.id)}">Reject</button>` : ''}</td></tr>`).join('')}</table>`;
+  }
+  async function rejectApproval(id) {
+    try {
+      await apiSend('DELETE', '/api/approvals?id=' + encodeURIComponent(id));
+      state.approvalNotice = { ok: true, text: 'Rejected; nothing was changed. Recorded in the Audit tab.' };
+    } catch (e) {
+      if (e instanceof AuthError) return;
+      state.approvalNotice = { ok: false, text: e.message };
+    }
+    render();
+  }
   async function viewCompliance() {
     const r = await api('/api/compliance?days=' + num(state.days));
     const days = [7, 30, 90].map((n) => `<button type="button" class="btn${state.days === n ? ' primary' : ''}" data-action="days" data-arg="${n}">${n} days</button>`).join(' ');
@@ -389,7 +429,7 @@
     if (sc.fixAnywhere) {
       h += `<p class="warn-box">${pill('fix anywhere', 'red')} The chart granted write permissions in every namespace (rbac.fixAnywhere). This page can enable fixing in any non-system namespace, and a leaked dashboard or agent token can disrupt any of them. Prefer agent.fixCeiling.</p>`;
     }
-    h += `<p class="muted small">Anyone with the dashboard token can change the fix scope until named approvers arrive (PLAN-002 phase 15). Every change, and every refused attempt, is recorded in the Audit tab.</p>
+    h += `<p class="muted small">Anyone with the dashboard token can change the fix scope until named approvers arrive (PLAN-002 phase 15). Every change, and every refused attempt, is recorded in the Audit tab. To check a namespace before you enable it, type <span class="mono">agent gate -n &lt;ns&gt;</span> in the <a class="link" href="#terminal">Terminal</a>; its panel lists what it can and cannot run.</p>
       <p>Watching ${sc.watchAll ? 'every non-system namespace' : 'the namespaces set in Helm'}. Fixing in <strong>${names(before)}</strong>, ${sc.choice ? 'chosen on this page' : 'from Helm (agent.fixNamespaces)'}.</p>`;
     h += `<table><tr><th>Fix here</th><th>Namespace</th><th>Now</th></tr>${sc.namespaces.map((n) => `<tr>
       <td><input type="checkbox" data-action="scope-toggle" data-arg="${esc(n.name)}" aria-label="fix in ${esc(n.name)}"${after.has(n.name) ? ' checked' : ''}${n.inCeiling ? '' : ' disabled'}></td>
@@ -426,7 +466,7 @@
     render();
   }
 
-  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes,
+  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes, reloads: viewReloads, approvals: viewApprovals,
     compliance: viewCompliance, deploys: viewDeploys, baselines: viewBaselines, k8sevents: viewK8sEvents, charts: viewCharts,
     report: viewReport, cluster: viewCluster, nodes: viewNodes, cost: viewCost, resources: viewResources, settings: viewSettings };
 
@@ -487,7 +527,7 @@
     if (push && location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
     showToolbar();
     setCount(0, 0);
-    if (tab === 'terminal') $('term-input').focus(); else render();
+    if (tab === 'terminal') { loadTermHelp(); $('term-input').focus(); } else render();
   }
   function markTypeBoxes() {
     document.querySelectorAll('.stat-row [data-action="filter-type"]').forEach((b) => b.classList.toggle('active', b.dataset.arg === state.type));
@@ -501,6 +541,7 @@
     fixes: (el) => { state.fixes = el.dataset.arg; render(); },
     days: (el) => { state.days = num(el.dataset.arg) || 30; render(); },
     'refresh-now': () => render(),
+    'term-fill': (el) => { $('term-input').value = el.dataset.arg + ' '; $('term-input').focus(); },
     'scope-toggle': (el) => {
       const next = new Set(state.pending || (state.scope && state.scope.fixScope) || []);
       if (el.checked) next.add(el.dataset.arg); else next.delete(el.dataset.arg);
@@ -512,6 +553,7 @@
     },
     'scope-review': () => { state.review = true; render(); },
     'scope-cancel': () => { resetEdit(); render(); },
+    'approval-reject': (el) => rejectApproval(el.dataset.arg),
     'scope-apply': () => {
       if (!allConfirmed()) return;
       const { after, added } = scopeDiff();
@@ -602,6 +644,20 @@
     }
   });
   termPrint('auto-agent terminal. Type help for commands.', 'hint');
+  // The panel comes from the same command table the server runs (PLAN-003 1.3).
+  let helpLoaded = false;
+  async function loadTermHelp() {
+    if (helpLoaded) return;
+    try {
+      const h = await api('/api/kubectl/help');
+      helpLoaded = true;
+      $('term-help').innerHTML = `<h4>You can run</h4><ul class="term-cmds">${h.commands.map((c) => `<li><button type="button" class="link mono" data-action="term-fill" data-arg="${esc(c.usage.split(' [')[0].split(' <')[0])}">${esc(c.usage)}</button><span class="muted small"> ${esc(c.about)}</span></li>`).join('')}</ul>
+        <h4>Not available, and why</h4><ul>${h.refused.map((r) => `<li><span class="mono">${esc(r.commands)}</span><div class="muted small">${esc(r.why)}</div></li>`).join('')}</ul>
+        <h4>Rules</h4><ul>${h.rules.map((r) => `<li class="small">${esc(r)}</li>`).join('')}</ul>`;
+    } catch (e) {
+      if (!(e instanceof AuthError)) $('term-help').textContent = 'Could not load the command list: ' + e.message;
+    }
+  }
 
   // ---------- start ----------
   setInterval(() => {

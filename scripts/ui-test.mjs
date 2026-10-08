@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 const [base, token] = process.argv.slice(2);
 if (!base || !token) { console.error('usage: ui-test.mjs <base-url> <token>'); process.exit(2); }
-const TABS = ['events', 'audit', 'dryrun', 'actions', 'compliance', 'deploys', 'baselines', 'k8sevents',
+const TABS = ['events', 'audit', 'dryrun', 'actions', 'reloads', 'compliance', 'deploys', 'baselines', 'k8sevents',
   'charts', 'report', 'cluster', 'nodes', 'cost', 'resources', 'terminal', 'settings'];
 
 const candidates = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -91,6 +91,11 @@ for (const tab of TABS) {
   await evaluate(`document.querySelector('[role=tab][data-tab="${tab}"]').click()`);
   if (tab === 'terminal') {
     if (!(await waitFor(`!document.getElementById('terminal').hidden`))) fail('terminal did not open');
+    // PLAN-003 1.3: the panel lists exactly what the help API says.
+    const want = await evaluate(`fetch('/api/kubectl/help', { headers: { Authorization: 'Bearer ' + sessionStorage.getItem('autoAgentToken') } }).then((r) => r.json()).then((h) => h.commands.length + '/' + h.refused.length)`);
+    if (!(await waitFor(`document.querySelectorAll('#term-help .term-cmds li').length + '/' + (document.querySelectorAll('#term-help ul')[1] || { children: [] }).children.length === ${JSON.stringify(want)}`))) {
+      fail('terminal panel does not match /api/kubectl/help (' + want + ')');
+    }
     continue;
   }
   if (!(await waitFor(`window.__autoAgent.renders > ${before}`))) { fail(`${tab}: never rendered`); continue; }

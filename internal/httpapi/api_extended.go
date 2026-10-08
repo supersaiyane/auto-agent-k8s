@@ -15,6 +15,8 @@ type ExtendedDeps struct {
 	Deploys  *kube.DeployTracker
 	DryRun   *kube.DryRunLog
 	Fixes    *kube.FixTracker
+	// Reloads is the config reload log (PLAN-002 A3.3); nil when reload is off.
+	Reloads interface{ Records() []kube.ReloadRecord }
 }
 
 func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +56,19 @@ func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.ext.DryRun.Recent(100))
+}
+
+// handleReloads returns config reloads in watched namespaces, newest first.
+func (s *Server) handleReloads(w http.ResponseWriter, r *http.Request) {
+	out := []kube.ReloadRecord{}
+	if s.ext.Reloads != nil {
+		for _, rec := range s.ext.Reloads.Records() {
+			if s.nsAllowed(rec.Namespace) {
+				out = append(out, rec)
+			}
+		}
+	}
+	writeJSON(w, out)
 }
 
 // handleFixes returns verified fixes, pending verifications, and failed fixes.

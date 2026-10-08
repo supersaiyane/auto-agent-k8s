@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -73,38 +74,39 @@ func TestAPI_ProbesAndMetricsStayOpen(t *testing.T) {
 func TestKubectl_NamespaceAllowlist(t *testing.T) {
 	ctx := context.Background()
 	kc := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}},
 		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"}},
 		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "etcd", Namespace: "kube-system"}},
 		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}},
 	)
-	allow := func(ns string) bool { return ns == "default" }
-
+	e := &termEnv{kc: kc, allowNS: func(ns string) bool { return ns == "default" }}
 	for _, tc := range []struct {
 		cmd     string
 		allowed bool
 	}{
 		{"get pods", true},
 		{"get pods -n default", true},
+		{"get pods -A", true}, // ISS-063: every watched namespace
 		{"get nodes", true},
 		{"get namespaces", true},
 		{"describe node node-1", true},
-		{"version", true},
 		{"get pods -n kube-system", false},
-		{"get pods -A", false},
-		{"get all --all-namespaces", false},
 		{"logs etcd -n kube-system", false},
 		{"describe pod etcd -n kube-system", false},
-		{"top pods -n kube-system", false},
+		{"events --for pod/etcd -n kube-system", false},
 	} {
-		_, err := executeKubectl(ctx, kc, tc.cmd, allow)
-		denied := err != nil && (strings.Contains(err.Error(), "outside the watch scope") || strings.Contains(err.Error(), "not supported yet"))
+		_, err := executeKubectl(ctx, e, tc.cmd)
+		denied := err != nil && strings.Contains(err.Error(), "outside the watch scope")
 		if tc.allowed == denied {
 			t.Errorf("%q: allowed=%v, err=%v", tc.cmd, tc.allowed, err)
 		}
 	}
-
-	if _, err := executeKubectl(ctx, kc, "get pods", nil); err == nil {
-		t.Error("nil allowlist must deny namespaced reads")
+	if out, err := executeKubectl(ctx, e, "get pods -A"); err != nil || strings.Contains(out, "etcd") || !strings.Contains(out, "web") || !strings.Contains(out, "NAMESPACE") {
+		t.Fatalf("-A lists watched namespaces only: %v\n%s", err, out)
+	}
+	if _, err := executeKubectl(ctx, &termEnv{kc: kc}, "get pods"); err == nil {
+		t.Error("a nil watch filter denies namespaced reads")
 	}
 }
 
@@ -142,4 +144,31 @@ func TestAPI_NoRouteLeaksNonAllowlistedNamespaces(t *testing.T) {
 			t.Errorf("%s leaked a non-allowlisted namespace (status %d): %.300s", p, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+// ISS-079: Start binds before it returns, so a port in use is an error and
+// a free port accepts connections as soon as Start returns.
+func TestServer_StartBindsBeforeReturning(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken := NewServer(ln.Addr().String(), events.NewRecorder(10), &AgentMeta{}, fake.NewSimpleClientset(), Options{HealthOnly: true})
+	if err := taken.Start(); err == nil || !strings.Contains(err.Error(), "listen on") {
+		t.Fatalf("port in use: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(addr, events.NewRecorder(10), &AgentMeta{}, fake.NewSimpleClientset(), Options{HealthOnly: true})
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.srv.Close() })
+	resp, err := http.Get("http://" + addr + "/healthz")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz right after Start: %v %v", resp, err)
+	}
+	resp.Body.Close()
 }

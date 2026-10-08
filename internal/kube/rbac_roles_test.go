@@ -175,10 +175,11 @@ func (g funcGraph) reach(t *testing.T, roots ...string) map[perm]bool {
 
 // Entry points of each role (ADR-001), as run() starts them.
 var (
-	nodeRoots = []string{"kube.StartWatchers", "kube.StartLogRetention", "policy.HotReloader.Start", "crd.StartController"}
+	nodeRoots = []string{"kube.StartWatchers", "kube.StartLogRetention", "policy.HotReloader.Start", "crd.StartController", "kube.StartNetworkProbes"}
 	ctrlRoots = []string{"main.leaderLoops", "main.newLeaderTarget", "main.newPeerResolver", "leader.Start", "httpapi.NewServer",
 		"policy.HotReloader.Start", "crd.StartController",
-		"kube.SaveFixScope"} // handed to httpapi as a closure in run.go, which the graph cannot follow
+		"kube.SaveFixScope",         // handed to httpapi as a closure in run.go, which the graph cannot follow
+		"kube.Reloader.WatchConfig"} // started from run() through the agent struct
 )
 
 // Library permissions per role: informers, leader election and the CRD

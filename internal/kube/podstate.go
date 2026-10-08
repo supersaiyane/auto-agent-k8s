@@ -101,7 +101,7 @@ func checkStuckTerminating(ctx context.Context, deps *Deps, p *corev1.Pod, now t
 	}
 	report(ctx, deps, finding{
 		Reason: "PodStuckTerminating", Namespace: p.Namespace, Workload: ownerName(p), Pod: p.Name, Node: p.Spec.NodeName,
-		Severity: eventsvc.SevWarning, Rung: RungGuided, Target: RungApprove, Subject: p.Name,
+		Severity: eventsvc.SevWarning, Rung: RungGuided, Subject: p.Name,
 		Summary: "pod is stuck terminating", Details: details, Fix: fix,
 	})
 }

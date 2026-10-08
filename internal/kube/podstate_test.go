@@ -117,10 +117,13 @@ func TestStuckTerminating(t *testing.T) {
 	CheckPodStates(context.Background(), h.deps)
 	msg := h.expect(t, "PodStuckTerminating", RungGuided, 1)[0]
 	for _, want := range []string{"`default/" + ownerName(stuck) + " (pod stuck)`", "node-1", "example.com/cleanup",
-		"--grace-period=0 --force", "R3 approve to fix arrives with the approval queue"} {
+		"--grace-period=0 --force"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message lacks %q:\n%s", want, msg)
 		}
+	}
+	if strings.Contains(msg, "R3") {
+		t.Errorf("a force delete stays with a person (R1), but the message offers R3:\n%s", msg)
 	}
 	if got := incidents("PodStuckTerminating", "default", ownerName(stuck)) - before; got != 1 {
 		t.Fatalf("incident counter moved by %v", got)

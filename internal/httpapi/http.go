@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"path"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -37,16 +39,19 @@ type Server struct {
 	// leader resolves where a standby controller proxies to (ADR-001).
 	leader func() (string, error)
 	// ingest stores forwarded events.
-	ingest  events.Sink
-	meta    *AgentMeta
-	kc      kubernetes.Interface
-	token   string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
-	allowNS func(string) bool // watch scope for kubectl reads
-	cost    CostConfig        // Cost tab pricing (PLAN-002 9.3)
-	ext     ExtendedDeps      // extended endpoints (PLAN-002 9.4)
-	scope   ScopeOptions      // Settings tab (ADR-002)
-	http    *http.Client      // outbound calls (Kubecost, OpenCost)
-	started time.Time
+	ingest    events.Sink
+	meta      *AgentMeta
+	kc        kubernetes.Interface
+	token     string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
+	allowNS   func(string) bool // watch scope for kubectl reads
+	cost      CostConfig        // Cost tab pricing (PLAN-002 9.3)
+	ext       ExtendedDeps      // extended endpoints (PLAN-002 9.4)
+	scope     ScopeOptions      // Settings tab (ADR-002)
+	dyn       dynamic.Interface // the terminal's AutoRemediationPolicy reads
+	agent     TerminalAgent     // the terminal's agent commands (PLAN-003)
+	approvals Approvals         // R3 approval queue (PLAN-002 phase 15); nil off the controller
+	http      *http.Client      // outbound calls (Kubecost, OpenCost)
+	started   time.Time
 }
 
 type AgentMeta struct {
@@ -80,6 +85,13 @@ type Options struct {
 	IsLeader       func() bool
 	// Scope serves /api/scope and the scope fields of /api/status (ADR-002).
 	Scope ScopeOptions
+	// Dynamic lets the terminal read AutoRemediationPolicy objects; Agent
+	// answers its agent commands (PLAN-003). Both may be nil.
+	Dynamic dynamic.Interface
+	Agent   TerminalAgent
+	// Approvals is the R3 approval queue (PLAN-002 phase 15); nil on node
+	// agents.
+	Approvals Approvals
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
@@ -89,7 +101,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
-		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope}
+		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope, dyn: opts.Dynamic, agent: opts.Agent, approvals: opts.Approvals}
 	s.ingest = opts.Ingest
 	if s.ingest == nil && recorder != nil {
 		s.ingest = recorder
@@ -134,6 +146,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 
 	// Slack interactive actions callback
 	slackHandler := NewSlackActionHandler(opts.SlackSigningSecret)
+	slackHandler.approvals = opts.Approvals
 	RegisterSlackActions(mux, slackHandler)
 
 	// Embedded UI
@@ -170,11 +183,21 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) Start() {
-	klog.Infof("httpapi: listening on %s", s.srv.Addr)
-	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		klog.Errorf("httpapi: server error: %v", err)
+// Start binds the address now and serves in the background. Binding first
+// means a port in use fails the start, and the agent reports ready only
+// once connections are accepted (ISS-079).
+func (s *Server) Start() error {
+	ln, err := net.Listen("tcp", s.srv.Addr)
+	if err != nil {
+		return fmt.Errorf("httpapi: listen on %s: %w", s.srv.Addr, err)
 	}
+	klog.Infof("httpapi: listening on %s", ln.Addr())
+	go func() {
+		if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			klog.Errorf("httpapi: server error: %v", err)
+		}
+	}()
+	return nil
 }
 
 func (s *Server) SetLeaderFunc(fn func() bool) { s.meta.IsLeaderFn = fn }
@@ -789,6 +812,7 @@ var apiRouteTable = []struct {
 	{"/api/nodes", (*Server).handleNodes},
 	{"/api/k8s-events", (*Server).handleK8sEvents},
 	{"/api/kubectl", (*Server).handleKubectl},
+	{"/api/kubectl/help", (*Server).handleKubectlHelp},
 	{"/api/compliance", (*Server).handleCompliance},
 	{"/api/baselines", (*Server).handleBaselines},
 	{"/api/deploys", (*Server).handleDeploys},
@@ -798,6 +822,8 @@ var apiRouteTable = []struct {
 	{"/api/resources/", (*Server).handleResourcesNs},
 	{"/api/fixes", (*Server).handleFixes},
 	{"/api/scope", (*Server).handleScope},
+	{"/api/reloads", (*Server).handleReloads},
+	{"/api/approvals", (*Server).handleApprovals},
 }
 
 // apiRoutes returns every /api/ path the server serves, Slack included.

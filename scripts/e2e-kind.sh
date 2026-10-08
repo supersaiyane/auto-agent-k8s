@@ -94,7 +94,14 @@ NO_TOKEN=$(code http://127.0.0.1:18080/api/status)
 WITH_TOKEN=$(code -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/status)
 HEALTH=$(code http://127.0.0.1:18080/healthz)
 KUBECTL=$(curl -s -H 'Authorization: Bearer e2e-token' -X POST -d '{"command":"get pods -n kube-system"}' http://127.0.0.1:18080/api/kubectl)
+# Phase 15: the approval queue is served, and with no approvers it is empty;
+# the dashboard can never approve.
+APPROVALS=$(curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18080/api/approvals)
+APPROVE_POST=$(code -H 'Authorization: Bearer e2e-token' -X POST http://127.0.0.1:18080/api/approvals?id=x)
 kill "$PF" 2>/dev/null || true
+log "/api/approvals -> $APPROVALS; POST -> $APPROVE_POST"
+[ "$APPROVALS" = "[]" ] || fail "/api/approvals with no approvers returned $APPROVALS, want []"
+[ "$APPROVE_POST" = "405" ] || fail "POST /api/approvals returned $APPROVE_POST, want 405"
 log "/api/status no token=$NO_TOKEN, with token=$WITH_TOKEN; /healthz=$HEALTH"
 log "kubectl -n kube-system -> $KUBECTL"
 [ "$NO_TOKEN" = "401" ] || fail "/api/status without token returned $NO_TOKEN, want 401"
@@ -211,6 +218,38 @@ wait_scope_log "is now [default] (dashboard choice: false)" || fail "not every a
 kill "$PF" 2>/dev/null || true
 log "scope: ceiling enforced, choice applied by every agent, kept across a Helm upgrade, audited, cleared"
 
+log "checking config reload (PLAN-002 Part A): dry-run records, fix mode restarts once"
+k() { kubectl --context "$CTX" "$@"; }
+k -n "$NS_TEST" create configmap reload-demo --from-literal=level=info >/dev/null
+k -n "$NS_TEST" create deployment reload-demo --image=busybox:1.36 -- sh -c 'sleep 3600' >/dev/null
+k -n "$NS_TEST" set env deployment/reload-demo --from=configmap/reload-demo --keys=level >/dev/null
+k -n "$NS_TEST" rollout status deployment/reload-demo --timeout=120s >/dev/null
+edit3() { for v in a b c; do k -n "$NS_TEST" patch configmap reload-demo --type merge -p "{\"data\":{\"level\":\"$1-$v\"}}" >/dev/null; sleep 1; done; }
+rs_count() { k -n "$NS_TEST" get rs -l app=reload-demo --no-headers 2>/dev/null | wc -l | tr -d ' '; }
+POD_BEFORE=$(k -n "$NS_TEST" get pod -l app=reload-demo -o jsonpath='{.items[0].metadata.uid}')
+RS_BEFORE=$(rs_count)
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$AGENT_POD" 18110:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+reloads() { curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18110/api/reloads; }
+edit3 dry
+sleep 25
+DRY=$(reloads)
+echo "$DRY" | grep -q '"workload":"deployment/reload-demo","result":"simulated"' || fail "dry-run did not record the reload: $DRY"
+[ "$(echo "$DRY" | grep -o '"object":"configmap/reload-demo"' | wc -l | tr -d ' ')" = "1" ] || fail "three quick edits gave more than one reload: $DRY"
+[ "$(k -n "$NS_TEST" get pod -l app=reload-demo -o jsonpath='{.items[0].metadata.uid}')" = "$POD_BEFORE" ] || fail "dry-run restarted the pod"
+log "dry-run: one simulated reload for three edits, pod untouched"
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}' >/dev/null
+sleep 10
+edit3 fix
+sleep 30
+FIX=$(reloads)
+kill "$PF" 2>/dev/null || true
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}' >/dev/null
+echo "$FIX" | grep -q '"workload":"deployment/reload-demo","result":"restarted"' || fail "fix mode did not restart the workload: $FIX"
+[ "$(rs_count)" = "$((RS_BEFORE + 1))" ] || fail "fix mode rolled the Deployment $(( $(rs_count) - RS_BEFORE )) times for three quick edits, want 1"
+log "fix mode: three quick edits, one restart"
+
 log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
 for pod in "$AGENT_POD" "$NODE_POD"; do
 	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
@@ -223,7 +262,9 @@ log "waiting ${RBAC_SETTLE}s for the leader loops to run every detector once"
 sleep "$RBAC_SETTLE"
 AGENT_LOGS=$(kubectl --context "$CTX" -n "$NS_AGENT" logs -l 'app in (auto-agent,auto-agent-controller)' -c agent --tail=-1 --prefix)
 echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acquired the leader lease"
+echo "$AGENT_LOGS" | grep -q "netprobe: dns=true" || fail "node agents did not start the network probes (PLAN-002 phase 14)"
+if echo "$AGENT_LOGS" | grep -q "DNSResolutionFailed"; then fail "a node agent could not resolve the API server's Service name on a healthy cluster"; fi
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"

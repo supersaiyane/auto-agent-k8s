@@ -31,6 +31,7 @@ type SlackActionHandler struct {
 	onApprove     func(incidentID string) string
 	onRollback    func(incidentID string) string
 	onSilence     func(nsWorkload string, duration time.Duration) string
+	approvals     Approvals // R3 approval queue; nil: Approve is not available
 }
 
 func NewSlackActionHandler(signingSecret string) *SlackActionHandler {
@@ -108,10 +109,18 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var responseText string
 		switch action.ActionID {
 		case "approve_fix":
-			if h.onApprove != nil {
+			if h.approvals != nil {
+				responseText = slackApprove(r.Context(), h.approvals, action.Value, "slack:"+payload.User.ID)
+			} else if h.onApprove != nil {
 				responseText = h.onApprove(action.Value)
 			} else {
 				responseText = fmt.Sprintf("Approve is not available yet, no action was taken (requested by %s)", payload.User.Username)
+			}
+		case "reject_fix":
+			if h.approvals != nil {
+				responseText = slackReject(h.approvals, action.Value, "slack:"+payload.User.ID)
+			} else {
+				responseText = "Reject is not available, no action was taken"
 			}
 		case "rollback":
 			if h.onRollback != nil {

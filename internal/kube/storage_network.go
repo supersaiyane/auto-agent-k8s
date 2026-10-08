@@ -89,6 +89,7 @@ func CheckNetworkIssues(ctx context.Context, deps *Deps) {
 	checkDNSHealth(ctx, deps)
 	checkLoadBalancerPending(ctx, deps)
 	checkIngressBackends(ctx, deps)
+	checkIngressTLS(ctx, deps)
 }
 
 // checkDNSHealth reads the CoreDNS pods in kube-system. kube-system is

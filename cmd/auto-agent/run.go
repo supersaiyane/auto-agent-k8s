@@ -89,7 +89,8 @@ type agent struct {
 	leads     func() bool // le.IsLeader on controllers; tests swap it
 	srv       *httpapi.Server
 	loopsDone chan struct{}
-	leading   atomic.Bool // this process announced leadership and still leads
+	reloader  *kube.Reloader // config reload on controllers (PLAN-002 Part A); nil when off
+	leading   atomic.Bool    // this process announced leadership and still leads
 }
 
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
@@ -116,8 +117,13 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		return err
 	}
 	leaderTarget := a.startLeader(ctx, cl.Kube, opts)
+	if rl.controller && conf.Reload.Enabled {
+		a.reloader = kube.NewReloader(a.deps, conf.Reload, a.isLeader)
+	}
 	a.srv = a.newServer(cl, opts, leaderTarget)
-	go a.srv.Start()
+	if err := a.srv.Start(); err != nil {
+		return err
+	}
 	a.startWork(ctx)
 	if opts.OnReady != nil {
 		opts.OnReady()
@@ -273,6 +279,7 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		QuietHours:  kube.NewQuietHours(conf.QuietHours), DryRunLog: t.dryRun,
 		Escalation: escalation.NewChain(conf.Escalation, cl.HTTP), DeployTracker: t.deploys,
 		LearningMode: t.learning, FixTracker: t.fixes,
+		Approvals: kube.NewApprovals(conf.Approvals.TTL, conf.Approvals.Approvers),
 	}
 	return nil
 }
@@ -302,6 +309,10 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		}}
 	}
 	t := a.extras
+	ext := httpapi.ExtendedDeps{Learning: t.learning, Deploys: t.deploys, DryRun: t.dryRun, Fixes: t.fixes}
+	if a.reloader != nil { // a typed nil would look set
+		ext.Reloads = a.reloader
+	}
 	return httpapi.NewServer(opts.HTTPAddr, a.ev.recorder, &httpapi.AgentMeta{
 		Version: version, Mode: string(a.conf.Policy.Mode), NodeName: a.conf.NodeName, PodName: a.conf.PodName,
 	}, cl.Kube, httpapi.Options{
@@ -309,8 +320,8 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		Cost: a.conf.Cost, HTTPClient: cl.HTTP,
 		AllowNamespace: func(ns string) bool { return a.hr.Get().Watched(ns) },
 		IsLeader:       a.isLeader, Leader: leaderTarget, HealthOnly: a.rl.onlyNode(),
-		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope,
-		Extended: httpapi.ExtendedDeps{Learning: t.learning, Deploys: t.deploys, DryRun: t.dryRun, Fixes: t.fixes},
+		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope, Dynamic: cl.Dynamic, Agent: termAgentFor(a),
+		Extended: ext, Approvals: approvalsFor(a),
 	})
 }
 
@@ -320,11 +331,15 @@ func (a *agent) startWork(ctx context.Context) {
 	if a.rl.node {
 		kube.StartWatchers(ctx, a.deps)
 		go kube.StartLogRetention(ctx, a.conf.Storage, a.conf.LogRetentionDays)
+		kube.StartNetworkProbes(ctx, a.deps, a.conf.Probes) // from this node's pod network (PLAN-002 phase 14)
 	}
 	a.srv.SetReady()
 	if !a.rl.controller {
 		close(a.loopsDone)
 		return
+	}
+	if a.reloader != nil {
+		a.reloader.WatchConfig(ctx)
 	}
 	go func() { leaderLoops(ctx, a.conf, a.deps, a.le); close(a.loopsDone) }()
 	go a.announceLeadership(ctx, 2*time.Second)
@@ -416,7 +431,8 @@ func leaderChecks(conf config.Config) []checkGroup {
 			kube.CheckReplicaSetFailure, kube.CheckPodStates}},
 		{conf.QuotaInterval, true, []check{kube.CheckResourceQuotas, kube.CollectBaselines, kube.CheckStorageIssues,
 			kube.CheckNetworkIssues, kube.CheckSecurityIssues, kube.CheckWebhookBlocking, kube.CheckRBACDenied,
-			kube.CheckStuckFinalizers, kube.CheckDisruptionBudgets, kube.CheckResourcePressure, kube.CheckControlPlane}},
+			kube.CheckStuckFinalizers, kube.CheckDisruptionBudgets, kube.CheckResourcePressure, kube.CheckControlPlane,
+			kube.CheckSandboxFailures, kube.CheckSystemNetworkPods, kube.CheckNetworkPolicyBlocks, kube.CheckConntrack, kube.CheckCoreDNS}},
 		{conf.HealthInterval, false, []check{kube.SelfCheck}},
 	}
 }
@@ -577,3 +593,12 @@ func newPeerResolver(kc kubernetes.Interface, ns, self, port string) func() ([]s
 
 // controllerSelector matches the controller pods the chart creates.
 const controllerSelector = "app=auto-agent-controller"
+
+// termAgentFor backs the terminal's agent commands on controllers; node
+// agents serve no API.
+func termAgentFor(a *agent) httpapi.TerminalAgent {
+	if !a.rl.controller {
+		return nil
+	}
+	return termAgent{a}
+}

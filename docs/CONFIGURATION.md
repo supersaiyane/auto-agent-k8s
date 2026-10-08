@@ -197,6 +197,52 @@ is never called, so **none of them has any effect yet** (ISS-012).
 | `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/run.go` |
 | `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/run.go` |
 
+## Config reload (PLAN-002 Part A)
+
+When a ConfigMap changes, the controller restarts the workloads that use the
+changed keys, one at a time, through the mutation gate; see GUIDE section
+"Config reload". It follows the mode (dry-run only records) and acts only in
+the fix scope.
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `RELOAD_ENABLED` | `reload.enabled` | `true`, `false` | `true` | Watch ConfigMaps in the watch scope and reload the workloads that use changed keys | `internal/kube/reload.go` |
+| `RELOAD_SECRETS` | `reload.secrets` | `true`, `false` | `false` | **Also Secrets.** Off by default: it adds Secret list and watch inside the fix ceiling. Only key names and SHA-256 prefixes are kept; values are never logged. See GUIDE "Reloading on Secret changes" | `internal/kube/reload_watch.go` |
+| `RELOAD_ON` | `reload.reloadOn` | `auto`, `always` | `auto` | `auto` restarts only when a running pod cannot see the change (env, envFrom, subPath mounts); a plain volume mount is updated in place and skipped. `always` restarts on every used key. Per workload: annotation `auto-agent.io/reload-on` | `internal/kube/reload_policy.go` |
+| `RELOAD_DEBOUNCE` | `reload.debounce` | Go duration | `10s` | Edits to one object within this window give one reload | `internal/kube/reload.go` |
+
+## Network probes (PLAN-002 phase 14)
+
+Every node agent runs these from its own pod network, so a node that
+resolves nothing or cannot reach a ClusterIP is found even when every pod
+reports Ready. They only resolve names and open TCP connections. A probe is
+reported after two failures in a row, once per run of failures.
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `NET_PROBE_INTERVAL` | `probes.interval` | Go duration | `1m` | How often each node probes | `internal/kube/netprobe.go` |
+| `DNS_PROBE_ENABLED` | `probes.dns` | `true`, `false` | `true` | Resolve `kubernetes.default.svc.<domain>`: DNSResolutionFailed, DNSSlow (over 1s) | `internal/kube/netprobe.go` |
+| `DNS_CLUSTER_DOMAIN` | `probes.clusterDomain` | domain | `cluster.local` | The cluster's DNS domain | `internal/kube/netprobe.go` |
+| `DNS_PROBE_EXTERNAL` | `probes.dnsExternalName` | host name | empty (off) | Also resolve this name, to test the upstream resolvers (R0 when it fails) | `internal/kube/netprobe.go` |
+| `SERVICE_PROBE_ENABLED` | `probes.services` | `true`, `false` | `false` | Dial up to 20 Services with ready endpoints per pass: ServiceUnreachable points at kube-proxy or the CNI on that node | `internal/kube/netprobe.go` |
+| `EGRESS_PROBE_TARGET` | `probes.egressTarget` | `host:port` | empty (off) | Dial this address: EgressBlocked | `internal/kube/netprobe.go` |
+
+## Approvals (rung R3, PLAN-002 phase 15)
+
+Some findings carry the exact change that fixes them. In fix mode, inside
+the fix scope, that change waits in a queue on the leader until a listed
+Slack user presses Approve on the signed callback. It then goes through the
+mutation gate, which checks mode, scope, guardrails and the rate limiter
+again. An approval is applied once; a second press is refused. The audit
+log records who approved. The dashboard Approvals tab lists the queue and
+can reject, never approve. The queue is in memory: a restart or a change of
+leader drops what is pending (ISS-078).
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `APPROVAL_TTL` | `approvals.ttl` | Go duration | `30m` | A queued change expires after this | `internal/kube/approvals.go` |
+| `APPROVAL_GROUPS` | `approvals.groups` | comma separated `slack:<user id>` | empty (off) | Who may approve; empty turns approvals off | `internal/kube/approvals.go` |
+
 ## Roles (ADR-001)
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
@@ -264,6 +310,7 @@ These do not become variables; they change what the chart renders.
 | `networkPolicy.enabled` | `true` | Render the NetworkPolicy |
 | `networkPolicy.allowFromNamespaces` | `["monitoring"]` | Namespaces allowed to reach port 8080 |
 | `rbac.readTLSSecrets` | `false` | Also grants secret list in the fix ceiling namespaces, which is where the check reads (see `TLS_CERT_CHECK`) |
+| `reload.*` | see the Config reload section | Also grants patch on StatefulSets, DaemonSets and CronJobs in the write Roles, ConfigMap list and watch in the controller's read role, and with `reload.secrets` Secret list and watch inside the fix ceiling |
 | `rbac.fixAnywhere` | `false` | One write ClusterRole instead of a Role per ceiling namespace (see `FIX_ANYWHERE`) |
 | `webhook.enabled` | `false` | Render the webhook registration and Service |
 | `webhook.failurePolicy` | `Ignore` | `Ignore` or `Fail` when the webhook is unreachable |

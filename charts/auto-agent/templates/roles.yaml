@@ -16,14 +16,35 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 {{- if .Values.rbac.readTLSSecrets }}
 # Certificate expiry check reads TLS secrets. Off by default (ISS-009).
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["list"]
+{{- end }}
+{{- if .Values.reload.secrets }}
+# Config reload on Secret changes (reload.secrets, off by default): only
+# inside the fix ceiling, the only place a reload can act.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list", "watch"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -78,14 +99,35 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["delete"]
+  verbs: ["delete", "create"]   # create: run a missed CronJob now, after approval (R3)
+# Approve to fix (R3, PLAN-002 phase 15): applied only after a listed
+# approver accepts the exact change.
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["patch"]   # raise maxReplicas
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["patch"]   # expand a claim whose StorageClass allows it
 {{- if $.Values.rbac.readTLSSecrets }}
 # Certificate expiry check reads TLS secrets. Off by default (ISS-009).
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["list"]
+{{- end }}
+{{- if $.Values.reload.secrets }}
+# Config reload on Secret changes (reload.secrets, off by default): only
+# inside the fix ceiling, the only place a reload can act.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list", "watch"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
