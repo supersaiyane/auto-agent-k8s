@@ -35,14 +35,19 @@
 | 2026-10-08 | PLAN-002 phase 15: approve to fix (Part C, C1.1 to C1.3, C2) | Done: `make verify` exit 0, coverage 76.9% (measured), floor raised; kind e2e results in the commit body | Approval queue, Slack Approve and Reject, `/api/approvals` and Approvals tab, six R3 fixes behind approval, RBAC for HPA and PVC patch and Job create; ISS-077 OPEN, ISS-078 | `internal/kube/approvals.go:1`, `internal/kube/approval_fixes.go:1`, `internal/httpapi/approvals.go:1`, `cmd/auto-agent/approvals.go:1`, `docs/plans/PLAN-002-reload-coverage-and-gaps.md` (phase 15 as built) |
 | 2026-10-08 | PR #4 opened; ISS-079 startup race fixed and pushed; PLAN-002 phase 16 in progress | ISS-079, ISS-080 (escalation), ISS-038 (fix verification) committed (17c0e51, 48dcab3); ISS-037, ISS-081, ISS-082 (CRD policy fields, dry-run policy refusals, counted Slack errors) and ISS-065 (helm test pod) verified with `make verify` exit 0, coverage 77.5% measured, not yet committed; kind e2e with the policy step running | Escalation wired after Slack, bounded; fix verification needs a finished rollout and a minute of health; every AutoRemediationPolicy field applied; helm test image pinned by digest | `internal/kube/policycheck.go:1`, `internal/kube/scaler.go` (`scaleLimitsFor`), `internal/kube/handlers.go` (`postIncident`, `createTicket`), `internal/kube/fixtracker.go:90`, `scripts/e2e-kind.sh` (policy step), `charts/auto-agent/templates/tests/test-connection.yaml` |
 | 2026-10-08 | PR #5 merged (2baea1d); PLAN-002 phase 16 part 2; PR #6 open | Learned thresholds (ISS-012), gitops valuesFile and author with a YAML-aware patch (ISS-032, ISS-083), D6 tests for storage, logging, obs, webhook (ISS-084, JSON logging fixed); `make verify` exit 0, coverage 79.9% measured, floor 79.9; local `make e2e` not run (Docker down), PR #6 CI e2e is the run | 06e77ba, 43e2ee1, 0645d0b | `internal/kube/learning.go` (`scaleUpThreshold`), `internal/kube/gitops_content.go` (`PatchWorkloadMemory`), `internal/kube/handlers.go` (`memoryBumpChange`), `internal/integrations/gitops.go` (`ReadFile`, `WithAuthor`), `internal/logging/json.go`, `internal/webhook/validator.go` (`pinnedImage`) |
+| 2026-10-08 | PR #6 merged (53bd7cb); phase 16 webhook certs and tracing committed locally; D8 mutation testing in progress | `f2a5200` webhook certificate (ISS-032), `d141d2a` tracing and bounded labels (ISS-018), both `make verify` exit 0, coverage 80.0% measured; not pushed. gremlins v0.6.0 in bin/tools: redact 1 of 1 killed, ratelimit 27 killed 5 lived (timeout coefficient 20) | `scripts/mutation.sh` untracked and wrong: gremlins does not fail on its threshold, coefficient 3 timed every mutant out | `scripts/mutation.sh:1`, `internal/ratelimit/circuit.go:47,86,101`, `internal/ratelimit/ratelimit.go:57,120` |
 
 ## Next action
 
-1. PR #6 (phase 16 part 2) is open; merge it when its CI (verify, e2e) is
-   green and the owner says so.
-2. Rest of phase 16: webhook certificates (ISS-032: chart sets
-   WEBHOOK_CERT_FILE and KEY_FILE from cert-manager or a Secret, e2e calls
-   the webhook, Start binds before ready as in ISS-079); tracing and metric
-   cardinality (ISS-018); D8 mutation testing on gate, guardrails, redact,
-   approvals.
-3. Owner questions open: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).
+1. Close the ratelimit survivors: boundary test at exactly the window for
+   `circuit.go:47,86,101`; `cleanupInterval(ttl)` for `ratelimit.go:57`;
+   `max(r, 0)` for `ratelimit.go:120`. Rerun gremlins with
+   `--timeout-coefficient 20` until Lived is 0.
+2. Fix `scripts/mutation.sh`: count `LIVED` and `TIMED OUT` lines itself,
+   fail on any, fail when no mutant was killed (a run over zero mutants
+   proves nothing), coefficient 20. Run the kube safety files (gate.go,
+   guardrails.go, approvals.go, policycheck.go) in the background, close
+   survivors, add `make mutation`, `make tools` entry and a CI job.
+3. Push `f2a5200`, `d141d2a` and the D8 commit, open PR #7 so CI runs the
+   webhook e2e step (local Docker was down); merge on the owner's go.
+4. Owner questions open: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).
