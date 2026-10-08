@@ -77,6 +77,7 @@ var allowedGlobals = map[string]string{
 	"internal/kube/security.go:limitRangeRefusal":        "compiled regexp",
 	"internal/kube/security.go:webhookRefusal":           "compiled regexp",
 	"internal/kube/security.go:rbacRefusal":              "compiled regexp",
+	"internal/httpapi/terminal_get.go:policyGVR":         "constant GroupVersionResource",
 	"internal/config/check.go:settingName":               "compiled regexp",
 	"internal/config/check.go:secretName":                "compiled regexp",
 	"internal/config/check.go:platformName":              "compiled regexp",

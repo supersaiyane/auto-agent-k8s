@@ -402,7 +402,7 @@
     if (sc.fixAnywhere) {
       h += `<p class="warn-box">${pill('fix anywhere', 'red')} The chart granted write permissions in every namespace (rbac.fixAnywhere). This page can enable fixing in any non-system namespace, and a leaked dashboard or agent token can disrupt any of them. Prefer agent.fixCeiling.</p>`;
     }
-    h += `<p class="muted small">Anyone with the dashboard token can change the fix scope until named approvers arrive (PLAN-002 phase 15). Every change, and every refused attempt, is recorded in the Audit tab.</p>
+    h += `<p class="muted small">Anyone with the dashboard token can change the fix scope until named approvers arrive (PLAN-002 phase 15). Every change, and every refused attempt, is recorded in the Audit tab. To check a namespace before you enable it, type <span class="mono">agent gate -n &lt;ns&gt;</span> in the <a class="link" href="#terminal">Terminal</a>; its panel lists what it can and cannot run.</p>
       <p>Watching ${sc.watchAll ? 'every non-system namespace' : 'the namespaces set in Helm'}. Fixing in <strong>${names(before)}</strong>, ${sc.choice ? 'chosen on this page' : 'from Helm (agent.fixNamespaces)'}.</p>`;
     h += `<table><tr><th>Fix here</th><th>Namespace</th><th>Now</th></tr>${sc.namespaces.map((n) => `<tr>
       <td><input type="checkbox" data-action="scope-toggle" data-arg="${esc(n.name)}" aria-label="fix in ${esc(n.name)}"${after.has(n.name) ? ' checked' : ''}${n.inCeiling ? '' : ' disabled'}></td>
@@ -500,7 +500,7 @@
     if (push && location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
     showToolbar();
     setCount(0, 0);
-    if (tab === 'terminal') $('term-input').focus(); else render();
+    if (tab === 'terminal') { loadTermHelp(); $('term-input').focus(); } else render();
   }
   function markTypeBoxes() {
     document.querySelectorAll('.stat-row [data-action="filter-type"]').forEach((b) => b.classList.toggle('active', b.dataset.arg === state.type));
@@ -514,6 +514,7 @@
     fixes: (el) => { state.fixes = el.dataset.arg; render(); },
     days: (el) => { state.days = num(el.dataset.arg) || 30; render(); },
     'refresh-now': () => render(),
+    'term-fill': (el) => { $('term-input').value = el.dataset.arg + ' '; $('term-input').focus(); },
     'scope-toggle': (el) => {
       const next = new Set(state.pending || (state.scope && state.scope.fixScope) || []);
       if (el.checked) next.add(el.dataset.arg); else next.delete(el.dataset.arg);
@@ -615,6 +616,20 @@
     }
   });
   termPrint('auto-agent terminal. Type help for commands.', 'hint');
+  // The panel comes from the same command table the server runs (PLAN-003 1.3).
+  let helpLoaded = false;
+  async function loadTermHelp() {
+    if (helpLoaded) return;
+    try {
+      const h = await api('/api/kubectl/help');
+      helpLoaded = true;
+      $('term-help').innerHTML = `<h4>You can run</h4><ul class="term-cmds">${h.commands.map((c) => `<li><button type="button" class="link mono" data-action="term-fill" data-arg="${esc(c.usage.split(' [')[0].split(' <')[0])}">${esc(c.usage)}</button><span class="muted small"> ${esc(c.about)}</span></li>`).join('')}</ul>
+        <h4>Not available, and why</h4><ul>${h.refused.map((r) => `<li><span class="mono">${esc(r.commands)}</span><div class="muted small">${esc(r.why)}</div></li>`).join('')}</ul>
+        <h4>Rules</h4><ul>${h.rules.map((r) => `<li class="small">${esc(r)}</li>`).join('')}</ul>`;
+    } catch (e) {
+      if (!(e instanceof AuthError)) $('term-help').textContent = 'Could not load the command list: ' + e.message;
+    }
+  }
 
   // ---------- start ----------
   setInterval(() => {

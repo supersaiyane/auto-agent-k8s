@@ -8,7 +8,7 @@ hand. The project has no release tags yet.
 
 PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings tab, shutdown order, check-config, docs.
 
-10 commits, 2026-10-08 to 2026-10-08. By type: 5 docs, 2 fix, 2 feat, 1 test.
+11 commits, 2026-10-08 to 2026-10-08. By type: 5 docs, 3 feat, 2 fix, 1 test.
 
 - `d68b9a7` docs: PLAN-003 read-only terminal, after PLAN-002 phase 13
 - `c3e88c4` feat: separate watch scope and fix scope (PLAN-002 11.8 step 1)
@@ -20,6 +20,7 @@ PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings t
 - `985cf61` test: audit and test every detector and leader loop (PLAN-002 phase 12)
 - `fd94273` docs: checkpoint after PR #3 merged
 - `ff6f96b` docs: project map checked after PR #3
+- `762c7bd` feat: native config reload (PLAN-002 phase 13, Part A)
 
 ## PR #2: PLAN-002 phases 8 to 11 (merged 2026-10-08)
 

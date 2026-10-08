@@ -1,22 +1,30 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
-	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/redact"
 )
+
+// The dashboard terminal (PLAN-003): a read-only kubectl. One command table
+// decides what runs, and the same table produces `help`, the panel served
+// at /api/kubectl/help and the refusals, so they cannot drift. Every change
+// to the cluster goes through the mutation gate; the terminal never writes.
+
+// maxTermOutput caps one answer, so a huge log cannot stall the browser.
+const maxTermOutput = 256 << 10
 
 type kubectlRequest struct {
 	Command string `json:"command"`
@@ -27,9 +35,318 @@ type kubectlResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// handleKubectl executes kubectl-like commands via the K8s API.
+// TerminalAgent answers the terminal's `agent` commands (PLAN-003 phase 3);
+// cmd/auto-agent builds it from the agent's own state.
+type TerminalAgent interface {
+	Scope() string            // watch scope, fix scope, ceiling, fix-anywhere
+	Gate(ns string) []GateRow // would a fix in ns pass now, check by check
+	Status() string           // role, leader, mode, version
+}
+
+// GateRow is one guardrail's answer for `agent gate`.
+type GateRow struct {
+	Check  string `json:"check"`
+	Pass   bool   `json:"pass"`
+	Detail string `json:"detail"`
+}
+
+// termEnv is what a command can read.
+type termEnv struct {
+	kc       kubernetes.Interface
+	dyn      dynamic.Interface
+	allowNS  func(string) bool
+	agent    TerminalAgent
+	recorder *events.Recorder
+	now      time.Time
+}
+
+// termArgs is a parsed command line.
+type termArgs struct {
+	verb, sub     string   // "get pods" -> get, pods; "rollout status" -> rollout, status
+	pos           []string // positional arguments after the sub
+	ns            string
+	allNs         bool
+	container     string
+	tail          int64
+	previous      bool
+	since         time.Duration
+	output        string
+	selector      string
+	fieldSelector string
+	forObj        string
+}
+
+// termCmd is one row of the command table.
+type termCmd struct {
+	Verb    string   `json:"verb"`
+	Sub     string   `json:"sub,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+	Usage   string   `json:"usage"`
+	About   string   `json:"about"`
+	Cluster bool     `json:"cluster"` // reads no namespaced data
+	run     func(ctx context.Context, e *termEnv, a termArgs) (string, error)
+}
+
+// refusal is a command that is never added, and why.
+type refusal struct {
+	Commands string `json:"commands"`
+	Why      string `json:"why"`
+}
+
+// neverAdded are refused with their reason (PLAN-003 "Never added").
+func neverAdded() []refusal {
+	return []refusal{
+		{"delete, apply, create, replace, edit, patch, scale, label, annotate, taint, set, cordon, uncordon, drain, rollout restart, rollout undo, rollout pause, rollout resume",
+			"writes would bypass the mutation gate, its guardrails and its audit trail; fixes come from the agent, and from approvals in PLAN-002 phase 15"},
+		{"exec, attach, cp, debug, port-forward, proxy, run", "shell or network access into workloads for anyone holding the dashboard token"},
+		{"get secrets, describe secret, ConfigMap values", "credentials; ConfigMaps show key names only"},
+		{"anything outside the watch scope", "reads follow the watch scope (ADR-002)"},
+	}
+}
+
+// refusedVerbs maps a refused first word (or "rollout <sub>") to its reason.
+func refusedVerbs() map[string]string {
+	out := map[string]string{}
+	for _, r := range neverAdded()[:2] {
+		for _, c := range strings.Split(r.Commands, ", ") {
+			out[c] = r.Why
+		}
+	}
+	return out
+}
+
+// termCommands is the command table.
+func termCommands() []termCmd {
+	ns := "[-n <ns> | -A] [-l <selector>] [--field-selector <selector>] [-o wide]"
+	cmds := []termCmd{}
+	for _, g := range getKinds() {
+		cmds = append(cmds, termCmd{Verb: "get", Sub: g.name, Aliases: g.aliases, Cluster: g.cluster,
+			Usage: "get " + g.name + " [name] " + map[bool]string{true: "[-l <selector>] [-o wide]", false: ns}[g.cluster],
+			About: g.about, run: g.run})
+	}
+	for _, d := range describeKinds() {
+		cmds = append(cmds, termCmd{Verb: "describe", Sub: d.name, Aliases: d.aliases, Cluster: d.cluster,
+			Usage: "describe " + d.name + " <name>" + map[bool]string{true: "", false: " [-n <ns>]"}[d.cluster], About: d.about, run: d.run})
+	}
+	return append(cmds,
+		termCmd{Verb: "logs", Usage: "logs <pod> | deploy/<name> [-n <ns>] [-c <container>] [--tail <n>] [--previous] [--since <duration>]",
+			About: "container logs; deploy/<name> picks a pod of the Deployment", run: runLogs},
+		termCmd{Verb: "events", Usage: "events [-n <ns> | -A] [--for <kind>/<name>]", About: "events, newest last", run: runEvents},
+		termCmd{Verb: "rollout", Sub: "status", Usage: "rollout status deploy/<name> | sts/<name> [-n <ns>]", About: "progress of a rollout", run: runRolloutStatus},
+		termCmd{Verb: "rollout", Sub: "history", Usage: "rollout history deploy/<name> | sts/<name> [-n <ns>]", About: "revisions and their images", run: runRolloutHistory},
+		termCmd{Verb: "auth", Sub: "can-i", Usage: "auth can-i <verb> <resource> [-n <ns>]", About: "what the agent itself may do (SelfSubjectAccessReview)", Cluster: true, run: runCanI},
+		termCmd{Verb: "agent", Sub: "scope", Usage: "agent scope", About: "watch scope, fix scope, ceiling and fix-anywhere", Cluster: true, run: runAgentScope},
+		termCmd{Verb: "agent", Sub: "why", Usage: "agent why <pod> [-n <ns>]", About: "every finding, gate decision and fix for one pod", run: runAgentWhy},
+		termCmd{Verb: "agent", Sub: "gate", Usage: "agent gate [-n <ns>]", About: "would a fix in this namespace pass now, without acting", run: runAgentGate},
+		termCmd{Verb: "agent", Sub: "status", Usage: "agent status", About: "role, leader, mode, version", Cluster: true, run: runAgentStatus},
+		termCmd{Verb: "version", Usage: "version", About: "API server version", Cluster: true, run: runVersion},
+		termCmd{Verb: "help", Usage: "help", About: "this list", Cluster: true, run: func(context.Context, *termEnv, termArgs) (string, error) { return helpText(), nil }},
+	)
+}
+
+// hasSub reports whether a verb takes a sub-command or resource.
+func hasSub(verb string) bool {
+	switch verb {
+	case "get", "describe", "rollout", "auth", "agent":
+		return true
+	}
+	return false
+}
+
+// lookup finds the table row for parsed args.
+func lookup(a termArgs) (termCmd, bool) {
+	for _, c := range termCommands() {
+		if c.Verb != a.verb {
+			continue
+		}
+		if !hasSub(c.Verb) || c.Sub == a.sub {
+			return c, true
+		}
+		for _, al := range c.Aliases {
+			if al == a.sub {
+				return c, true
+			}
+		}
+	}
+	return termCmd{}, false
+}
+
+// parseArgs splits a command line into its verb, sub, positionals and flags.
+func parseArgs(line string) (termArgs, error) {
+	a := termArgs{ns: "default", tail: 50}
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "kubectl "))
+	var rest []string
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		name, val, hasVal := strings.Cut(f, "=")
+		next := func() (string, error) {
+			if hasVal {
+				return val, nil
+			}
+			if i+1 >= len(fields) {
+				return "", fmt.Errorf("%s needs a value", name)
+			}
+			i++
+			return fields[i], nil
+		}
+		var err error
+		switch name {
+		case "-n", "--namespace":
+			a.ns, err = next()
+		case "-A", "--all-namespaces":
+			a.allNs = true
+		case "-c", "--container":
+			a.container, err = next()
+		case "--tail":
+			var v string
+			if v, err = next(); err == nil {
+				a.tail, err = strconv.ParseInt(v, 10, 64)
+			}
+		case "-p", "--previous":
+			a.previous = true
+		case "--since":
+			var v string
+			if v, err = next(); err == nil {
+				a.since, err = time.ParseDuration(v)
+			}
+		case "-o", "--output":
+			a.output, err = next()
+		case "-l", "--selector":
+			a.selector, err = next()
+		case "--field-selector":
+			a.fieldSelector, err = next()
+		case "--for":
+			a.forObj, err = next()
+		default:
+			if strings.HasPrefix(f, "-") {
+				return a, fmt.Errorf("unknown flag %s; type help", f)
+			}
+			rest = append(rest, f)
+		}
+		if err != nil {
+			return a, fmt.Errorf("bad value for %s: %v", name, err)
+		}
+	}
+	if len(rest) == 0 {
+		return a, fmt.Errorf("empty command; type help")
+	}
+	a.verb, rest = rest[0], rest[1:]
+	if hasSub(a.verb) && len(rest) > 0 {
+		a.sub, rest = rest[0], rest[1:]
+	}
+	a.pos = rest
+	if a.output != "" && a.output != "wide" {
+		return a, fmt.Errorf("-o %s is not supported; only -o wide", a.output)
+	}
+	return a, nil
+}
+
+// refuse returns the reason a command is never run, or "".
+func refuse(a termArgs) string {
+	verbs := refusedVerbs()
+	if why := verbs[a.verb]; why != "" {
+		return why
+	}
+	if a.verb == "rollout" {
+		if why := verbs["rollout "+a.sub]; why != "" {
+			return why
+		}
+	}
+	if (a.verb == "get" || a.verb == "describe") && (a.sub == "secret" || a.sub == "secrets") {
+		return neverAdded()[2].Why
+	}
+	return ""
+}
+
+// executeKubectl runs one command line: parse, refuse, check the scope,
+// run, redact, cap.
+func executeKubectl(ctx context.Context, e *termEnv, line string) (string, error) {
+	if words := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "kubectl ")); len(words) > 0 {
+		// A refused command is refused whatever its flags say.
+		sub := ""
+		if len(words) > 1 {
+			sub = words[1]
+		}
+		if why := refuse(termArgs{verb: words[0], sub: sub}); why != "" {
+			return "", fmt.Errorf("`%s` is not available: %s", strings.TrimSpace(words[0]+" "+map[bool]string{true: sub}[hasSub(words[0])]), why)
+		}
+	}
+	a, err := parseArgs(line)
+	if err != nil {
+		return "", err
+	}
+	if why := refuse(a); why != "" {
+		return "", fmt.Errorf("`%s` is not available: %s", strings.TrimSpace(a.verb+" "+a.sub), why)
+	}
+	c, ok := lookup(a)
+	if !ok {
+		return "", fmt.Errorf("unsupported command: %s; type help", strings.TrimSpace(a.verb+" "+a.sub))
+	}
+	if !c.Cluster {
+		if err := checkScope(e, a); err != nil {
+			return "", err
+		}
+	}
+	out, err := c.run(ctx, e, a)
+	out = redact.String(out)
+	if len(out) > maxTermOutput {
+		out = out[:maxTermOutput] + "\n... output cut at 256 KiB"
+	}
+	return out, err
+}
+
+// checkScope applies the watch scope to namespaced reads (constraint 4);
+// -A is expanded later to the watched namespaces only.
+func checkScope(e *termEnv, a termArgs) error {
+	if e.allowNS == nil {
+		return fmt.Errorf("namespace %q is outside the watch scope", a.ns)
+	}
+	if a.allNs {
+		return nil
+	}
+	if !e.allowNS(a.ns) {
+		return fmt.Errorf("namespace %q is outside the watch scope", a.ns)
+	}
+	return nil
+}
+
+// namespaces is where a namespaced command reads: -n, or with -A every
+// watched namespace (ISS-063: -A used to be refused outright).
+func namespaces(ctx context.Context, e *termEnv, a termArgs) ([]string, error) {
+	if !a.allNs {
+		return []string{a.ns}, nil
+	}
+	list, err := e.kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for i := range list.Items {
+		if e.allowNS(list.Items[i].Name) {
+			out = append(out, list.Items[i].Name)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// helpText is `help`, made from the command table.
+func helpText() string {
+	var b strings.Builder
+	b.WriteString("Read-only kubectl. You can run:\n")
+	for _, c := range termCommands() {
+		fmt.Fprintf(&b, "  %-70s %s\n", c.Usage, c.About)
+	}
+	b.WriteString("\nNot available, and why:\n")
+	for _, r := range neverAdded() {
+		fmt.Fprintf(&b, "  %s: %s\n", r.Commands, r.Why)
+	}
+	return b.String()
+}
+
+// handleKubectl runs one terminal command.
 func (s *Server) handleKubectl(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		writeJSON(w, kubectlResponse{Error: "POST required"})
 		return
 	}
@@ -37,546 +354,35 @@ func (s *Server) handleKubectl(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, kubectlResponse{Error: "no cluster connection"})
 		return
 	}
-
 	var req kubectlRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 		writeJSON(w, kubectlResponse{Error: "invalid request"})
 		return
 	}
-
-	cmd := strings.TrimSpace(req.Command)
-	// Strip leading "kubectl " if present
-	cmd = strings.TrimPrefix(cmd, "kubectl ")
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
-	output, err := executeKubectl(ctx, s.kc, cmd, s.allowNS)
-	resp := kubectlResponse{Output: output}
+	out, err := executeKubectl(ctx, s.termEnv(), req.Command)
+	resp := kubectlResponse{Output: out}
 	if err != nil {
-		resp.Error = err.Error()
+		resp.Error = redact.String(err.Error())
 	}
 	writeJSON(w, resp)
 }
 
-func executeKubectl(ctx context.Context, kc kubernetes.Interface, cmd string, allowNS func(string) bool) (string, error) {
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
-		return "", fmt.Errorf("empty command")
-	}
-
-	verb := parts[0]
-	if err := checkKubectlScope(verb, parts[1:], allowNS); err != nil {
-		return "", err
-	}
-	switch verb {
-	case "get":
-		return handleGet(ctx, kc, parts[1:])
-	case "describe":
-		return handleDescribe(ctx, kc, parts[1:])
-	case "logs":
-		return handleLogs(ctx, kc, parts[1:])
-	case "top":
-		return handleTop(ctx, kc, parts[1:])
-	case "version":
-		return handleVersion(ctx, kc)
-	case "cluster-info":
-		return "Kubernetes control plane is running\nUse 'get nodes' for node info", nil
-	case "help":
-		return `Supported commands:
-  get pods [-n <ns>] [-A]
-  get deployments [-n <ns>]
-  get services [-n <ns>]
-  get nodes
-  get namespaces
-  get events [-n <ns>]
-  get jobs [-n <ns>]
-  get all [-n <ns>]
-  describe pod <name> [-n <ns>]
-  describe deploy <name> [-n <ns>]
-  describe node <name>
-  logs <pod> [-n <ns>] [-c <container>] [--tail <n>]
-  top pods [-n <ns>]
-  top nodes
-  version`, nil
-	default:
-		return "", fmt.Errorf("unsupported command: %s\nType 'help' for supported commands", verb)
-	}
-}
-
-// clusterScoped resources are readable regardless of the watch scope.
-var clusterScoped = map[string]bool{
-	"nodes": true, "node": true, "no": true,
-	"namespaces": true, "namespace": true, "ns": true,
-}
-
-// checkKubectlScope applies the watch scope to namespaced reads
-// (CLAUDE.md constraint 4). A nil filter denies them.
-func checkKubectlScope(verb string, args []string, allowNS func(string) bool) error {
-	switch verb {
-	case "get", "describe", "logs", "top":
-	default:
-		return nil
-	}
-	resource, _, ns, _, allNs, _ := parseFlags(args)
-	if verb != "logs" && clusterScoped[resource] {
-		return nil
-	}
-	if allNs {
-		return fmt.Errorf("listing across all namespaces is not supported yet; use -n <namespace>")
-	}
-	if allowNS == nil || !allowNS(ns) {
-		return fmt.Errorf("namespace %q is outside the watch scope", ns)
-	}
-	return nil
-}
-
-func parseFlags(args []string) (resource, name, namespace, container string, allNs bool, tail int64) {
-	namespace = "default"
-	tail = 50
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-n", "--namespace":
-			if i+1 < len(args) {
-				namespace = args[i+1]
-				i++
-			}
-		case "-A", "--all-namespaces":
-			allNs = true
-		case "-c", "--container":
-			if i+1 < len(args) {
-				container = args[i+1]
-				i++
-			}
-		case "--tail":
-			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &tail)
-				i++
-			}
-		default:
-			if resource == "" {
-				resource = args[i]
-			} else if name == "" {
-				name = args[i]
-			}
-		}
-	}
-	return
-}
-
-func handleGet(ctx context.Context, kc kubernetes.Interface, args []string) (string, error) {
-	resource, name, ns, _, allNs, _ := parseFlags(args)
-	if allNs {
-		ns = ""
-	}
-
-	switch resource {
-	case "pods", "pod", "po":
-		return getPods(ctx, kc, ns, name)
-	case "deployments", "deployment", "deploy":
-		return getDeployments(ctx, kc, ns, name)
-	case "services", "service", "svc":
-		return getServices(ctx, kc, ns)
-	case "nodes", "node", "no":
-		return getNodes(ctx, kc)
-	case "namespaces", "namespace", "ns":
-		return getNamespaces(ctx, kc)
-	case "events", "event", "ev":
-		return getEvents(ctx, kc, ns)
-	case "jobs", "job":
-		return getJobs(ctx, kc, ns)
-	case "all":
-		return getAll(ctx, kc, ns)
-	default:
-		return "", fmt.Errorf("unsupported resource: %s", resource)
-	}
-}
-
-func getPods(ctx context.Context, kc kubernetes.Interface, ns, name string) (string, error) {
-	if name != "" {
-		pod, err := kc.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return "", err
-		}
-		return formatPods([]corev1.Pod{*pod}, ns == ""), nil
-	}
-	pods, err := kc.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	if len(pods.Items) == 0 {
-		return fmt.Sprintf("No resources found in %s namespace.", ns), nil
-	}
-	return formatPods(pods.Items, ns == ""), nil
-}
-
-func formatPods(pods []corev1.Pod, showNs bool) string {
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	if showNs {
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tREADY\tSTATUS\tRESTARTS\tAGE\tNODE")
-	} else {
-		fmt.Fprintln(w, "NAME\tREADY\tSTATUS\tRESTARTS\tAGE\tNODE")
-	}
-	for _, p := range pods {
-		ready, total := 0, len(p.Spec.Containers)
-		var restarts int32
-		for _, cs := range p.Status.ContainerStatuses {
-			if cs.Ready {
-				ready++
-			}
-			restarts += cs.RestartCount
-		}
-		status := podStatus(&p)
-		if showNs {
-			fmt.Fprintf(w, "%s\t%s\t%d/%d\t%s\t%d\t%s\t%s\n",
-				p.Namespace, p.Name, ready, total, status, restarts, age(p.CreationTimestamp.Time), p.Spec.NodeName)
-		} else {
-			fmt.Fprintf(w, "%s\t%d/%d\t%s\t%d\t%s\t%s\n",
-				p.Name, ready, total, status, restarts, age(p.CreationTimestamp.Time), p.Spec.NodeName)
-		}
-	}
-	w.Flush()
-	return buf.String()
-}
-
-func getDeployments(ctx context.Context, kc kubernetes.Interface, ns, name string) (string, error) {
-	if name != "" {
-		d, err := kc.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return "", err
-		}
-		return formatDeploys([]appsv1.Deployment{*d}), nil
-	}
-	deploys, err := kc.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	if len(deploys.Items) == 0 {
-		return fmt.Sprintf("No resources found in %s namespace.", ns), nil
-	}
-	return formatDeploys(deploys.Items), nil
-}
-
-func formatDeploys(deploys []appsv1.Deployment) string {
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tREADY\tUP-TO-DATE\tAVAILABLE\tAGE")
-	for _, d := range deploys {
-		desired := int32(1)
-		if d.Spec.Replicas != nil {
-			desired = *d.Spec.Replicas
-		}
-		fmt.Fprintf(w, "%s\t%d/%d\t%d\t%d\t%s\n",
-			d.Name, d.Status.ReadyReplicas, desired, d.Status.UpdatedReplicas, d.Status.AvailableReplicas, age(d.CreationTimestamp.Time))
-	}
-	w.Flush()
-	return buf.String()
-}
-
-func getServices(ctx context.Context, kc kubernetes.Interface, ns string) (string, error) {
-	svcs, err := kc.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tTYPE\tCLUSTER-IP\tPORT(S)\tAGE")
-	for _, s := range svcs.Items {
-		ports := ""
-		for i, p := range s.Spec.Ports {
-			if i > 0 {
-				ports += ","
-			}
-			ports += fmt.Sprintf("%d/%s", p.Port, p.Protocol)
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.Spec.Type, s.Spec.ClusterIP, ports, age(s.CreationTimestamp.Time))
-	}
-	w.Flush()
-	return buf.String(), nil
-}
-
-func getNodes(ctx context.Context, kc kubernetes.Interface) (string, error) {
-	nodes, err := kc.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tROLES\tAGE\tVERSION")
-	for _, n := range nodes.Items {
-		roles := ""
-		for k := range n.Labels {
-			if strings.HasPrefix(k, "node-role.kubernetes.io/") {
-				if roles != "" {
-					roles += ","
-				}
-				roles += strings.TrimPrefix(k, "node-role.kubernetes.io/")
-			}
-		}
-		if roles == "" {
-			roles = "<none>"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", n.Name, nodeStatus(&n), roles, age(n.CreationTimestamp.Time), n.Status.NodeInfo.KubeletVersion)
-	}
-	w.Flush()
-	return buf.String(), nil
-}
-
-func getNamespaces(ctx context.Context, kc kubernetes.Interface) (string, error) {
-	nss, err := kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tAGE")
-	for _, n := range nss.Items {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", n.Name, n.Status.Phase, age(n.CreationTimestamp.Time))
-	}
-	w.Flush()
-	return buf.String(), nil
-}
-
-func getEvents(ctx context.Context, kc kubernetes.Interface, ns string) (string, error) {
-	events, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "TYPE\tREASON\tOBJECT\tMESSAGE\tAGE")
-	start := 0
-	if len(events.Items) > 50 {
-		start = len(events.Items) - 50
-	}
-	for i := start; i < len(events.Items); i++ {
-		e := events.Items[i]
-		ts := e.LastTimestamp.Time
-		if ts.IsZero() {
-			ts = e.CreationTimestamp.Time
-		}
-		obj := fmt.Sprintf("%s/%s", strings.ToLower(e.InvolvedObject.Kind), e.InvolvedObject.Name)
-		msg := e.Message
-		if len(msg) > 80 {
-			msg = msg[:80] + "..."
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.Type, e.Reason, obj, msg, age(ts))
-	}
-	w.Flush()
-	return buf.String(), nil
-}
-
-func getJobs(ctx context.Context, kc kubernetes.Interface, ns string) (string, error) {
-	jobs, err := kc.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tCOMPLETIONS\tAGE")
-	for _, j := range jobs.Items {
-		status := "Running"
-		for _, c := range j.Status.Conditions {
-			if c.Type == batchv1.JobComplete && c.Status == "True" {
-				status = "Complete"
-			}
-			if c.Type == batchv1.JobFailed && c.Status == "True" {
-				status = "Failed"
-			}
-		}
-		desired := int32(1)
-		if j.Spec.Completions != nil {
-			desired = *j.Spec.Completions
-		}
-		fmt.Fprintf(w, "%s\t%s\t%d/%d\t%s\n", j.Name, status, j.Status.Succeeded, desired, age(j.CreationTimestamp.Time))
-	}
-	w.Flush()
-	return buf.String(), nil
-}
-
-func getAll(ctx context.Context, kc kubernetes.Interface, ns string) (string, error) {
-	var buf bytes.Buffer
-
-	if pods, err := getPods(ctx, kc, ns, ""); err == nil && pods != "" {
-		buf.WriteString("=== Pods ===\n")
-		buf.WriteString(pods)
-		buf.WriteString("\n")
-	}
-	if deploys, err := getDeployments(ctx, kc, ns, ""); err == nil && deploys != "" {
-		buf.WriteString("=== Deployments ===\n")
-		buf.WriteString(deploys)
-		buf.WriteString("\n")
-	}
-	if svcs, err := getServices(ctx, kc, ns); err == nil && svcs != "" {
-		buf.WriteString("=== Services ===\n")
-		buf.WriteString(svcs)
-		buf.WriteString("\n")
-	}
-	if jobs, err := getJobs(ctx, kc, ns); err == nil {
-		buf.WriteString("=== Jobs ===\n")
-		buf.WriteString(jobs)
-	}
-	return buf.String(), nil
-}
-
-func handleDescribe(ctx context.Context, kc kubernetes.Interface, args []string) (string, error) {
-	resource, name, ns, _, _, _ := parseFlags(args)
-	if name == "" {
-		return "", fmt.Errorf("usage: describe <resource> <name> [-n <namespace>]")
-	}
-
-	switch resource {
-	case "pod", "pods", "po":
-		return describePod(ctx, kc, ns, name)
-	case "deploy", "deployment", "deployments":
-		return describeDeployment(ctx, kc, ns, name)
-	case "node", "nodes":
-		return describeNode(ctx, kc, name)
-	default:
-		return "", fmt.Errorf("describe not supported for: %s", resource)
-	}
-}
-
-func describePod(ctx context.Context, kc kubernetes.Interface, ns, name string) (string, error) {
-	p, err := kc.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Name:         %s\n", p.Name)
-	fmt.Fprintf(&buf, "Namespace:    %s\n", p.Namespace)
-	fmt.Fprintf(&buf, "Node:         %s\n", p.Spec.NodeName)
-	fmt.Fprintf(&buf, "Status:       %s\n", p.Status.Phase)
-	fmt.Fprintf(&buf, "IP:           %s\n", p.Status.PodIP)
-	fmt.Fprintf(&buf, "Age:          %s\n", age(p.CreationTimestamp.Time))
-	if len(p.Labels) > 0 {
-		fmt.Fprintf(&buf, "Labels:       ")
-		for k, v := range p.Labels {
-			fmt.Fprintf(&buf, "%s=%s ", k, v)
-		}
-		buf.WriteString("\n")
-	}
-	buf.WriteString("\nContainers:\n")
-	for _, cs := range p.Status.ContainerStatuses {
-		fmt.Fprintf(&buf, "  %s:\n", cs.Name)
-		fmt.Fprintf(&buf, "    Image:     %s\n", cs.Image)
-		fmt.Fprintf(&buf, "    Ready:     %v\n", cs.Ready)
-		fmt.Fprintf(&buf, "    Restarts:  %d\n", cs.RestartCount)
-		if cs.State.Running != nil {
-			fmt.Fprintf(&buf, "    State:     Running (since %s)\n", age(cs.State.Running.StartedAt.Time))
-		} else if cs.State.Waiting != nil {
-			fmt.Fprintf(&buf, "    State:     Waiting (%s)\n", cs.State.Waiting.Reason)
-		} else if cs.State.Terminated != nil {
-			fmt.Fprintf(&buf, "    State:     Terminated (%s, exit %d)\n", cs.State.Terminated.Reason, cs.State.Terminated.ExitCode)
-		}
-	}
-	// Events
-	events, err := kc.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
-		FieldSelector: "involvedObject.name=" + name,
+// handleKubectlHelp serves the command table for the terminal's panel.
+func (s *Server) handleKubectlHelp(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{
+		"commands": termCommands(),
+		"refused":  neverAdded(),
+		"rules": []string{
+			"Read-only: every change goes through the mutation gate, its guardrails and the audit trail.",
+			"Namespaced reads stay inside the watch scope; -A means every watched namespace.",
+			"Secrets are never read; ConfigMaps show key names, not values; every output is redacted.",
+			"Each command needs only the permissions the agent already holds.",
+		},
 	})
-	if err != nil {
-		obs.CountAPIError(err, "events", ns)
-	}
-	if events != nil && len(events.Items) > 0 {
-		buf.WriteString("\nEvents:\n")
-		for _, e := range events.Items {
-			fmt.Fprintf(&buf, "  %s  %s  %s: %s\n", e.Type, age(e.LastTimestamp.Time), e.Reason, e.Message)
-		}
-	}
-	return buf.String(), nil
 }
 
-func describeDeployment(ctx context.Context, kc kubernetes.Interface, ns, name string) (string, error) {
-	d, err := kc.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-	desired := int32(1)
-	if d.Spec.Replicas != nil {
-		desired = *d.Spec.Replicas
-	}
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Name:               %s\n", d.Name)
-	fmt.Fprintf(&buf, "Namespace:          %s\n", d.Namespace)
-	fmt.Fprintf(&buf, "Replicas:           %d desired | %d updated | %d available | %d ready\n",
-		desired, d.Status.UpdatedReplicas, d.Status.AvailableReplicas, d.Status.ReadyReplicas)
-	fmt.Fprintf(&buf, "Strategy:           %s\n", d.Spec.Strategy.Type)
-	fmt.Fprintf(&buf, "Age:                %s\n", age(d.CreationTimestamp.Time))
-	buf.WriteString("\nConditions:\n")
-	for _, c := range d.Status.Conditions {
-		fmt.Fprintf(&buf, "  %s: %s (%s) %s\n", c.Type, c.Status, c.Reason, c.Message)
-	}
-	buf.WriteString("\nContainers:\n")
-	for _, c := range d.Spec.Template.Spec.Containers {
-		fmt.Fprintf(&buf, "  %s:\n", c.Name)
-		fmt.Fprintf(&buf, "    Image:  %s\n", c.Image)
-		if c.Resources.Limits != nil {
-			fmt.Fprintf(&buf, "    Limits: cpu=%s, memory=%s\n",
-				c.Resources.Limits.Cpu().String(), c.Resources.Limits.Memory().String())
-		}
-	}
-	return buf.String(), nil
-}
-
-func describeNode(ctx context.Context, kc kubernetes.Interface, name string) (string, error) {
-	n, err := kc.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Name:               %s\n", n.Name)
-	fmt.Fprintf(&buf, "Status:             %s\n", nodeStatus(n))
-	fmt.Fprintf(&buf, "Version:            %s\n", n.Status.NodeInfo.KubeletVersion)
-	fmt.Fprintf(&buf, "OS:                 %s (%s)\n", n.Status.NodeInfo.OSImage, n.Status.NodeInfo.Architecture)
-	fmt.Fprintf(&buf, "Kernel:             %s\n", n.Status.NodeInfo.KernelVersion)
-	fmt.Fprintf(&buf, "Container Runtime:  %s\n", n.Status.NodeInfo.ContainerRuntimeVersion)
-	fmt.Fprintf(&buf, "Unschedulable:      %v\n", n.Spec.Unschedulable)
-	fmt.Fprintf(&buf, "Age:                %s\n", age(n.CreationTimestamp.Time))
-	buf.WriteString("\nCapacity:\n")
-	fmt.Fprintf(&buf, "  CPU:     %s\n", n.Status.Capacity.Cpu().String())
-	fmt.Fprintf(&buf, "  Memory:  %s\n", formatMemory(n.Status.Capacity.Memory().Value()))
-	fmt.Fprintf(&buf, "  Pods:    %s\n", n.Status.Capacity.Pods().String())
-	buf.WriteString("\nConditions:\n")
-	for _, c := range n.Status.Conditions {
-		fmt.Fprintf(&buf, "  %s: %s (%s)\n", c.Type, c.Status, c.Message)
-	}
-	return buf.String(), nil
-}
-
-func handleLogs(ctx context.Context, kc kubernetes.Interface, args []string) (string, error) {
-	_, name, ns, container, _, tail := parseFlags(args)
-	if name == "" {
-		return "", fmt.Errorf("usage: logs <pod-name> [-n <namespace>] [-c <container>] [--tail <n>]")
-	}
-	opts := &corev1.PodLogOptions{TailLines: &tail}
-	if container != "" {
-		opts.Container = container
-	}
-	req := kc.CoreV1().Pods(ns).GetLogs(name, opts)
-	result, err := req.DoRaw(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(result), nil
-}
-
-func handleTop(ctx context.Context, kc kubernetes.Interface, args []string) (string, error) {
-	resource, _, _, _, _, _ := parseFlags(args)
-	switch resource {
-	case "nodes", "node":
-		return "top nodes requires metrics-server API (not implemented in web terminal)\nUse 'get nodes' for node status", nil
-	case "pods", "pod":
-		return "top pods requires metrics-server API (not implemented in web terminal)\nUse 'get pods -A' for pod status", nil
-	default:
-		return "", fmt.Errorf("usage: top [nodes|pods]")
-	}
-}
-
-func handleVersion(ctx context.Context, kc kubernetes.Interface) (string, error) {
-	sv, err := kc.Discovery().ServerVersion()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Server Version: %s\nPlatform: %s", sv.GitVersion, sv.Platform), nil
+func (s *Server) termEnv() *termEnv {
+	return &termEnv{kc: s.kc, dyn: s.dyn, allowNS: s.allowNS, agent: s.agent, recorder: s.recorder, now: time.Now()}
 }

@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/slack"
 )
@@ -159,5 +160,29 @@ func TestWaitClosed(t *testing.T) {
 	close(ch)
 	if !waitClosed(ch, time.Second) {
 		t.Fatal("a closed channel returns at once")
+	}
+}
+
+// PLAN-003 phase 3: the agent commands read the agent's own state.
+func TestTermAgent(t *testing.T) {
+	conf := config.Load(envOf(map[string]string{"FIX_NAMESPACES": "a", "WATCH_NAMESPACES": "a,b", "AGENT_ROLE": "controller", "POD_NAME": "c-0"}))
+	hr := policy.NewHotReloader(conf.Policy, "ns", "cm")
+	a := &agent{conf: conf, hr: hr, rl: roles{controller: true}, leads: func() bool { return true }, deps: &kube.Deps{Policies: hr}}
+	ta := termAgentFor(a)
+	if s := ta.Scope(); !strings.Contains(s, "Watch scope:  a, b") || !strings.Contains(s, "Fix scope:    a (from Helm") {
+		t.Fatalf("scope: %s", s)
+	}
+	if s := ta.Status(); !strings.Contains(s, "Leader:   true") || !strings.Contains(s, "c-0") {
+		t.Fatalf("status: %s", s)
+	}
+	if rows := ta.Gate("a"); len(rows) == 0 || rows[0].Check != "mode" {
+		t.Fatalf("gate: %+v", rows)
+	}
+	a.hr = policy.NewHotReloader(conf.Policy.WithFixOverride([]string{}), "ns", "cm")
+	if s := (termAgent{a}).Scope(); !strings.Contains(s, "nowhere (from the Settings tab)") {
+		t.Fatalf("empty choice: %s", s)
+	}
+	if termAgentFor(&agent{rl: roles{node: true}}) != nil {
+		t.Fatal("node agents serve no agent commands")
 	}
 }

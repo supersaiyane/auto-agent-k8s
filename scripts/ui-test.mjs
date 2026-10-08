@@ -91,6 +91,11 @@ for (const tab of TABS) {
   await evaluate(`document.querySelector('[role=tab][data-tab="${tab}"]').click()`);
   if (tab === 'terminal') {
     if (!(await waitFor(`!document.getElementById('terminal').hidden`))) fail('terminal did not open');
+    // PLAN-003 1.3: the panel lists exactly what the help API says.
+    const want = await evaluate(`fetch('/api/kubectl/help', { headers: { Authorization: 'Bearer ' + sessionStorage.getItem('autoAgentToken') } }).then((r) => r.json()).then((h) => h.commands.length + '/' + h.refused.length)`);
+    if (!(await waitFor(`document.querySelectorAll('#term-help .term-cmds li').length + '/' + (document.querySelectorAll('#term-help ul')[1] || { children: [] }).children.length === ${JSON.stringify(want)}`))) {
+      fail('terminal panel does not match /api/kubectl/help (' + want + ')');
+    }
     continue;
   }
   if (!(await waitFor(`window.__autoAgent.renders > ${before}`))) { fail(`${tab}: never rendered`); continue; }

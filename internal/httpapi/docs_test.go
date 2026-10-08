@@ -191,3 +191,38 @@ func (n schemaNode) flatten(prefix string, out map[string]bool) {
 		sub.flatten(p, out)
 	}
 }
+
+// PLAN-003 4.1: GUIDE section 6.3 names every command the terminal runs and
+// every refusal, so the guide follows the command table.
+func TestDocs_TerminalSectionMatchesTable(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/GUIDE.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	i := strings.Index(s, "### 6.3 The Terminal tab")
+	j := strings.Index(s, "### 6.4")
+	if i < 0 || j < i {
+		t.Fatal("GUIDE section 6.3 not found")
+	}
+	section := s[i:j]
+	for _, c := range termCommands() {
+		name := c.Verb
+		switch c.Verb {
+		case "get", "describe":
+			name = c.Sub
+		case "rollout", "auth", "agent":
+			name = c.Verb + " " + c.Sub
+		}
+		if !strings.Contains(section, name) {
+			t.Errorf("GUIDE 6.3 does not mention %q (%s)", name, c.Usage)
+		}
+	}
+	for _, r := range neverAdded()[:3] {
+		for _, cmd := range strings.Split(r.Commands, ", ") {
+			if !strings.Contains(section, strings.Fields(cmd)[0]) {
+				t.Errorf("GUIDE 6.3 does not list the refused %q", cmd)
+			}
+		}
+	}
+}

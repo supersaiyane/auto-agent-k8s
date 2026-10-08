@@ -30,11 +30,13 @@
 | 2026-10-08 | PLAN-002 11.5, 11.6, 11.3, 11.7: phase 11 complete | Done: `make verify` (coverage 56.4% measured, floor raised to it), `make e2e` and `make e2e-raw` PASS on kind; not pushed | ed4ddab (shutdown, notices, check-config), bace559 (docs owners, changelog, docs check), 11.3 commit (namespace, image digest), 11.7 records | `cmd/auto-agent/run.go` (`shutdown`, `leaderChecks`), `cmd/auto-agent/main.go` (`command`), `internal/httpapi/docs_test.go`, `charts/auto-agent/templates/_helpers.tpl` |
 | 2026-10-08 | PLAN-002 phase 12: detector audit (ISS-039, 034, 035; ISS-066 to 076 found and fixed) | Code and tests done, full suite passes; `make e2e` and `make e2e-raw` PASS on kind, `make verify` coverage 70.7% (measured); committed | `internal/kube/*_audit_test.go` (audits), `workloads.go`, `jobs.go`, `workload_extended.go`, `pod_extended.go`, `storage_network.go`, `pvc.go`, `nodecheck.go`, `node_extended.go`, `security.go`, `quotas.go`, `anomalies.go`, `fixtracker.go`, `correlation.go`, `learning.go`, `selfcheck.go`; `ratelimit.Deduplicator.CheckFor`; chart grants | `internal/kube/detector_guard_test.go` (`TestEveryLeaderCheckHasATest`), `internal/kube/workloads.go` (`CheckServiceEndpoints`), PR body in session scratchpad `pr3-body.md` |
 | 2026-10-08 | PLAN-002 phase 13: native config reload (Part A, A1 to A3) | Done: `make verify` (coverage 72.3% measured, floor raised), `make e2e` (reload case: dry-run records one simulated reload for three edits, fix mode restarts once) and `make e2e-raw` PASS on kind; secret leak test falsified; not pushed | `internal/kube/reload_refs.go`, `reload_policy.go`, `reload.go`, `reload_watch.go`, `/api/reloads`, Reloads tab, chart `reload.*`, GUIDE 8.7 and 8.8 | `internal/kube/reload.go` (`reloadTick`, `advanceWave`, `restartForReload`), `internal/kube/reload_watch.go` (`WatchConfig`), `scripts/e2e-kind.sh` (reload case) |
+| 2026-10-08 | PLAN-003 read-only terminal (phases 1 to 4) | Done: `make e2e` and `make e2e-raw` PASS on kind, `make verify` coverage 76.2% (measured, floor raised); panel check falsified; committed, not pushed | `internal/httpapi/terminal.go` (command table), `terminal_get.go`, `terminal_describe.go`, `terminal_read.go`, `terminal_agent.go`, `internal/kube/gate_preview.go`, `cmd/auto-agent/terminal_agent.go`, UI panel, GUIDE 6.3, chart read grants | `internal/httpapi/terminal.go` (`termCommands`, `executeKubectl`), `internal/httpapi/terminal_test.go`, `internal/httpapi/docs_test.go` (`TestDocs_TerminalSectionMatchesTable`) |
 
 ## Next action
 
-1. Phase 13 is committed on `plan-002`, not pushed (with fd94273 and ff6f96b).
-   Push and open a PR on the owner's go.
-2. Then PLAN-003 (read-only terminal), then PLAN-002 phases 14 to 17.
-4. Stage `deployment/` before `make verify` (`check-manifests` diffs the index).
-5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.
+1. PLAN-003 is committed.
+2. Next: PLAN-002 phase 14 (Part B network: ISS-033 per-node DNS probe and
+   CoreDNS metrics; ISS-036 sandbox and CNI events, kube-proxy and CNI pods
+   when kube-system is watched, NetworkPolicy analysis, opt-in Service and
+   egress probes, conntrack, Ingress TLS secrets), then phases 15 to 17.
+3. `plan-002` is ahead of origin with phase 13 and PLAN-003; push on the owner's go.

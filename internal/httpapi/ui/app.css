@@ -99,3 +99,10 @@ h3{margin-bottom:12px;font-size:15px} h4{margin:14px 0 6px;color:var(--muted);fo
 .review input{margin-left:8px;background:var(--bg);border:1px solid var(--border);color:inherit;padding:2px 6px;border-radius:4px}
 .scope-actions{margin:10px 0;display:flex;gap:8px;flex-wrap:wrap}
 .btn:disabled{opacity:.5;cursor:not-allowed}
+/* Terminal command panel (PLAN-003) */
+.terminal{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px}
+.terminal .term-help{grid-column:2;grid-row:1 / span 3;max-height:70vh;overflow:auto;border-left:1px solid var(--border);padding-left:10px;font-size:12px}
+.terminal .term-output,.terminal .term-line,.terminal > p{grid-column:1}
+.term-help ul{list-style:none;padding:0;margin:4px 0 10px}
+.term-help li{margin:3px 0}
+@media (max-width:900px){.terminal{grid-template-columns:1fr}.terminal .term-help{grid-column:1;grid-row:auto;border-left:0;padding-left:0}}

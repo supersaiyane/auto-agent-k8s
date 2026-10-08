@@ -355,17 +355,45 @@ fails on any console error, policy violation or injected markup.
 
 ### 6.3 The Terminal tab
 
-```
-get pods -n payments
-describe deploy api -n payments
-logs api-7d9f -n payments --tail 100
-top pods -n payments
-get nodes
-```
+A read-only kubectl (PLAN-003). The panel beside it lists what it can run,
+what it never will and why; both come from the server's command table
+(`/api/kubectl/help`), the same table that decides what runs, so they cannot
+drift. Click a command in the panel to start typing it.
 
-Only watched namespaces are readable; `-A` and other namespaces are
-refused. Nodes and namespaces are always readable. Nothing in the terminal
-can change the cluster.
+**Reads**
+
+| Command | What it shows |
+| --- | --- |
+| `get <kind> [name]` with `-n <ns>`, `-A`, `-l <selector>`, `--field-selector <selector>`, `-o wide` | pods, deployments, statefulsets, daemonsets, replicasets, jobs, cronjobs, services, endpointslices, ingresses, networkpolicies, hpa, pdb, pvc, resourcequotas, configmaps (key count only), events, autoremediationpolicies, nodes, namespaces |
+| `describe <kind> <name>` | pod, deployment, statefulset, job, service, pvc, hpa, ingress, node, with their events |
+| `logs <pod> \| deploy/<name>` with `-c`, `--tail`, `--previous`, `--since` | container logs; `deploy/<name>` picks a running pod of the Deployment |
+| `events --for <kind>/<name>` | events for one object, newest last |
+| `rollout status`, `rollout history` with `deploy/<name>` or `sts/<name>` | rollout progress, and revisions with their images |
+| `auth can-i <verb> <resource>` | what the agent itself may do (a SelfSubjectAccessReview: a question, nothing is stored) |
+| `version`, `help` | the API server version; the full list |
+
+**About the agent**
+
+| Command | What it shows |
+| --- | --- |
+| `agent scope` | watch scope, fix scope (and where it came from), fix ceiling, mode |
+| `agent why <pod>` | every finding, gate decision and fix the agent recorded for one pod |
+| `agent gate` | for the namespace, check by check, whether a fix would pass now; nothing is spent |
+| `agent status` | version, role, pod, leader, mode |
+
+**Never added**, and why:
+
+- `delete`, `apply`, `create`, `replace`, `edit`, `patch`, `scale`, `label`,
+  `annotate`, `taint`, `set`, `cordon`, `uncordon`, `drain`, `rollout
+  restart`, `rollout undo`, `rollout pause`, `rollout resume`: writes would
+  bypass the mutation gate, its guardrails and its audit trail.
+- `exec`, `attach`, `cp`, `debug`, `port-forward`, `proxy`, `run`: shell or
+  network access into workloads for anyone holding the dashboard token.
+- `get secrets`, `describe secret`, ConfigMap values: credentials.
+
+Namespaced reads stay inside the watch scope; `-A` means every watched
+namespace. Every output is redacted, so tokens, keys and IP addresses
+appear as placeholders such as `[ipv4]`.
 
 ### 6.4 The Settings tab: where the agent may fix
 

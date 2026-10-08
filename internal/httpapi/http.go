@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -45,6 +46,8 @@ type Server struct {
 	cost    CostConfig        // Cost tab pricing (PLAN-002 9.3)
 	ext     ExtendedDeps      // extended endpoints (PLAN-002 9.4)
 	scope   ScopeOptions      // Settings tab (ADR-002)
+	dyn     dynamic.Interface // the terminal's AutoRemediationPolicy reads
+	agent   TerminalAgent     // the terminal's agent commands (PLAN-003)
 	http    *http.Client      // outbound calls (Kubecost, OpenCost)
 	started time.Time
 }
@@ -80,6 +83,10 @@ type Options struct {
 	IsLeader       func() bool
 	// Scope serves /api/scope and the scope fields of /api/status (ADR-002).
 	Scope ScopeOptions
+	// Dynamic lets the terminal read AutoRemediationPolicy objects; Agent
+	// answers its agent commands (PLAN-003). Both may be nil.
+	Dynamic dynamic.Interface
+	Agent   TerminalAgent
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
@@ -89,7 +96,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
-		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope}
+		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope, dyn: opts.Dynamic, agent: opts.Agent}
 	s.ingest = opts.Ingest
 	if s.ingest == nil && recorder != nil {
 		s.ingest = recorder
@@ -789,6 +796,7 @@ var apiRouteTable = []struct {
 	{"/api/nodes", (*Server).handleNodes},
 	{"/api/k8s-events", (*Server).handleK8sEvents},
 	{"/api/kubectl", (*Server).handleKubectl},
+	{"/api/kubectl/help", (*Server).handleKubectlHelp},
 	{"/api/compliance", (*Server).handleCompliance},
 	{"/api/baselines", (*Server).handleBaselines},
 	{"/api/deploys", (*Server).handleDeploys},

@@ -39,7 +39,10 @@ done 2026-10-08 (PLAN-002 Part A, A1 to A3): config reload with key-level
 detection, Stakater annotations, reloadOn, debounce, staged waves, rollback
 on stall, Secrets opt-in, Reloads tab, GUIDE 8.7 and 8.8. `make e2e` and
 `make e2e-raw` pass on kind; coverage 72.3% (measured), floor raised.
-**Phase 13 is complete.** Next: PLAN-003 (terminal), then phase 14; 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+**Phase 13 is complete.** PLAN-003 done 2026-10-08: the terminal runs from
+one command table (get 20 kinds, describe, logs, events, rollout, auth can-i,
+agent commands), refuses writes, exec and secrets with the reason, and shows
+the table in a panel; ISS-063 fixed. Next: phase 14; 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

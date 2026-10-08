@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net/http/httptest"
-	"sync"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 

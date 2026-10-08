@@ -317,7 +317,7 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		Cost: a.conf.Cost, HTTPClient: cl.HTTP,
 		AllowNamespace: func(ns string) bool { return a.hr.Get().Watched(ns) },
 		IsLeader:       a.isLeader, Leader: leaderTarget, HealthOnly: a.rl.onlyNode(),
-		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope,
+		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope, Dynamic: cl.Dynamic, Agent: termAgentFor(a),
 		Extended: ext,
 	})
 }
@@ -588,3 +588,12 @@ func newPeerResolver(kc kubernetes.Interface, ns, self, port string) func() ([]s
 
 // controllerSelector matches the controller pods the chart creates.
 const controllerSelector = "app=auto-agent-controller"
+
+// termAgentFor backs the terminal's agent commands on controllers; node
+// agents serve no API.
+func termAgentFor(a *agent) httpapi.TerminalAgent {
+	if !a.rl.controller {
+		return nil
+	}
+	return termAgent{a}
+}
