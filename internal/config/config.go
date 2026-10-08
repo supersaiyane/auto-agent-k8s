@@ -39,6 +39,9 @@ type Config struct {
 	// Config reload (PLAN-002 Part A).
 	Reload Reload
 
+	// Network probes run by every node agent (PLAN-002 phase 14).
+	Probes Probes
+
 	// API client rate limits, per pod (ISS-056).
 	APIQPS   float32
 	APIBurst int
@@ -187,6 +190,15 @@ func Load(get Getenv) Config {
 			Secrets:  r.boolean("RELOAD_SECRETS", false),
 			On:       r.str("RELOAD_ON", "auto"),
 			Debounce: r.duration("RELOAD_DEBOUNCE", 10*time.Second),
+		},
+
+		Probes: Probes{
+			Interval:      r.duration("NET_PROBE_INTERVAL", time.Minute),
+			DNS:           r.boolean("DNS_PROBE_ENABLED", true),
+			ClusterDomain: r.str("DNS_CLUSTER_DOMAIN", "cluster.local"),
+			ExternalName:  r.str("DNS_PROBE_EXTERNAL", ""),
+			Services:      r.boolean("SERVICE_PROBE_ENABLED", false),
+			EgressTarget:  r.str("EGRESS_PROBE_TARGET", ""),
 		},
 
 		APIQPS:   float32(r.positiveInt("KUBE_API_QPS", 50)),
@@ -363,4 +375,15 @@ type Reload struct {
 	Secrets  bool          // RELOAD_SECRETS: also Secrets, in the fix ceiling only (opt-in)
 	On       string        // RELOAD_ON: auto (skip in-place volume updates) or always
 	Debounce time.Duration // RELOAD_DEBOUNCE: edits within this window give one reload
+}
+
+// Probes are the network checks every node agent runs from its own pod
+// network (PLAN-002 phase 14, ISS-033, ISS-036).
+type Probes struct {
+	Interval      time.Duration // NET_PROBE_INTERVAL
+	DNS           bool          // DNS_PROBE_ENABLED: resolve the API server's Service name
+	ClusterDomain string        // DNS_CLUSTER_DOMAIN
+	ExternalName  string        // DNS_PROBE_EXTERNAL: also resolve this name (upstream DNS); empty: off
+	Services      bool          // SERVICE_PROBE_ENABLED: dial ready Services' ClusterIPs (opt-in)
+	EgressTarget  string        // EGRESS_PROBE_TARGET: host:port to dial (opt-in); empty: off
 }

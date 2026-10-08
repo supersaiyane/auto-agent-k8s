@@ -255,7 +255,9 @@ log "waiting ${RBAC_SETTLE}s for the leader loops to run every detector once"
 sleep "$RBAC_SETTLE"
 AGENT_LOGS=$(kubectl --context "$CTX" -n "$NS_AGENT" logs -l 'app in (auto-agent,auto-agent-controller)' -c agent --tail=-1 --prefix)
 echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acquired the leader lease"
+echo "$AGENT_LOGS" | grep -q "netprobe: dns=true" || fail "node agents did not start the network probes (PLAN-002 phase 14)"
+if echo "$AGENT_LOGS" | grep -q "DNSResolutionFailed"; then fail "a node agent could not resolve the API server's Service name on a healthy cluster"; fi
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"

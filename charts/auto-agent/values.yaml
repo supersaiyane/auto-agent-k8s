@@ -115,6 +115,17 @@ reload:
   reloadOn: auto                   # auto: skip plain volume mounts (updated in place); always: restart anyway
   debounce: 10s                    # edits within this window give one reload
 
+# Network probes every node agent runs from its own pod network (PLAN-002
+# phase 14). They only resolve names and open TCP connections; they change
+# nothing.
+probes:
+  interval: 1m
+  dns: true                        # resolve kubernetes.default.svc.<clusterDomain>
+  clusterDomain: cluster.local
+  dnsExternalName: ""              # also resolve this name to test upstream DNS; empty: off
+  services: false                  # dial a sample of Services that have ready endpoints (opt-in)
+  egressTarget: ""                 # host:port to dial to test egress (opt-in); empty: off
+
 leaderElection:
   namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 

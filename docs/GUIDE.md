@@ -615,6 +615,28 @@ helm upgrade auto-agent charts/auto-agent -n auto-agent --reuse-values --set rel
 - **Turn it off.** `--set reload.secrets=false` removes the grant at the
   next upgrade, and the agent stops watching Secrets on restart.
 
+### 8.9 Network checks
+
+Pod readiness says nothing about whether a node can resolve names or reach
+a Service. Phase 14 of PLAN-002 adds checks that do:
+
+- **From every node** (node agents, `probes.*`): resolving
+  `kubernetes.default.svc.<domain>` (DNSResolutionFailed, DNSSlow), an
+  optional external name (upstream DNS), and opt-in dials of Services with
+  ready endpoints (ServiceUnreachable, which points at kube-proxy or the CNI
+  on that node) and of an egress address (EgressBlocked). A probe is
+  reported after two failures in a row.
+- **From the leader**: pods that cannot get a sandbox or network, grouped
+  per node (PodSandboxFailed); kube-proxy and CNI pods down (NetworkPodDown,
+  only where `kube-system` is watched); Services whose port no NetworkPolicy
+  allows in (NetworkPolicyBlocksService); conntrack nearly full and CoreDNS
+  SERVFAIL rate and p99 latency (with Prometheus); Ingress TLS secrets that
+  do not exist (with `rbac.readTLSSecrets`, inside the fix ceiling).
+
+The NetworkPolicy check is static: a rule that allows the port from some
+source counts as allowed, because which client should reach the Service is
+intent the agent cannot know.
+
 ---
 
 ## 9. Troubleshooting

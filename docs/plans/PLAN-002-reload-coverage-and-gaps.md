@@ -444,7 +444,13 @@ every leader check tested. Coverage 70.7% total (measured), floor raised
 to it.
 
 Phase 13 done 2026-10-08 (Part A, A1 to A3): see "As built" in A.2.
-Coverage 72.3% (measured). Next: PLAN-003, then phase 14.
+Coverage 72.3% (measured). PLAN-003 done the same day.
+
+Phase 14 done 2026-10-08 (Part B network, ISS-033, ISS-036): node probes
+(`internal/kube/netprobe.go`) and leader checks (`netchecks.go`); kube-proxy
+and CNI pods are read only where kube-system is watched (constraint 4), and
+the Service probe covers the same failure without reading kube-system.
+Next: phase 15.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

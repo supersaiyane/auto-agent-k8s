@@ -328,6 +328,7 @@ func (a *agent) startWork(ctx context.Context) {
 	if a.rl.node {
 		kube.StartWatchers(ctx, a.deps)
 		go kube.StartLogRetention(ctx, a.conf.Storage, a.conf.LogRetentionDays)
+		kube.StartNetworkProbes(ctx, a.deps, a.conf.Probes) // from this node's pod network (PLAN-002 phase 14)
 	}
 	a.srv.SetReady()
 	if !a.rl.controller {
@@ -427,7 +428,8 @@ func leaderChecks(conf config.Config) []checkGroup {
 			kube.CheckReplicaSetFailure, kube.CheckPodStates}},
 		{conf.QuotaInterval, true, []check{kube.CheckResourceQuotas, kube.CollectBaselines, kube.CheckStorageIssues,
 			kube.CheckNetworkIssues, kube.CheckSecurityIssues, kube.CheckWebhookBlocking, kube.CheckRBACDenied,
-			kube.CheckStuckFinalizers, kube.CheckDisruptionBudgets, kube.CheckResourcePressure, kube.CheckControlPlane}},
+			kube.CheckStuckFinalizers, kube.CheckDisruptionBudgets, kube.CheckResourcePressure, kube.CheckControlPlane,
+			kube.CheckSandboxFailures, kube.CheckSystemNetworkPods, kube.CheckNetworkPolicyBlocks, kube.CheckConntrack, kube.CheckCoreDNS}},
 		{conf.HealthInterval, false, []check{kube.SelfCheck}},
 	}
 }

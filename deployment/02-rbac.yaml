@@ -118,6 +118,14 @@ rules:
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["list"]
+# Network probes from each node (PLAN-002 phase 14): the watched namespaces,
+# and the Services with ready endpoints to dial.
+- apiGroups: [""]
+  resources: ["namespaces", "services"]
+  verbs: ["list"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["list"]
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["list", "watch", "patch"]

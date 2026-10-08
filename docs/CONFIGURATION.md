@@ -211,6 +211,22 @@ the fix scope.
 | `RELOAD_ON` | `reload.reloadOn` | `auto`, `always` | `auto` | `auto` restarts only when a running pod cannot see the change (env, envFrom, subPath mounts); a plain volume mount is updated in place and skipped. `always` restarts on every used key. Per workload: annotation `auto-agent.io/reload-on` | `internal/kube/reload_policy.go` |
 | `RELOAD_DEBOUNCE` | `reload.debounce` | Go duration | `10s` | Edits to one object within this window give one reload | `internal/kube/reload.go` |
 
+## Network probes (PLAN-002 phase 14)
+
+Every node agent runs these from its own pod network, so a node that
+resolves nothing or cannot reach a ClusterIP is found even when every pod
+reports Ready. They only resolve names and open TCP connections. A probe is
+reported after two failures in a row, once per run of failures.
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `NET_PROBE_INTERVAL` | `probes.interval` | Go duration | `1m` | How often each node probes | `internal/kube/netprobe.go` |
+| `DNS_PROBE_ENABLED` | `probes.dns` | `true`, `false` | `true` | Resolve `kubernetes.default.svc.<domain>`: DNSResolutionFailed, DNSSlow (over 1s) | `internal/kube/netprobe.go` |
+| `DNS_CLUSTER_DOMAIN` | `probes.clusterDomain` | domain | `cluster.local` | The cluster's DNS domain | `internal/kube/netprobe.go` |
+| `DNS_PROBE_EXTERNAL` | `probes.dnsExternalName` | host name | empty (off) | Also resolve this name, to test the upstream resolvers (R0 when it fails) | `internal/kube/netprobe.go` |
+| `SERVICE_PROBE_ENABLED` | `probes.services` | `true`, `false` | `false` | Dial up to 20 Services with ready endpoints per pass: ServiceUnreachable points at kube-proxy or the CNI on that node | `internal/kube/netprobe.go` |
+| `EGRESS_PROBE_TARGET` | `probes.egressTarget` | `host:port` | empty (off) | Dial this address: EgressBlocked | `internal/kube/netprobe.go` |
+
 ## Roles (ADR-001)
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
