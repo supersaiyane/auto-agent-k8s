@@ -17,14 +17,11 @@ coverage 51.5 percent measured. Phase 11 added from an architect review
 11.1 on 2026-10-08: forwarding, roles, standby proxy and chart topology
 done and passing the kind e2e; per-role ServiceAccounts and generated raw
 manifests done 2026-10-08; ISS-059 fixed. 11.1, 11.2 and 11.4 are
-complete. PR #2 merged 2026-10-08 (c5298ac). 11.8 step 1 of 4 done
-2026-10-08: policy split into watch scope, fix ceiling and fix scope
-(`internal/policy/scope.go`); detectors read every watched namespace
-(`internal/kube/namespaces.go`); the gate only suggests outside the fix scope;
-chart values `agent.watchNamespaces`, `agent.fixNamespaces`,
-`agent.fixCeiling`, `rbac.fixAnywhere`; constraint 4 reworded. Next: 11.8
-step 2 (`auto-agent-scope` ConfigMap and `/api/scope`), step 3 (Settings tab
-and namespace dropdown), step 4 (e2e and docs), then 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+complete. PR #2 merged 2026-10-08 (c5298ac). 11.8 done 2026-10-08 (ADR-002, ISS-062): watch scope and fix scope; the
+gate only suggests outside the fix scope; `/api/scope` and the Settings tab
+change the fix scope inside the Helm ceiling (`auto-agent-scope` ConfigMap,
+kept across Helm upgrades, audited); a header namespace selector filters
+every tab; ISS-064 (guard blind to stored clients) found and fixed. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

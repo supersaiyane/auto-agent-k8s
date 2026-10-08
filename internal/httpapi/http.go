@@ -44,6 +44,7 @@ type Server struct {
 	allowNS func(string) bool // watch scope for kubectl reads
 	cost    CostConfig        // Cost tab pricing (PLAN-002 9.3)
 	ext     ExtendedDeps      // extended endpoints (PLAN-002 9.4)
+	scope   ScopeOptions      // Settings tab (ADR-002)
 	http    *http.Client      // outbound calls (Kubecost, OpenCost)
 	started time.Time
 }
@@ -77,6 +78,8 @@ type Options struct {
 	InternalToken  string
 	AllowNamespace func(string) bool
 	IsLeader       func() bool
+	// Scope serves /api/scope and the scope fields of /api/status (ADR-002).
+	Scope ScopeOptions
 }
 
 func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kubernetes.Interface, opts Options) *Server {
@@ -86,7 +89,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	}
 	s := &Server{recorder: recorder, meta: meta, kc: kc, token: opts.DashboardToken,
 		cost: newCostConfig(opts.Cost), ext: opts.Extended, http: hc, started: time.Now(),
-		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader}
+		allowNS: opts.AllowNamespace, internalToken: opts.InternalToken, leader: opts.Leader, scope: opts.Scope}
 	s.ingest = opts.Ingest
 	if s.ingest == nil && recorder != nil {
 		s.ingest = recorder
@@ -225,7 +228,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if s.meta.IsLeaderFn != nil {
 		isLeader = s.meta.IsLeaderFn()
 	}
-	writeJSON(w, map[string]interface{}{
+	status := map[string]interface{}{
 		"version":    s.meta.Version,
 		"mode":       s.meta.Mode,
 		"nodeName":   s.meta.NodeName,
@@ -235,7 +238,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"uptime":     time.Since(s.started).String(),
 		"startedAt":  s.started.UTC().Format(time.RFC3339),
 		"eventCount": s.recorder.Count(),
-	})
+	}
+	if s.scope.Policy != nil {
+		pol := s.scope.Policy()
+		status["mode"] = string(pol.Mode) // live, after any reload
+		status["fixAnywhere"] = pol.FixAnywhere
+		status["fixScope"] = pol.FixScope()
+		status["watchAll"] = pol.WatchAll
+	}
+	writeJSON(w, status)
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -786,6 +797,7 @@ var apiRouteTable = []struct {
 	{"/api/resources", (*Server).handleResources},
 	{"/api/resources/", (*Server).handleResourcesNs},
 	{"/api/fixes", (*Server).handleFixes},
+	{"/api/scope", (*Server).handleScope},
 }
 
 // apiRoutes returns every /api/ path the server serves, Slack included.

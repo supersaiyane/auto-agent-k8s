@@ -1,8 +1,14 @@
 package policy
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // ADR-002: the watch scope, the ceiling and the fix scope, from the
@@ -119,5 +125,67 @@ func TestScope_Reload(t *testing.T) {
 	hr.reload(map[string]string{"AUTO_MODE": "observe"})
 	if !hr.Get().Watched("z") {
 		t.Fatal("a reload without scope keys keeps the scope")
+	}
+}
+
+// ADR-002: every role follows the dashboard choice. Until the ConfigMap
+// cache has synced the fix scope is empty, so a narrowed choice is never
+// bypassed at start; then add, update and delete apply within the watch.
+func TestScope_ReloaderFollowsScopeConfigMap(t *testing.T) {
+	base := Load(env(map[string]string{"FIX_NAMESPACES": "a", "FIX_CEILING": "a,b"}))
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: ScopeConfigMap, Namespace: "agent"},
+		Data: map[string]string{ScopeKey: "b"}}
+	kc := fake.NewSimpleClientset(cm)
+	hr := NewHotReloader(base, "agent", "auto-agent-config")
+	hr.WatchScope(ScopeConfigMap)
+	if len(hr.Get().FixScope()) != 0 {
+		t.Fatal("before the cache syncs the fix scope is empty")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hr.Start(ctx, kc)
+	waitScope(t, hr, "b")
+
+	cm.Data[ScopeKey] = "a,b"
+	if _, err := kc.CoreV1().ConfigMaps("agent").Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitScope(t, hr, "a,b")
+	if err := kc.CoreV1().ConfigMaps("agent").Delete(ctx, ScopeConfigMap, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitScope(t, hr, "a") // back to FIX_NAMESPACES
+
+	// No ConfigMap at all: after sync the Helm list applies.
+	empty := NewHotReloader(base, "agent", "auto-agent-config")
+	empty.WatchScope(ScopeConfigMap)
+	empty.Start(ctx, fake.NewSimpleClientset())
+	waitScope(t, empty, "a")
+}
+
+func waitScope(t *testing.T, hr *HotReloader, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got := strings.Join(hr.Get().FixScope(), ",")
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fix scope %q, want %q", got, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestScopeChoice(t *testing.T) {
+	if ScopeChoice(nil) != nil || ScopeChoice(map[string]string{"other": "x"}) != nil {
+		t.Fatal("no key, no choice")
+	}
+	if c := ScopeChoice(map[string]string{ScopeKey: " "}); c == nil || len(c) != 0 {
+		t.Fatalf("an empty key is a choice to fix nowhere: %v", c)
+	}
+	if c := ScopeChoice(map[string]string{ScopeKey: "b, a,a"}); strings.Join(c, ",") != "a,b" {
+		t.Fatalf("sorted and unique: %v", c)
 	}
 }

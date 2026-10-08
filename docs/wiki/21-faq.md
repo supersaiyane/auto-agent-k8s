@@ -59,7 +59,7 @@ A: Yes. Events are persisted to `events.jsonl` on the hostPath volume and reload
 ## Cost
 
 **Q: How accurate is the cost estimation?**
-A: With built-in pricing: approximate (within 20%). With Kubecost/OpenCost: highly accurate (real cloud billing data). Set `COST_PROVIDER` to improve accuracy.
+A: With built-in pricing: approximate (within 20%). With Kubecost/OpenCost: highly accurate (real cloud billing data). Set `KUBECOST_URL` or `OPENCOST_URL` to improve accuracy.
 
 **Q: Does it include storage and network costs?**
 A: Currently compute only (CPU + memory). Kubecost integration includes PV costs.

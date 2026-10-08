@@ -15,7 +15,10 @@
       <span id="version"></span>
       <span id="mode-badge" class="badge"></span>
       <span id="leader-badge" class="badge"></span>
+      <span id="anywhere-badge" class="badge badge-danger" title="rbac.fixAnywhere: write permissions in every namespace" hidden>fix anywhere</span>
       <span id="node-name" class="muted mono"></span>
+      <label class="muted" for="view-ns">Namespace</label>
+      <select id="view-ns" title="Filters every tab; never changes what the agent does"><option value="">All namespaces</option></select>
       <label class="muted" for="refresh-rate">Refresh</label>
       <select id="refresh-rate">
         <option value="5000">5s</option>
@@ -69,11 +72,10 @@
       <button type="button" role="tab" data-tab="cost">Cost</button>
       <button type="button" role="tab" data-tab="resources">Resources</button>
       <button type="button" role="tab" data-tab="terminal">Terminal</button>
+      <button type="button" role="tab" data-tab="settings">Settings</button>
     </nav>
 
     <div class="toolbar" id="toolbar" role="search">
-      <label for="f-ns">Namespace</label>
-      <select id="f-ns"><option value="">all</option></select>
       <label for="f-sev">Severity</label>
       <select id="f-sev">
         <option value="">all</option><option value="critical">critical</option>

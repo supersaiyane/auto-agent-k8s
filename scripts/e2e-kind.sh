@@ -158,6 +158,50 @@ for round in 1 2; do
 done
 AGENT_POD="$NEW_LEADER"
 
+log "checking the fix scope set from the dashboard (ADR-002, PLAN-002 11.8)"
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$AGENT_POD" 18100:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+SCOPE_URL=http://127.0.0.1:18100/api/scope
+put_scope() { curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer e2e-token' -X PUT -d "$1" "$SCOPE_URL"; }
+scope_json() { curl -s -H 'Authorization: Bearer e2e-token' "$SCOPE_URL"; }
+scope_data() { kubectl --context "$CTX" -n "$NS_AGENT" get configmap auto-agent-scope -o jsonpath='{.data}' 2>/dev/null || echo missing; }
+# every agent pod logs the scope it applies; wait until all show want
+wait_scope_log() {
+	want="$1"
+	deadline=$(( $(date +%s) + 60 ))
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		ok=1
+		for pod in $(kubectl --context "$CTX" -n "$NS_AGENT" get pod -l 'app in (auto-agent,auto-agent-controller)' -o jsonpath='{.items[*].metadata.name}'); do
+			last=$(kubectl --context "$CTX" -n "$NS_AGENT" logs "$pod" -c agent --tail=-1 | grep "policy: fix scope is now" | tail -1)
+			case "$last" in *"$want"*) ;; *) ok=0 ;; esac
+		done
+		[ "$ok" = "1" ] && return 0
+		sleep 3
+	done
+	return 1
+}
+scope_json | grep -q '"fixScope":\["default"\]' || fail "/api/scope does not start from the Helm list: $(scope_json)"
+CODE=$(put_scope '{"fixNamespaces":["kube-public"],"confirm":["kube-public"]}')
+[ "$CODE" = "400" ] || fail "enabling a namespace outside the ceiling returned $CODE, want 400"
+CODE=$(put_scope '{"fixNamespaces":[],"confirm":[]}')
+[ "$CODE" = "204" ] || fail "narrowing the fix scope returned $CODE, want 204"
+scope_data | grep -q '"fixNamespaces":""' || fail "auto-agent-scope does not hold the empty choice: $(scope_data)"
+wait_scope_log "is now [] (dashboard choice: true)" || fail "not every controller and node agent applied the dashboard choice"
+log "every controller and node agent applied the empty fix scope"
+helm upgrade auto-agent "$CHART" --kube-context "$CTX" --reuse-values --wait --timeout 180s >/dev/null
+scope_data | grep -q '"fixNamespaces":""' || fail "a Helm upgrade changed the dashboard choice: $(scope_data)"
+scope_json | grep -q '"choice":\[\]' || fail "after a Helm upgrade /api/scope lost the choice: $(scope_json)"
+log "a Helm upgrade kept the dashboard choice"
+curl -s -H 'Authorization: Bearer e2e-token' "http://127.0.0.1:18100/api/events?limit=500&type=audit" | grep -q 'set_fix_scope' \
+	|| fail "the scope change is not in the audit log"
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer e2e-token' -X DELETE "$SCOPE_URL")
+[ "$CODE" = "204" ] || fail "returning to the Helm values returned $CODE, want 204"
+if scope_data | grep -q fixNamespaces; then fail "returning to Helm left a choice: $(scope_data)"; fi
+wait_scope_log "is now [default] (dashboard choice: false)" || fail "not every agent returned to the Helm list"
+kill "$PF" 2>/dev/null || true
+log "scope: ceiling enforced, choice applied by every agent, kept across a Helm upgrade, audited, cleared"
+
 log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
 for pod in "$AGENT_POD" "$NODE_POD"; do
 	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
@@ -173,4 +217,4 @@ echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acqu
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"

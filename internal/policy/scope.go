@@ -148,3 +148,21 @@ func (p *Policy) WithFixOverride(names []string) *Policy {
 	}
 	return &c
 }
+
+// ScopeConfigMap holds the dashboard's fix scope choice, in the agent's own
+// namespace. Helm does not manage it, so an upgrade never undoes the choice.
+const ScopeConfigMap = "auto-agent-scope"
+
+// ScopeKey is the key in ScopeConfigMap: comma-separated namespaces. A
+// present key, even empty, is a choice; an absent key is none.
+const ScopeKey = "fixNamespaces"
+
+// ScopeChoice reads the dashboard choice from the ConfigMap data: nil when
+// there is none, an empty slice when the choice is to fix nowhere.
+func ScopeChoice(data map[string]string) []string {
+	v, ok := data[ScopeKey]
+	if !ok {
+		return nil
+	}
+	return nsSet(parseNamespaceList(v)).sorted()
+}

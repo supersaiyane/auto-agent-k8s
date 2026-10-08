@@ -77,6 +77,10 @@ outage generator.
    evict goes through the single gate in `internal/kube` that checks mode,
    guardrails (quiet hours, blast radius, circuit breaker) and the rate
    limiter. No other code calls a mutating client method. A test enforces it.
+   The one other entry point, `writeAgentSetting`, writes only the agent's
+   own `auto-agent-scope` ConfigMap (ADR-002), never a workload, and audits
+   every attempt. A typed client is never stored in a variable, because the
+   guard and the RBAC scan only see calls written as one chain.
 2. **Safe by default.** The default mode is `dry-run`. `fix` is an explicit
    opt-in per cluster, never a shipped default.
 3. **One actor per target.** Node actions are taken only by the agent running

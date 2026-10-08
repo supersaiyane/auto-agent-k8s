@@ -72,6 +72,7 @@ var allowedGlobals = map[string]string{
 	"internal/kube/promchecks.go:etcdChecks":             "read-only lookup",
 	"internal/kube/promchecks.go:apiReplacements":        "read-only lookup",
 	"internal/metrics/provider.go:ErrNoPromQL":           "sentinel error",
+	"internal/kube/scope_settings.go:ErrOutsideCeiling":  "sentinel error",
 	"internal/kube/handlers.go:pullCauses":               "read-only lookup",
 	"internal/kube/scheduling.go:nodeCountPrefix":        "compiled regexp",
 	"internal/kube/scheduling.go:schedKinds":             "read-only lookup",

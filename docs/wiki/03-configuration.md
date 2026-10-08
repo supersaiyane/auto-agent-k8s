@@ -84,16 +84,14 @@ expand as confidence grows.
 
 ## Cost Estimation
 
-```yaml
-COST_PROVIDER: ""          # kubecost | opencost | manual | (empty for built-in)
-```
+The Cost tab uses the first source that is set (see `docs/CONFIGURATION.md`):
 
-| Provider | What happens |
+| Setting | Source |
 |----------|-------------|
-| `kubecost` | deploy.sh auto-installs Kubecost, uses its API for real costs |
-| `opencost` | deploy.sh auto-installs OpenCost |
-| `manual` | deploy.sh prompts for CPU/memory prices during deploy |
-| _(empty)_ | Uses built-in instance-type pricing (40+ AWS/GCP/Azure types) |
+| `KUBECOST_URL` | Kubecost's API |
+| `OPENCOST_URL` | OpenCost's API (`deployment/deploy.sh --with-opencost` installs OpenCost) |
+| `COST_CPU_PER_HOUR`, `COST_MEM_PER_GIB_HOUR`, `COST_INSTANCE_PRICES` | Your own prices |
+| none | Built-in instance-type prices |
 
 ## Logging
 

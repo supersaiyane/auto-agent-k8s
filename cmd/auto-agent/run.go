@@ -96,6 +96,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	}
 	pol := conf.Policy
 	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
+	hotReloader.WatchScope(policy.ScopeConfigMap) // both roles apply the dashboard's fix scope (ADR-002)
 	go hotReloader.Start(ctx, cl.Kube)
 
 	klog.Infof("auto-agent %s starting (role=%s, mode=%s, %s)", version, conf.Role, pol.Mode, scopeSummary(pol))
@@ -230,6 +231,16 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		}
 	}
 
+	var scope httpapi.ScopeOptions
+	if rl.controller {
+		scope = httpapi.ScopeOptions{
+			Policy: hotReloader.Get,
+			Save: func(ctx context.Context, names []string, from string) error {
+				return kube.SaveFixScope(ctx, deps, podNS, names, from)
+			},
+		}
+	}
+
 	// --- HTTP server: built last, with everything it serves ---
 	httpSrv := httpapi.NewServer(opts.HTTPAddr, recorder, &httpapi.AgentMeta{
 		Version:  version,
@@ -247,6 +258,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		HealthOnly:         onlyNode,
 		Ingest:             sink,
 		InternalToken:      conf.InternalToken,
+		Scope:              scope,
 		Extended: httpapi.ExtendedDeps{
 			Learning: learningMode,
 			Deploys:  deployTracker,

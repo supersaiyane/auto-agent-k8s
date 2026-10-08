@@ -115,6 +115,6 @@ All channels fire in parallel. Severity routing is automatic.
 
 ## Kubecost / OpenCost
 
-**Setup**: Set `COST_PROVIDER: "kubecost"` or `"opencost"` in config. deploy.sh auto-installs.
+**Setup**: Set `KUBECOST_URL` or `OPENCOST_URL` to the API's address. `deployment/deploy.sh --with-opencost` installs OpenCost; nothing is installed without that flag.
 
 The Cost tab switches from estimated pricing to real cluster costs via the Kubecost/OpenCost API.

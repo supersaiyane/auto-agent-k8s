@@ -161,6 +161,37 @@ subjects:
   name: auto-agent
   namespace: {{ .Values.namespace }}
 ---
+# The dashboard's fix scope choice (ADR-002): the controller writes only the
+# auto-agent-scope ConfigMap. patch is pinned to it; create cannot be pinned.
+# Both roles read it through the hot reload Role below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-scope
+  namespace: {{ .Values.namespace }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["auto-agent-scope"]
+  verbs: ["patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-scope
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-scope
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ .Values.namespace }}
+---
 # Policy hot reload reads the agent's ConfigMap in its own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

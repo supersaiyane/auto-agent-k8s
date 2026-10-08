@@ -177,7 +177,8 @@ func (g funcGraph) reach(t *testing.T, roots ...string) map[perm]bool {
 var (
 	nodeRoots = []string{"kube.StartWatchers", "kube.StartLogRetention", "policy.HotReloader.Start", "crd.StartController"}
 	ctrlRoots = []string{"main.leaderLoops", "main.newLeaderTarget", "main.newPeerResolver", "leader.Start", "httpapi.NewServer",
-		"policy.HotReloader.Start", "crd.StartController"}
+		"policy.HotReloader.Start", "crd.StartController",
+		"kube.SaveFixScope"} // handed to httpapi as a closure in run.go, which the graph cannot follow
 )
 
 // Library permissions per role: informers, leader election and the CRD

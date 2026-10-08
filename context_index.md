@@ -24,7 +24,10 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `Rung`, `RungAlert` to `RungAuto` | `internal/kube/findings.go` | Fix ladder rung carried by every phase 10 finding; reported through the unexported `report()` |
 | `Deps.Now` | `internal/kube/deps.go` | Injected clock for detector time windows; nil means time.Now |
 | `NewDryRunLog`, `SimulateAction` | `internal/kube/dryrun.go` | Dry-run record of what the gate would have done |
+| `SaveFixScope(ctx, deps, ns, names, from)`, `ErrOutsideCeiling` | `internal/kube/scope_settings.go` | Writes the dashboard's fix scope choice to the `auto-agent-scope` ConfigMap; refuses namespaces outside the ceiling; audits every attempt (ADR-002) |
 
 Unexported but central: `applyMutation` (`internal/kube/gate.go`), the only
-path that writes to the cluster, and `tryFixAction` (`handlers.go`), its
-wrapper for remediations that need recovery verification.
+path that changes workloads; `tryFixAction` (`handlers.go`), its wrapper for
+remediations that need recovery verification; and `writeAgentSetting`
+(`scope_settings.go`), the only path that writes the agent's own settings
+ConfigMap. `watchedNamespaces` (`namespaces.go`) lists the watch scope.

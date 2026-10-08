@@ -18,6 +18,9 @@ This page documents the honest status of every feature: what's actually working 
 | **Cost estimation** | Working with built-in instance prices | 40+ AWS/GCP/Azure instance types hardcoded |
 | **Resource efficiency** | Pod overuse/underuse/no-limits analysis | Based on requests vs limits comparison |
 | **kubectl terminal** | Commands execute via K8s Go client | get, describe, logs, version: read-only |
+| **Watch scope and fix scope** (ADR-002) | `internal/policy/scope.go`, gate check in `internal/kube/gate.go`; tests `internal/policy/scope_test.go`, `TestGate_OutsideFixScopeOnlySuggests`; kind e2e scope case in `scripts/e2e-kind.sh` | Watches every non-system namespace; acts only in the fix scope, inside the Helm ceiling; suggests elsewhere |
+| **Settings tab** (fix scope from the dashboard) | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/httpapi/ui/app.js` (`viewSettings`); tests `internal/httpapi/scope_test.go`, `TestSaveFixScope`, `make ui-test` | Changes stored in the `auto-agent-scope` ConfigMap, kept across Helm upgrades, audited |
+| **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
 | **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
@@ -92,8 +95,8 @@ Go code reads them. Setting them changes nothing.
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **S3 storage** | Persists incident logs to AWS S3 | Set `LOG_STORE=s3`, `LOG_S3_BUCKET`, `LOG_S3_PREFIX` + AWS credentials (IRSA) | Logs go to filesystem `/var/log/auto-agent/` on the node |
-| **Kubecost** | Real cluster cost data from Kubecost API | Set `COST_PROVIDER=kubecost`: deploy.sh auto-installs | Uses built-in instance-type price estimates |
-| **OpenCost** | Real cluster cost data from OpenCost API | Set `COST_PROVIDER=opencost`: deploy.sh auto-installs | Same as above |
+| **Kubecost** | Real cluster cost data from Kubecost API | Set `KUBECOST_URL` to Kubecost's API | Uses built-in instance-type price estimates |
+| **OpenCost** | Real cluster cost data from OpenCost API | Set `OPENCOST_URL`; `deploy.sh --with-opencost` installs OpenCost | Same as above |
 
 ### Security
 
@@ -118,7 +121,7 @@ AUTO_MODE: "fix"
 METRICS_PROVIDER: "prometheus"
 PROMETHEUS_URL: "http://prometheus:9090"
 ALERTMANAGER_URL: "http://alertmanager:9093"
-COST_PROVIDER: "kubecost"
+KUBECOST_URL: "http://kubecost-cost-analyzer.kubecost:9090"
 LLM_ENABLED: "true"
 LEARNING_ENABLED: "true"
 
@@ -136,7 +139,7 @@ AUTO_MODE: "fix"
 METRICS_PROVIDER: "prometheus"
 PROMETHEUS_URL: "http://prometheus:9090"
 ALERTMANAGER_URL: "http://alertmanager:9093"
-COST_PROVIDER: "kubecost"
+KUBECOST_URL: "http://kubecost-cost-analyzer.kubecost:9090"
 LLM_ENABLED: "true"
 LEARNING_ENABLED: "true"
 TICKETS_ENABLED: "true"

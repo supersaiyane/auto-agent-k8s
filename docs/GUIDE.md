@@ -330,18 +330,22 @@ prints the command to read the generated token.
 | **Compliance** | Incidents, remediation rate, blocked actions and mean time to recover over 7, 30 or 90 days |
 | **Deploys** | Rollouts the leader recorded: revision, image, replicas |
 | **Baselines** | Learned normal CPU, restarts and replicas per workload, when learning mode is on |
-| **K8s events** | Kubernetes events in allowlisted namespaces |
+| **K8s events** | Kubernetes events in watched namespaces |
 | **Charts** | Events by type, remediation, pod sizing, top reasons, cost by namespace |
 | **Report** | Incidents by service and by reason; rows open the matching events |
-| **Cluster** | Allowlisted namespaces: pods, deployments, services, jobs; rows open a namespace |
+| **Cluster** | Watched namespaces: pods, deployments, services, jobs; rows open a namespace |
 | **Nodes** | Nodes, conditions, pod counts |
-| **Cost** | Estimated cost per node and workload (allowlisted namespaces) |
-| **Resources** | Requests, limits and right-sizing per allowlisted namespace |
+| **Cost** | Estimated cost per node and workload (watched namespaces) |
+| **Resources** | Requests, limits and right-sizing per watched namespace |
 | **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `version`, `help` |
+| **Settings** | The watch scope, fix ceiling and fix scope, each with what it does, how it works and why it exists; one checkbox per watched namespace to change where the agent may fix (see 6.4) |
 
-The toolbar filters list views by namespace, severity, gate result and free
-text. The top bar shows version, mode, leader or standby, the refresh rate
-(5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
+The **Namespace** selector in the top bar ("All namespaces" or one) filters
+every tab. It only changes what the page shows, never what the agent does;
+Nodes are not namespaced and are not filtered. The toolbar filters list views
+by severity, gate result and free text. The top bar also shows version, mode,
+a red **fix anywhere** badge when `rbac.fixAnywhere` is on, leader or
+standby, the refresh rate (5s, 15s, 60s or paused) and **Refresh now**. Each tab has its own link
 (`#audit`, `#compliance`, ...), and the tabs work with the arrow keys.
 
 The page loads no inline script or style, so the server's
@@ -359,9 +363,36 @@ top pods -n payments
 get nodes
 ```
 
-Only allowlisted namespaces are readable; `-A` and other namespaces are
+Only watched namespaces are readable; `-A` and other namespaces are
 refused. Nodes and namespaces are always readable. Nothing in the terminal
 can change the cluster.
+
+### 6.4 The Settings tab: where the agent may fix
+
+The agent reads every watched namespace but changes things only in the fix
+scope (ADR-002). The tab lists every watched namespace with a checkbox:
+
+- **Ticked**: the agent may act there (in `fix` mode; other modes still only
+  suggest or simulate).
+- **Unticked**: the agent reports and suggests fixes, and never acts.
+- **Greyed out**: outside the fix ceiling. The chart granted no write
+  permissions there, so this page cannot enable it; add the namespace to
+  `agent.fixCeiling` and run `helm upgrade` first.
+
+A change goes through **Review change**, which shows the fix scope before and
+after. Each namespace being enabled must be typed again before **Apply**
+works; narrowing needs no typing. The choice is stored in the
+`auto-agent-scope` ConfigMap in the agent's namespace, which Helm does not
+manage, so a `helm upgrade` never undoes it. Every controller and node agent
+applies it within seconds; until an agent has read it after a restart, that
+agent fixes nowhere. **Return to the Helm values** clears the choice, after
+its own confirmation, and `agent.fixNamespaces` applies again. Every change
+and every refused attempt is an audit event (Audit tab).
+
+Until named approvers arrive (PLAN-002 phase 15), anyone with the dashboard
+token can change the fix scope; the tab says so. With `rbac.fixAnywhere` the
+tab can enable any non-system namespace and shows a warning: a leaked token
+could then disrupt any namespace.
 
 ---
 
@@ -371,15 +402,18 @@ Every `/api/` call needs `Authorization: Bearer <token>`. Port 8080.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /api/status` | Version, mode, leader, node |
+| `GET /api/status` | Version, live mode, leader, node, fix scope, fix-anywhere |
+| `GET /api/scope` | Watched namespaces, each with whether fixing may be enabled and whether it is on; Helm list; dashboard choice |
+| `PUT /api/scope` | Body `{"fixNamespaces": [...], "confirm": [...]}`: sets the fix scope; each namespace being enabled must be repeated in `confirm`; refused outside the ceiling; audited |
+| `DELETE /api/scope` | Clears the dashboard choice; `agent.fixNamespaces` applies again; audited |
 | `GET /api/events?limit=200&type=incident` | Recorded incidents and actions |
 | `GET /api/stats` | Counters for the overview |
 | `GET /api/fixes` | Actions and whether recovery was verified |
 | `GET /api/dry-run` | What the agent would have done |
-| `GET /api/cluster` | Per-namespace overview (allowlisted) |
-| `GET /api/namespace/<ns>` | Detail of one allowlisted namespace (403 otherwise) |
+| `GET /api/cluster` | Per-namespace overview (watched namespaces) |
+| `GET /api/namespace/<ns>` | Detail of one watched namespace (403 otherwise) |
 | `GET /api/nodes` | Nodes |
-| `GET /api/k8s-events?namespace=<ns>` | Kubernetes events (allowlisted) |
+| `GET /api/k8s-events?namespace=<ns>` | Kubernetes events (watched namespaces) |
 | `GET /api/resources`, `GET /api/resources/<ns>` | Resource usage |
 | `GET /api/cost` | Cost estimate |
 | `GET /api/compliance`, `/api/baselines`, `/api/deploys` | Compliance checks, learned baselines, recent deploys |
