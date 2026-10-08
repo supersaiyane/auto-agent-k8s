@@ -540,3 +540,59 @@ func TestPolicySlackChannelAndTicketing(t *testing.T) {
 		t.Fatalf("failed posts counted %v, want 2", got)
 	}
 }
+
+// ISS-012: a learned baseline (50 samples or more) sets the scale-up
+// threshold, clamped to [0.5, 0.95]; without one the global value applies.
+func TestScaleUpThreshold_Learned(t *testing.T) {
+	deps, _ := newTestDeps(t)
+	if th, src := scaleUpThreshold(deps, "default", "api", 0.8); th != 0.8 || src != "global" {
+		t.Fatalf("no learning mode: %v %s", th, src)
+	}
+	lm := NewLearningMode(t.TempDir()+"/b.json", time.Hour)
+	deps.LearningMode = lm
+	record := func(name string, n int, cpu func(i int) float64) {
+		for i := 0; i < n; i++ {
+			lm.RecordCPU("default", name, cpu(i))
+		}
+	}
+	record("young", minLearnedSamples-1, func(int) float64 { return 0.6 })
+	record("busy", minLearnedSamples, func(i int) float64 { return 0.6 + 0.05*float64(i%2) })
+	record("idle", minLearnedSamples, func(int) float64 { return 0.02 })
+	record("hot", minLearnedSamples, func(i int) float64 { return 0.9 + 0.1*float64(i%2) })
+	cases := []struct {
+		name   string
+		lo, hi float64
+		src    string
+	}{
+		{"young", 0.8, 0.8, "global"},
+		{"busy", 0.67, 0.68, "learned"}, // mean 0.625 plus two standard deviations of 0.025
+		{"idle", learnedThresholdMin, learnedThresholdMin, "learned"},
+		{"hot", learnedThresholdMax, learnedThresholdMax, "learned"},
+	}
+	for _, c := range cases {
+		th, src := scaleUpThreshold(deps, "default", c.name, 0.8)
+		if th < c.lo || th > c.hi || src != c.src {
+			t.Errorf("%s: %v %s, want %v..%v %s", c.name, th, src, c.lo, c.hi, c.src)
+		}
+	}
+}
+
+// ISS-012: the scaler acts on the learned threshold and says so.
+func TestEvaluateAndScale_UsesLearnedThreshold(t *testing.T) {
+	deps, kc := newTestDeps(t)
+	deps.Metrics = &mockMetrics{cpu: 0.6} // below the global 0.8
+	lm := NewLearningMode(t.TempDir()+"/b.json", time.Hour)
+	for i := 0; i < minLearnedSamples; i++ {
+		lm.RecordCPU("default", "api", 0.3) // baseline 0.3: clamped up to 0.5
+	}
+	deps.LearningMode = lm
+	apiDeployment(t, kc, 2, nil)
+	EvaluateAndScale(context.Background(), deps)
+	if got := apiReplicas(t, kc); got != 4 {
+		t.Fatalf("cpu 0.6 is over the learned 0.5: want 4 replicas, got %d", got)
+	}
+	msgs := deps.Slack.(*mockSlackClient).Messages()
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "over the learned threshold 0.50") {
+		t.Fatalf("the scaling message names the learned threshold: %q", msgs)
+	}
+}

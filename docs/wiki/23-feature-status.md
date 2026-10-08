@@ -88,7 +88,7 @@ Go code reads them. Setting them changes nothing.
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **LLM diagnosis** | Sends logs+events to LLM, gets SRE advice | Set `LLM_ENABLED=true`, `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` | No AI diagnosis: Slack messages won't have LLM section |
-| **Learning mode** | Collects CPU baselines per workload (see `/api/baselines`). Thresholds are **not** auto-tuned yet: `LearningMode.GetThreshold` (`internal/kube/learning.go`) has no caller (ISS-012) | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
+| **Learning mode** | Collects CPU baselines per workload (see `/api/baselines`). Once a workload has 50 samples, its learned high-water mark (mean plus two standard deviations), clamped to 0.5 to 0.95, is its scale-up threshold; the scaling event names which threshold was used (ISS-012). Code: `internal/kube/learning.go` (`scaleUpThreshold`). Tests: `TestScaleUpThreshold_Learned`, `TestEvaluateAndScale_UsesLearnedThreshold` | Set `LEARNING_ENABLED=true` + `METRICS_PROVIDER=prometheus` + `PROMETHEUS_URL` | Agent uses global static thresholds (SCALE_CPU_THRESHOLD) |
 | **Auto-scaling** | Scales deployments based on CPU + gate signals | Set `METRICS_PROVIDER=prometheus`, `PROMETHEUS_URL` | No scaling: CPU queries return errors with metrics-server |
 | **Anomaly detection** | Evaluates CRD PromQL rules | Set `PROMETHEUS_URL` + create AutoRemediationPolicy with anomalies | No anomaly detection: queries fail without Prometheus |
 

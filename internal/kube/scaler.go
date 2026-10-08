@@ -75,7 +75,8 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			gatesConfigured, gateActive := evaluateGates(ctx, deps)
 
 			// --- Scale Up ---
-			if cpu > pol.CPUThreshold && gateActive {
+			threshold, source := scaleUpThreshold(deps, ns, d.Name, pol.CPUThreshold)
+			if cpu > threshold && gateActive {
 				maxRep := lim.max
 				if rep >= maxRep {
 					klog.V(2).Infof("scaler: %s/%s at max replicas (%d)", ns, d.Name, maxRep)
@@ -92,12 +93,12 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 					continue
 				}
 
-				msg := fmt.Sprintf("*ScaleUp*: `%s/%s` %d -> %d (cpu=%.2f, gate=%t)", ns, d.Name, rep, newRep, cpu, gateActive)
+				msg := fmt.Sprintf("*ScaleUp*: `%s/%s` %d -> %d (cpu=%.2f over the %s threshold %.2f, gate=%t)", ns, d.Name, rep, newRep, cpu, source, threshold, gateActive)
 				klog.Infof("scaler: %s", msg)
 				postSlack(deps, msg)
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleUp",
-					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
+					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f over the %s threshold %.2f)", rep, newRep, cpu, source, threshold)})
 				obs.ScalingDecisionsTotal.WithLabelValues("up", ns, d.Name).Inc()
 				continue
 			}

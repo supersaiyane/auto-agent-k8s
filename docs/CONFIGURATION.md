@@ -201,7 +201,7 @@ each failed channel is counted under its own name.
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/run.go` |
+| `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). With 50 samples, a workload's learned high-water mark, clamped to 0.5 to 0.95, replaces `SCALE_CPU_THRESHOLD` for it (ISS-012) | `cmd/auto-agent/run.go` |
 | `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/run.go` |
 
 ## Config reload (PLAN-002 Part A)
