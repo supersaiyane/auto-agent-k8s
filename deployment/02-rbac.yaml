@@ -54,8 +54,14 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list"]
 - apiGroups: ["apps"]
-  resources: ["replicasets", "statefulsets", "daemonsets"]
+  resources: ["replicasets"]
   verbs: ["list"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["get", "list"]   # get: config reload checks the rollout
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["list", "watch"]   # config reload, in the watch scope (system namespaces excluded by field selector)
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
   verbs: ["list"]
@@ -140,6 +146,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
   verbs: ["delete"]
@@ -171,6 +183,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
   verbs: ["delete"]
@@ -202,6 +220,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
   verbs: ["delete"]

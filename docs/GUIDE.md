@@ -405,6 +405,7 @@ Every `/api/` call needs `Authorization: Bearer <token>`. Port 8080.
 | `GET /api/status` | Version, live mode, leader, node, fix scope, fix-anywhere |
 | `GET /api/scope` | Watched namespaces, each with whether fixing may be enabled and whether it is on; Helm list; dashboard choice |
 | `PUT /api/scope` | Body `{"fixNamespaces": [...], "confirm": [...]}`: sets the fix scope; each namespace being enabled must be repeated in `confirm`; refused outside the ceiling; audited |
+| `GET /api/reloads` | Config reloads in watched namespaces: object, changed key names, each workload's outcome |
 | `DELETE /api/scope` | Clears the dashboard choice; `agent.fixNamespaces` applies again; audited |
 | `GET /api/events?limit=200&type=incident` | Recorded incidents and actions |
 | `GET /api/stats` | Counters for the overview |
@@ -521,6 +522,70 @@ anomaly alerts). Parsed but **not used yet**: `actions.restartStuckPods`,
 It is watched as soon as it exists. To let the agent act there, add it to
 `agent.fixNamespaces` (or to `agent.fixCeiling` and enable it from the
 Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
+
+### 8.7 Config reload
+
+When a ConfigMap changes, the controller finds the Deployments,
+StatefulSets, DaemonSets and CronJobs in that namespace that use a changed
+key, and restarts them one at a time through the mutation gate, so the mode,
+the fix scope and every guardrail apply. With the default `dry-run` it only
+records what it would restart (Reloads tab, Dry run tab).
+
+- **Key level.** A workload that reads one key through an env var `valueFrom` restarts
+  only when that key changes; `envFrom` and whole-object volumes restart on
+  any key.
+- **Only when needed** (`reload.reloadOn: auto`). A plain volume mount is
+  updated in place by the kubelet, so it is not restarted; env vars,
+  `envFrom` and `subPath` mounts are. Set `always` to restart anyway.
+- **One rollout per burst.** Edits within `reload.debounce` (10s) give one
+  restart.
+- **One workload at a time.** The next waits until the previous is healthy.
+  If one does not become healthy, the rest are skipped, that version is not
+  pushed to it again, a `ConfigReloadFailed` finding is raised, and a
+  stalled Deployment is rolled back by the stuck rollout check.
+- **CronJobs** get the change in their job template, so the next run uses
+  it; no extra run is started.
+- **Annotations.** Stakater Reloader's annotations work as they are
+  (`reloader.stakater.com/auto`, `configmap.reloader.stakater.com/reload`,
+  `secret.reloader.stakater.com/reload`, `reloader.stakater.com/search` with
+  `reloader.stakater.com/match`, `reloader.stakater.com/ignore`), and so do
+  `auto-agent.io/reload: "false"`, `auto-agent.io/reload-configmaps`,
+  `auto-agent.io/reload-secrets` and `auto-agent.io/reload-on`. A workload
+  that names an object in a reload list restarts on any change to it, used
+  or not.
+
+The restart sets one pod template annotation per object,
+`auto-agent.io/reload-<id>`, holding a hash of the keys the workload uses,
+so the same version is never restarted twice.
+
+### 8.8 Reloading on Secret changes
+
+**Off by default** (`reload.secrets: false`, owner decision 2026-10-07):
+watching Secrets is a sensitive grant, and most teams restart on a Secret
+rotation through their own pipeline.
+
+To turn it on:
+
+```bash
+helm upgrade auto-agent charts/auto-agent -n auto-agent --reuse-values --set reload.secrets=true
+```
+
+- **What it adds.** Secret `list` and `watch`, only inside the fix ceiling
+  (the write Roles, or the fix-anywhere ClusterRole), because only there can
+  a reload act. Nothing outside the ceiling is read.
+- **What is kept.** Key names and a SHA-256 prefix of the keys a workload
+  uses. Values stay in the informer's memory and never appear in a log line,
+  a Slack message, an event or the Reloads tab; a test captures all four
+  and fails on any value (`TestReload_SecretValuesNeverLeak`).
+- **Scope it.** Annotate a Secret with `auto-agent.io/reload: "false"` (or
+  `reloader.stakater.com/ignore: "true"`) to never reload for it, or give a
+  workload `reloader.stakater.com/search: "true"` so only Secrets annotated
+  `reloader.stakater.com/match: "true"` count.
+- **Test it in dry-run.** With `agent.mode: dry-run`, change a Secret a
+  workload uses and open the Reloads tab: it shows the key names and
+  "simulated"; no pod restarts.
+- **Turn it off.** `--set reload.secrets=false` removes the grant at the
+  next upgrade, and the agent stops watching Secrets on restart.
 
 ---
 

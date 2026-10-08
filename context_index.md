@@ -24,6 +24,7 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `Rung`, `RungAlert` to `RungAuto` | `internal/kube/findings.go` | Fix ladder rung carried by every phase 10 finding; reported through the unexported `report()` |
 | `Deps.Now` | `internal/kube/deps.go` | Injected clock for detector time windows; nil means time.Now |
 | `NewDryRunLog`, `SimulateAction` | `internal/kube/dryrun.go` | Dry-run record of what the gate would have done |
+| `NewReloader`, `Reloader.WatchConfig`, `Reloader.Records`, `ReloadRecord`, `ReloadOutcome` | `internal/kube/reload.go`, `reload_watch.go` | Config reload (PLAN-002 Part A): watch ConfigMaps (and Secrets when enabled), restart the workloads that use changed keys one at a time through the gate; the record behind `/api/reloads` |
 | `DeployTracker.RecordDeployAt` | `internal/kube/correlation.go` | Records a rollout at its real time; `ScanDeployments` dates revisions by rollout, not by when the agent saw them (ISS-076) |
 | `SaveFixScope(ctx, deps, ns, names, from)`, `ErrOutsideCeiling` | `internal/kube/scope_settings.go` | Writes the dashboard's fix scope choice to the `auto-agent-scope` ConfigMap; refuses namespaces outside the ceiling; audits every attempt (ADR-002) |
 

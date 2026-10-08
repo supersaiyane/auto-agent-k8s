@@ -16,6 +16,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
   verbs: ["delete"]
@@ -24,6 +30,13 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["list"]
+{{- end }}
+{{- if .Values.reload.secrets }}
+# Config reload on Secret changes (reload.secrets, off by default): only
+# inside the fix ceiling, the only place a reload can act.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list", "watch"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -78,6 +91,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["patch"]   # config reload (PLAN-002 Part A)
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["patch"]   # config reload: the next run uses the new config
 - apiGroups: ["batch"]
   resources: ["jobs"]
   verbs: ["delete"]
@@ -86,6 +105,13 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["list"]
+{{- end }}
+{{- if $.Values.reload.secrets }}
+# Config reload on Secret changes (reload.secrets, off by default): only
+# inside the fix ceiling, the only place a reload can act.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list", "watch"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

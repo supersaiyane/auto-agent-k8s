@@ -82,6 +82,23 @@ some of these.
   allowlisted namespaces; patch on deployments (exists), statefulsets,
   daemonsets, cronjobs. `TestRBAC_ChartMatchesCode` forces the chart to match.
 
+**As built (phase 13, 2026-10-08), where it differs from the design above.**
+The namespace allowlist became two scopes (ADR-002): ConfigMaps are watched
+in the watch scope (one informer that excludes the system namespaces by
+field selector, or one per listed namespace), Secrets only inside the fix
+ceiling, because only there can a reload act; the gate still acts only in
+the fix scope. No hashes are stored: the informer hands over the old and new
+object, so the changed keys are compared directly. The pod template gets one
+annotation per object, `auto-agent.io/reload-<id>: <hash of the keys used>`,
+instead of one `config-hash`, so two objects never overwrite each other's
+version and a repeated event is "up to date". A stalled Deployment is rolled
+back by the existing stuck rollout check (R4); the reload marks that version
+blocked for that workload, stops its wave and raises ConfigReloadFailed.
+StatefulSets and DaemonSets have no progress deadline, so a reload waits
+`reloadVerifyTimeout` (10 minutes) before calling them failed. A change that
+restarts nothing is not recorded. Code: `internal/kube/reload_refs.go`,
+`reload_policy.go`, `reload.go`, `reload_watch.go`.
+
 ### A.3 Tasks
 
 | Task | Change | Done when |
@@ -424,7 +441,10 @@ found and fixed ISS-066 to ISS-076, including a crash on Ingress resource
 backends (ISS-072). Every old detector now reports through `report()` with
 a rung; the untested list is empty and `TestEveryLeaderCheckHasATest` keeps
 every leader check tested. Coverage 70.7% total (measured), floor raised
-to it. Next: phase 13.
+to it.
+
+Phase 13 done 2026-10-08 (Part A, A1 to A3): see "As built" in A.2.
+Coverage 72.3% (measured). Next: PLAN-003, then phase 14.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

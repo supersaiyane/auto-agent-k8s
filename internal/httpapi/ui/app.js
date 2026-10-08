@@ -145,6 +145,19 @@
     if (state.fixes === 'all' || state.fixes === 'failed') rows.push(...group(d.failed, 'not fixed', 'red'));
     return h + list(rows, 'No remediation yet.');
   }
+  // Config reloads (PLAN-002 Part A): what changed (key names only) and what
+  // happened to each workload, one at a time.
+  async function viewReloads() {
+    const all = (await api('/api/reloads')).filter((r) => inNs(r.namespace));
+    setCount(all.length, all.length);
+    if (!all.length) return '<p class="muted small">When a ConfigMap (or, with reload.secrets, a Secret) changes, the workloads that use the changed keys restart one at a time. Nothing has changed yet.</p>';
+    const color = { restarted: 'green', healthy: 'green', simulated: 'purple', suggested: 'blue', 'up to date': 'muted', blocked: 'yellow', skipped: 'yellow', failed: 'red' };
+    return '<p class="muted small">Workloads restart one at a time; the next waits until the previous is healthy, and a failure stops the rest. In dry-run the restart is only recorded.</p>'
+      + `<table><tr><th>When</th><th>Object</th><th>Changed keys</th><th>Workloads</th></tr>${all.map((r) => `<tr>
+      <td class="time">${when(r.timestamp)}</td><td><span class="ns">${esc(r.namespace)}</span> <strong>${esc(r.object)}</strong>${r.done ? '' : ' ' + pill('in progress', 'blue')}</td>
+      <td class="mono">${esc((r.changedKeys || []).join(', '))}</td>
+      <td>${(r.workloads || []).map((w) => `<div>${esc(w.workload)} ${pill(w.result, color[w.result])} <span class="muted small">${esc(trunc(w.detail, 90))}</span></div>`).join('')}</td></tr>`).join('')}</table>`;
+  }
   async function viewCompliance() {
     const r = await api('/api/compliance?days=' + num(state.days));
     const days = [7, 30, 90].map((n) => `<button type="button" class="btn${state.days === n ? ' primary' : ''}" data-action="days" data-arg="${n}">${n} days</button>`).join(' ');
@@ -426,7 +439,7 @@
     render();
   }
 
-  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes,
+  const VIEWS = { events: viewEvents, audit: () => viewAudit(false), dryrun: () => viewAudit(true), actions: viewFixes, reloads: viewReloads,
     compliance: viewCompliance, deploys: viewDeploys, baselines: viewBaselines, k8sevents: viewK8sEvents, charts: viewCharts,
     report: viewReport, cluster: viewCluster, nodes: viewNodes, cost: viewCost, resources: viewResources, settings: viewSettings };
 

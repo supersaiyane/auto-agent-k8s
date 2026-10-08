@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 const [base, token] = process.argv.slice(2);
 if (!base || !token) { console.error('usage: ui-test.mjs <base-url> <token>'); process.exit(2); }
-const TABS = ['events', 'audit', 'dryrun', 'actions', 'compliance', 'deploys', 'baselines', 'k8sevents',
+const TABS = ['events', 'audit', 'dryrun', 'actions', 'reloads', 'compliance', 'deploys', 'baselines', 'k8sevents',
   'charts', 'report', 'cluster', 'nodes', 'cost', 'resources', 'terminal', 'settings'];
 
 const candidates = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',

@@ -72,7 +72,8 @@ var libraryPerms = []perm{
 // optionalPerms are used by code that tolerates their absence and are granted
 // only when a chart value enables them.
 var optionalPerms = map[perm]string{
-	{"", "secrets", "list"}: "rbac.readTLSSecrets (certificate expiry check)",
+	{"", "secrets", "list"}:  "rbac.readTLSSecrets (certificate expiry check) or reload.secrets",
+	{"", "secrets", "watch"}: "reload.secrets (config reload on Secret changes)",
 }
 
 // workloadWrites must be granted only by namespaced Roles in allowlisted
@@ -80,7 +81,8 @@ var optionalPerms = map[perm]string{
 var workloadWrites = map[perm]bool{
 	{"", "pods", "delete"}: true, {"", "pods/eviction", "create"}: true,
 	{"apps", "deployments", "patch"}: true, {"apps", "deployments", "update"}: true,
-	{"batch", "jobs", "delete"}: true,
+	{"batch", "jobs", "delete"}:       true,
+	{"apps", "statefulsets", "patch"}: true, {"apps", "daemonsets", "patch"}: true, {"batch", "cronjobs", "patch"}: true,
 }
 
 // codePerms scans non-test Go source for typed client calls.

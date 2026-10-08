@@ -36,6 +36,9 @@ type Config struct {
 	PodName      string
 	PodNamespace string
 
+	// Config reload (PLAN-002 Part A).
+	Reload Reload
+
 	// API client rate limits, per pod (ISS-056).
 	APIQPS   float32
 	APIBurst int
@@ -178,6 +181,13 @@ func Load(get Getenv) Config {
 		NodeName:     r.str("NODE_NAME", ""),
 		PodName:      r.str("POD_NAME", ""),
 		PodNamespace: r.str("POD_NAMESPACE", ""),
+
+		Reload: Reload{
+			Enabled:  r.boolean("RELOAD_ENABLED", true),
+			Secrets:  r.boolean("RELOAD_SECRETS", false),
+			On:       r.str("RELOAD_ON", "auto"),
+			Debounce: r.duration("RELOAD_DEBOUNCE", 10*time.Second),
+		},
 
 		APIQPS:   float32(r.positiveInt("KUBE_API_QPS", 50)),
 		APIBurst: r.positiveInt("KUBE_API_BURST", 100),
@@ -337,4 +347,20 @@ func KlogVerbosity(level string) (v int, ok bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+func (r reader) boolean(key string, def bool) bool {
+	b, err := strconv.ParseBool(r.get(key))
+	if err != nil {
+		return def
+	}
+	return b
+}
+
+// Reload is the config reload feature (PLAN-002 Part A).
+type Reload struct {
+	Enabled  bool          // RELOAD_ENABLED: watch ConfigMaps and reload workloads (still dry-run by mode)
+	Secrets  bool          // RELOAD_SECRETS: also Secrets, in the fix ceiling only (opt-in)
+	On       string        // RELOAD_ON: auto (skip in-place volume updates) or always
+	Debounce time.Duration // RELOAD_DEBOUNCE: edits within this window give one reload
 }

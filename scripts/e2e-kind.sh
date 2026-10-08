@@ -211,6 +211,38 @@ wait_scope_log "is now [default] (dashboard choice: false)" || fail "not every a
 kill "$PF" 2>/dev/null || true
 log "scope: ceiling enforced, choice applied by every agent, kept across a Helm upgrade, audited, cleared"
 
+log "checking config reload (PLAN-002 Part A): dry-run records, fix mode restarts once"
+k() { kubectl --context "$CTX" "$@"; }
+k -n "$NS_TEST" create configmap reload-demo --from-literal=level=info >/dev/null
+k -n "$NS_TEST" create deployment reload-demo --image=busybox:1.36 -- sh -c 'sleep 3600' >/dev/null
+k -n "$NS_TEST" set env deployment/reload-demo --from=configmap/reload-demo --keys=level >/dev/null
+k -n "$NS_TEST" rollout status deployment/reload-demo --timeout=120s >/dev/null
+edit3() { for v in a b c; do k -n "$NS_TEST" patch configmap reload-demo --type merge -p "{\"data\":{\"level\":\"$1-$v\"}}" >/dev/null; sleep 1; done; }
+rs_count() { k -n "$NS_TEST" get rs -l app=reload-demo --no-headers 2>/dev/null | wc -l | tr -d ' '; }
+POD_BEFORE=$(k -n "$NS_TEST" get pod -l app=reload-demo -o jsonpath='{.items[0].metadata.uid}')
+RS_BEFORE=$(rs_count)
+kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$AGENT_POD" 18110:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+reloads() { curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18110/api/reloads; }
+edit3 dry
+sleep 25
+DRY=$(reloads)
+echo "$DRY" | grep -q '"workload":"deployment/reload-demo","result":"simulated"' || fail "dry-run did not record the reload: $DRY"
+[ "$(echo "$DRY" | grep -o '"object":"configmap/reload-demo"' | wc -l | tr -d ' ')" = "1" ] || fail "three quick edits gave more than one reload: $DRY"
+[ "$(k -n "$NS_TEST" get pod -l app=reload-demo -o jsonpath='{.items[0].metadata.uid}')" = "$POD_BEFORE" ] || fail "dry-run restarted the pod"
+log "dry-run: one simulated reload for three edits, pod untouched"
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}' >/dev/null
+sleep 10
+edit3 fix
+sleep 30
+FIX=$(reloads)
+kill "$PF" 2>/dev/null || true
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}' >/dev/null
+echo "$FIX" | grep -q '"workload":"deployment/reload-demo","result":"restarted"' || fail "fix mode did not restart the workload: $FIX"
+[ "$(rs_count)" = "$((RS_BEFORE + 1))" ] || fail "fix mode rolled the Deployment $(( $(rs_count) - RS_BEFORE )) times for three quick edits, want 1"
+log "fix mode: three quick edits, one restart"
+
 log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
 for pod in "$AGENT_POD" "$NODE_POD"; do
 	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
@@ -226,4 +258,4 @@ echo "$AGENT_LOGS" | grep -q "acquired leader lease" || fail "no controller acqu
 FORBIDDEN=$(echo "$AGENT_LOGS" | grep -i "forbidden" || true)
 [ -z "$FORBIDDEN" ] || { echo "$FORBIDDEN" | head -10; fail "agent hit forbidden API reads: RBAC does not match the code"; }
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, node findings on every controller, history kept across two leader changes, non-root, RBAC complete"

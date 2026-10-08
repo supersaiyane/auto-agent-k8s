@@ -26,8 +26,14 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list"]
 - apiGroups: ["apps"]
-  resources: ["replicasets", "statefulsets", "daemonsets"]
+  resources: ["replicasets"]
   verbs: ["list"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "daemonsets"]
+  verbs: ["get", "list"]   # get: config reload checks the rollout
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["list", "watch"]   # config reload, in the watch scope (system namespaces excluded by field selector)
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
   verbs: ["list"]

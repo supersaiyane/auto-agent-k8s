@@ -89,7 +89,8 @@ type agent struct {
 	leads     func() bool // le.IsLeader on controllers; tests swap it
 	srv       *httpapi.Server
 	loopsDone chan struct{}
-	leading   atomic.Bool // this process announced leadership and still leads
+	reloader  *kube.Reloader // config reload on controllers (PLAN-002 Part A); nil when off
+	leading   atomic.Bool    // this process announced leadership and still leads
 }
 
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
@@ -116,6 +117,9 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		return err
 	}
 	leaderTarget := a.startLeader(ctx, cl.Kube, opts)
+	if rl.controller && conf.Reload.Enabled {
+		a.reloader = kube.NewReloader(a.deps, conf.Reload, a.isLeader)
+	}
 	a.srv = a.newServer(cl, opts, leaderTarget)
 	go a.srv.Start()
 	a.startWork(ctx)
@@ -302,6 +306,10 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		}}
 	}
 	t := a.extras
+	ext := httpapi.ExtendedDeps{Learning: t.learning, Deploys: t.deploys, DryRun: t.dryRun, Fixes: t.fixes}
+	if a.reloader != nil { // a typed nil would look set
+		ext.Reloads = a.reloader
+	}
 	return httpapi.NewServer(opts.HTTPAddr, a.ev.recorder, &httpapi.AgentMeta{
 		Version: version, Mode: string(a.conf.Policy.Mode), NodeName: a.conf.NodeName, PodName: a.conf.PodName,
 	}, cl.Kube, httpapi.Options{
@@ -310,7 +318,7 @@ func (a *agent) newServer(cl Clients, opts RunOptions, leaderTarget func() (stri
 		AllowNamespace: func(ns string) bool { return a.hr.Get().Watched(ns) },
 		IsLeader:       a.isLeader, Leader: leaderTarget, HealthOnly: a.rl.onlyNode(),
 		Ingest: a.ev.sink, InternalToken: a.conf.InternalToken, Scope: scope,
-		Extended: httpapi.ExtendedDeps{Learning: t.learning, Deploys: t.deploys, DryRun: t.dryRun, Fixes: t.fixes},
+		Extended: ext,
 	})
 }
 
@@ -325,6 +333,9 @@ func (a *agent) startWork(ctx context.Context) {
 	if !a.rl.controller {
 		close(a.loopsDone)
 		return
+	}
+	if a.reloader != nil {
+		a.reloader.WatchConfig(ctx)
 	}
 	go func() { leaderLoops(ctx, a.conf, a.deps, a.le); close(a.loopsDone) }()
 	go a.announceLeadership(ctx, 2*time.Second)

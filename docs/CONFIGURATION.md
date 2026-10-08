@@ -197,6 +197,20 @@ is never called, so **none of them has any effect yet** (ISS-012).
 | `LEARNING_ENABLED` | `learning.enabled` | `true`, anything else is off | `false` | Collects per-workload CPU baselines (shown at `/api/baselines`). Thresholds are **not** tuned from them yet (ISS-012) | `cmd/auto-agent/run.go` |
 | `LEARNING_PERIOD_DAYS` | `learning.periodDays` | positive integer | `14` | How long baselines are learned for | `cmd/auto-agent/run.go` |
 
+## Config reload (PLAN-002 Part A)
+
+When a ConfigMap changes, the controller restarts the workloads that use the
+changed keys, one at a time, through the mutation gate; see GUIDE section
+"Config reload". It follows the mode (dry-run only records) and acts only in
+the fix scope.
+
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `RELOAD_ENABLED` | `reload.enabled` | `true`, `false` | `true` | Watch ConfigMaps in the watch scope and reload the workloads that use changed keys | `internal/kube/reload.go` |
+| `RELOAD_SECRETS` | `reload.secrets` | `true`, `false` | `false` | **Also Secrets.** Off by default: it adds Secret list and watch inside the fix ceiling. Only key names and SHA-256 prefixes are kept; values are never logged. See GUIDE "Reloading on Secret changes" | `internal/kube/reload_watch.go` |
+| `RELOAD_ON` | `reload.reloadOn` | `auto`, `always` | `auto` | `auto` restarts only when a running pod cannot see the change (env, envFrom, subPath mounts); a plain volume mount is updated in place and skipped. `always` restarts on every used key. Per workload: annotation `auto-agent.io/reload-on` | `internal/kube/reload_policy.go` |
+| `RELOAD_DEBOUNCE` | `reload.debounce` | Go duration | `10s` | Edits to one object within this window give one reload | `internal/kube/reload.go` |
+
 ## Roles (ADR-001)
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
@@ -264,6 +278,7 @@ These do not become variables; they change what the chart renders.
 | `networkPolicy.enabled` | `true` | Render the NetworkPolicy |
 | `networkPolicy.allowFromNamespaces` | `["monitoring"]` | Namespaces allowed to reach port 8080 |
 | `rbac.readTLSSecrets` | `false` | Also grants secret list in the fix ceiling namespaces, which is where the check reads (see `TLS_CERT_CHECK`) |
+| `reload.*` | see the Config reload section | Also grants patch on StatefulSets, DaemonSets and CronJobs in the write Roles, ConfigMap list and watch in the controller's read role, and with `reload.secrets` Secret list and watch inside the fix ceiling |
 | `rbac.fixAnywhere` | `false` | One write ClusterRole instead of a Role per ceiling namespace (see `FIX_ANYWHERE`) |
 | `webhook.enabled` | `false` | Render the webhook registration and Service |
 | `webhook.failurePolicy` | `Ignore` | `Ignore` or `Fail` when the webhook is unreachable |

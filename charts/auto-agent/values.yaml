@@ -103,6 +103,18 @@ rbac:
   # logs a warning at every start and the dashboard shows the mode.
   fixAnywhere: false
 
+# Config reload (PLAN-002 Part A): restart the workloads that use a changed
+# ConfigMap key, one at a time, through the gate. It follows the mode, so
+# with the default dry-run it only records what it would restart.
+reload:
+  enabled: true
+  # Also reload on Secret changes. Off by default: it adds Secret list and
+  # watch inside the fix ceiling. Only key names and hashes are kept; values
+  # are never logged. See GUIDE section "Reloading on Secret changes".
+  secrets: false
+  reloadOn: auto                   # auto: skip plain volume mounts (updated in place); always: restart anyway
+  debounce: 10s                    # edits within this window give one reload
+
 leaderElection:
   namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 

@@ -34,7 +34,12 @@ counts computed or removed, changelog generated from git, docs check test.
 changelog regenerated. **Phase 11 is complete.** Phase 12 done 2026-10-08
 (ISS-039, ISS-034, ISS-035): 20 detectors and 4 leader loops audited and
 tested; ISS-066 to ISS-076 found and fixed; every leader check must have a
-test. Coverage 70.7% total (measured), floor raised to it. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+test. Coverage 70.7% total (measured), floor raised to it. Phase 13 code
+done 2026-10-08 (PLAN-002 Part A, A1 to A3): config reload with key-level
+detection, Stakater annotations, reloadOn, debounce, staged waves, rollback
+on stall, Secrets opt-in, Reloads tab, GUIDE 8.7 and 8.8. `make e2e` and
+`make e2e-raw` pass on kind; coverage 72.3% (measured), floor raised.
+**Phase 13 is complete.** Next: PLAN-003 (terminal), then phase 14; 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

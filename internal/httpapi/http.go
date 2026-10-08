@@ -798,6 +798,7 @@ var apiRouteTable = []struct {
 	{"/api/resources/", (*Server).handleResourcesNs},
 	{"/api/fixes", (*Server).handleFixes},
 	{"/api/scope", (*Server).handleScope},
+	{"/api/reloads", (*Server).handleReloads},
 }
 
 // apiRoutes returns every /api/ path the server serves, Slack included.

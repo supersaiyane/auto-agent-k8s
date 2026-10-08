@@ -29,11 +29,12 @@
 | 2026-10-08 | PLAN-002 11.8 steps 2 to 4 (Settings tab, `/api/scope`, namespace selector) | Done: `make e2e` PASS on kind with the new scope case (ceiling refused, choice applied by every agent, kept across `helm upgrade`, audited, cleared); `make ui-test` PASS and falsified | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/policy/reload.go` (WatchScope, fail closed until synced), UI files, chart scope Role, guard ISS-064 | `internal/kube/scope_settings.go:30` (SaveFixScope), `internal/httpapi/scope.go:55` (handleScope), `internal/httpapi/ui/app.js` (viewSettings), `scripts/e2e-kind.sh` (scope case) |
 | 2026-10-08 | PLAN-002 11.5, 11.6, 11.3, 11.7: phase 11 complete | Done: `make verify` (coverage 56.4% measured, floor raised to it), `make e2e` and `make e2e-raw` PASS on kind; not pushed | ed4ddab (shutdown, notices, check-config), bace559 (docs owners, changelog, docs check), 11.3 commit (namespace, image digest), 11.7 records | `cmd/auto-agent/run.go` (`shutdown`, `leaderChecks`), `cmd/auto-agent/main.go` (`command`), `internal/httpapi/docs_test.go`, `charts/auto-agent/templates/_helpers.tpl` |
 | 2026-10-08 | PLAN-002 phase 12: detector audit (ISS-039, 034, 035; ISS-066 to 076 found and fixed) | Code and tests done, full suite passes; `make e2e` and `make e2e-raw` PASS on kind, `make verify` coverage 70.7% (measured); committed | `internal/kube/*_audit_test.go` (audits), `workloads.go`, `jobs.go`, `workload_extended.go`, `pod_extended.go`, `storage_network.go`, `pvc.go`, `nodecheck.go`, `node_extended.go`, `security.go`, `quotas.go`, `anomalies.go`, `fixtracker.go`, `correlation.go`, `learning.go`, `selfcheck.go`; `ratelimit.Deduplicator.CheckFor`; chart grants | `internal/kube/detector_guard_test.go` (`TestEveryLeaderCheckHasATest`), `internal/kube/workloads.go` (`CheckServiceEndpoints`), PR body in session scratchpad `pr3-body.md` |
+| 2026-10-08 | PLAN-002 phase 13: native config reload (Part A, A1 to A3) | Done: `make verify` (coverage 72.3% measured, floor raised), `make e2e` (reload case: dry-run records one simulated reload for three edits, fix mode restarts once) and `make e2e-raw` PASS on kind; secret leak test falsified; not pushed | `internal/kube/reload_refs.go`, `reload_policy.go`, `reload.go`, `reload_watch.go`, `/api/reloads`, Reloads tab, chart `reload.*`, GUIDE 8.7 and 8.8 | `internal/kube/reload.go` (`reloadTick`, `advanceWave`, `restartForReload`), `internal/kube/reload_watch.go` (`WatchConfig`), `scripts/e2e-kind.sh` (reload case) |
 
 ## Next action
 
-1. Phases 11 and 12 are merged (PR #3, f71c3c0, 2026-10-08).
-2. Start the next work from master.
-3. Then PLAN-002 phase 13 (native config reload), PLAN-003, phases 14 to 17.
+1. Phase 13 is committed on `plan-002`, not pushed (with fd94273 and ff6f96b).
+   Push and open a PR on the owner's go.
+2. Then PLAN-003 (read-only terminal), then PLAN-002 phases 14 to 17.
 4. Stage `deployment/` before `make verify` (`check-manifests` diffs the index).
 5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.
