@@ -174,16 +174,22 @@ set both with `env:` (ISS-032).
 | `WEBHOOK_REQUIRE_READINESS` | `webhook.requireReadiness` | `true`, `false` | on unless `false` | Reject workloads without readiness probes | `cmd/auto-agent/run.go` |
 | `WEBHOOK_BLOCKED_IMAGES` | `webhook.blockedImages` | comma-separated list of images | empty | Reject workloads using these images | `cmd/auto-agent/run.go` |
 
-## Escalation (not wired)
+## Escalation
 
-These are read when the agent starts, but the escalation chain they configure
-is never called, so **none of them has any effect yet** (ISS-012).
+Every critical finding, and every fix the API server refused, is sent to
+each configured channel after Slack (ISS-080). Findings are deduplicated by
+the same window as Slack; a refused fix pages once per workload and action
+per window. Text is redacted first. Sending runs in the background with a
+10 second timeout per channel and at most 4 in flight; beyond that an
+escalation is dropped and counted in
+`auto_agent_handler_errors_total{reason="escalation",action="dropped"}`, and
+each failed channel is counted under its own name.
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
-| `PAGERDUTY_ROUTING_KEY` | `escalation.pagerdutyRoutingKey` (Secret) | routing key | empty | Would page PagerDuty | `internal/escalation/escalation.go` |
-| `OPSGENIE_API_KEY` | `escalation.opsgenieApiKey` (Secret) | API key | empty | Would alert OpsGenie | `internal/escalation/escalation.go` |
-| `SMTP_HOST` | `escalation.smtpHost` | host | empty | Would send email | `internal/escalation/escalation.go` |
+| `PAGERDUTY_ROUTING_KEY` | `escalation.pagerdutyRoutingKey` (Secret) | routing key | empty | Pages PagerDuty | `internal/escalation/escalation.go` |
+| `OPSGENIE_API_KEY` | `escalation.opsgenieApiKey` (Secret) | API key | empty | Alerts OpsGenie | `internal/escalation/escalation.go` |
+| `SMTP_HOST` | `escalation.smtpHost` | host | empty | Sends email | `internal/escalation/escalation.go` |
 | `SMTP_PORT` | `escalation.smtpPort` | port | chart: `587` | SMTP port | `internal/escalation/escalation.go` |
 | `SMTP_USER` | `escalation.smtpUser` | user | empty | SMTP user | `internal/escalation/escalation.go` |
 | `SMTP_PASS` | `escalation.smtpPass` (Secret) | password | empty | SMTP password | `internal/escalation/escalation.go` |

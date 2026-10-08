@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
@@ -25,7 +27,16 @@ type FixRecord struct {
 	Status     string    `json:"status"` // "pending", "fixed", "not-fixed"
 	VerifiedAt time.Time `json:"verifiedAt,omitempty"`
 	Detail     string    `json:"detail,omitempty"`
+	// HealthySince is when the workload was first seen healthy again; it
+	// counts as fixed only once it stays healthy for fixStableFor (ISS-038).
+	HealthySince time.Time `json:"healthySince,omitempty"`
 }
+
+const (
+	fixSettleAfter = 30 * time.Second // first check this long after the action
+	fixStableFor   = time.Minute      // healthy this long counts as fixed
+	fixGiveUpAfter = 15 * time.Minute // not healthy by then: not fixed
+)
 
 // FixTracker monitors actions taken and verifies if the workload actually recovered.
 type FixTracker struct {
@@ -80,8 +91,8 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 	var stillPending []FixRecord
 
 	for _, rec := range pending {
-		// Skip if too old (>15 min), give up
-		if deps.FixTracker.clock().Sub(rec.Timestamp) > 15*time.Minute {
+		now := deps.FixTracker.clock()
+		if now.Sub(rec.Timestamp) > fixGiveUpAfter {
 			rec.Status = "not-fixed"
 			rec.VerifiedAt = deps.FixTracker.clock().UTC()
 			rec.Detail = "timed out: workload did not recover within 15 minutes"
@@ -90,15 +101,21 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 			continue
 		}
 
-		// Don't check too early, wait at least 30s after action
-		if deps.FixTracker.clock().Sub(rec.Timestamp) < 30*time.Second {
+		if now.Sub(rec.Timestamp) < fixSettleAfter {
 			stillPending = append(stillPending, rec)
 			continue
 		}
 
-		// Check if the workload is now healthy
+		// One healthy sample is not enough: a crash-looping pod is Ready
+		// between restarts. It must stay healthy for fixStableFor.
 		healthy, detail := isWorkloadHealthy(ctx, deps, rec.Namespace, rec.Workload)
-		if healthy {
+		switch {
+		case !healthy:
+			rec.HealthySince = time.Time{}
+		case rec.HealthySince.IsZero():
+			rec.HealthySince = now
+		}
+		if healthy && now.Sub(rec.HealthySince) >= fixStableFor {
 			rec.Status = "fixed"
 			rec.VerifiedAt = deps.FixTracker.clock().UTC()
 			rec.Detail = detail
@@ -136,18 +153,13 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 	// Extract deployment name from "replicaset/api-server-8446f784fd"
 	deployName := resolveDeploymentName(workload)
 
-	// Try to find the Deployment
 	deploy, err := deps.Client.AppsV1().Deployments(ns).Get(ctx, deployName, metav1.GetOptions{})
 	if err == nil {
-		// Check Deployment health: all replicas ready
-		desired := int32(1)
-		if deploy.Spec.Replicas != nil {
-			desired = *deploy.Spec.Replicas
-		}
-		if deploy.Status.ReadyReplicas >= desired && deploy.Status.UnavailableReplicas == 0 {
-			return true, fmt.Sprintf("deployment %s: %d/%d ready", deployName, deploy.Status.ReadyReplicas, desired)
-		}
-		return false, fmt.Sprintf("deployment %s: %d/%d ready", deployName, deploy.Status.ReadyReplicas, desired)
+		return deploymentRecovered(deploy)
+	}
+	if !apierrors.IsNotFound(err) {
+		countAPIError(err, "deployments", ns)
+		return false, "cannot read deployment: " + err.Error()
 	}
 
 	// Fallback: check pods directly by owner name match
@@ -181,6 +193,25 @@ func isWorkloadHealthy(ctx context.Context, deps *Deps, ns, workload string) (bo
 		return true, fmt.Sprintf("%d/%d pods Running+Ready", ready, matching)
 	}
 	return false, fmt.Sprintf("%d/%d pods ready", ready, matching)
+}
+
+// deploymentRecovered reports a Deployment whose current spec has fully
+// rolled out: observed, every replica updated and ready, none unavailable.
+// Old ready replicas during a rollout do not count (ISS-038).
+func deploymentRecovered(d *appsv1.Deployment) (bool, string) {
+	desired := int32(1)
+	if d.Spec.Replicas != nil {
+		desired = *d.Spec.Replicas
+	}
+	st := d.Status
+	detail := fmt.Sprintf("deployment %s: %d/%d ready, %d updated", d.Name, st.ReadyReplicas, desired, st.UpdatedReplicas)
+	switch {
+	case st.ObservedGeneration < d.Generation:
+		return false, detail + ", spec change not yet observed"
+	case st.UpdatedReplicas < desired:
+		return false, detail + ", rollout in progress"
+	}
+	return st.ReadyReplicas >= desired && st.UnavailableReplicas == 0, detail
 }
 
 // resolveDeploymentName extracts the Deployment name from a workload string.

@@ -280,8 +280,10 @@ Tokens for GitHub, GitLab, Jira and the LLM go in the Secret
 (`GIT_TOKEN`, `GITHUB_TOKEN`, `JIRA_TOKEN`, `JIRA_EMAIL`, `LLM_API_KEY`).
 
 **Configurable but not wired yet** (setting them changes nothing,
-ISS-012): `escalation.*` (PagerDuty, OpsGenie, email), `gitops.mode`,
-`images.mirror.*`, and learning-mode threshold tuning.
+ISS-012): `gitops.mode`, `images.mirror.*`, and learning-mode threshold
+tuning. `escalation.*` (PagerDuty, OpsGenie, email) is wired since
+2026-10-08 (ISS-080): critical findings and refused fixes are sent after
+Slack.
 
 ### 5.5 Security and RBAC
 

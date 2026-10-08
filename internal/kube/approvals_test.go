@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +18,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
@@ -332,5 +336,33 @@ func TestTemplateOwnerAndCPUPatch(t *testing.T) {
 	}
 	if m, err := proposeCPULimit(h.deps, cases[4].pod, "app", resource.NewMilliQuantity(650, resource.DecimalSI)); m != nil || err != nil {
 		t.Fatal("a Job pod has no template to patch")
+	}
+}
+
+// ISS-080: a critical finding and a failed fix page the escalation chain,
+// once each per dedup window; warnings do not.
+func TestEscalation_CriticalFindingsAndFailedFixes(t *testing.T) {
+	s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 202, `{}`) })
+	defer s.Close()
+	h, _, _ := approvalHarness(t, nil)
+	h.deps.Escalation = escalation.NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, s.Client(time.Second))
+	ctx := context.Background()
+
+	report(ctx, h.deps, finding{Reason: "Warned", Namespace: "default", Workload: "deployment/a", Severity: eventsvc.SevWarning, Rung: RungGuided, Summary: "w"})
+	crit := finding{Reason: "NodeDown", Namespace: "default", Workload: "deployment/b", Severity: eventsvc.SevCritical, Rung: RungAlert, Summary: "down"}
+	report(ctx, h.deps, crit)
+	report(ctx, h.deps, crit) // a repeat inside the dedup window
+	fail := mutation{Namespace: "default", Workload: "deployment/c", Reason: "CrashLoopBackOff", ActionType: "delete_pod",
+		Apply: func() error { return errors.New("forbidden") }}
+	for i := 0; i < 2; i++ {
+		if out, _ := applyMutation(ctx, h.deps, fail); out != gateFailed {
+			t.Fatalf("outcome %v, want failed", out)
+		}
+	}
+	h.deps.Escalation.Wait()
+	reqs := s.Requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[0].Body+reqs[1].Body, "NodeDown default/deployment/b") ||
+		!strings.Contains(reqs[0].Body+reqs[1].Body, "FixFailed default/deployment/c") {
+		t.Fatalf("want one page for the critical finding and one for the failed fix, got %d: %+v", len(reqs), reqs)
 	}
 }
