@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 )
 
@@ -24,7 +25,7 @@ var (
 )
 
 func init() {
-	admissionv1.AddToScheme(scheme)
+	utilruntime.Must(admissionv1.AddToScheme(scheme)) // a broken scheme is a build bug: fail at start
 }
 
 // Validator is a ValidatingWebhook that rejects deployments with known issues.
@@ -34,12 +35,12 @@ type Validator struct {
 
 // Config for the webhook validator.
 type Config struct {
-	CertFile     string // TLS cert path
-	KeyFile      string // TLS key path
-	Port         int
-	RequireLimits       bool // reject if no resource limits
-	RequireReadiness    bool // reject if no readiness probe
-	BlockedImages       []string // image prefixes to block
+	CertFile         string // TLS cert path
+	KeyFile          string // TLS key path
+	Port             int
+	RequireLimits    bool     // reject if no resource limits
+	RequireReadiness bool     // reject if no readiness probe
+	BlockedImages    []string // image prefixes to block
 }
 
 func NewValidator(cfg Config) *Validator {
@@ -51,7 +52,9 @@ func NewValidator(cfg Config) *Validator {
 		handleValidate(w, r, cfg)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			klog.V(4).Infof("webhook: healthz write: %v", err)
+		}
 	})
 
 	return &Validator{
@@ -100,7 +103,9 @@ func handleValidate(w http.ResponseWriter, r *http.Request, cfg Config) {
 	review.Response.UID = req.UID
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(review)
+	if err := json.NewEncoder(w).Encode(review); err != nil {
+		klog.Warningf("webhook: writing the admission response: %v", err)
+	}
 }
 
 func validate(req *admissionv1.AdmissionRequest, cfg Config) *admissionv1.AdmissionResponse {
@@ -159,8 +164,8 @@ func validate(req *admissionv1.AdmissionRequest, cfg Config) *admissionv1.Admiss
 			}
 		}
 
-		// Warn on :latest tag
-		if strings.HasSuffix(c.Image, ":latest") || !strings.Contains(c.Image, ":") {
+		// Warn on :latest or no tag
+		if !pinnedImage(c.Image) {
 			warnings = append(warnings, fmt.Sprintf("container %q uses :latest or untagged image %q: pin to a specific tag", c.Name, c.Image))
 		}
 	}
@@ -182,4 +187,16 @@ func deny(message string) *admissionv1.AdmissionResponse {
 			Code:    403,
 		},
 	}
+}
+
+// pinnedImage reports an image with a digest, or a tag other than latest.
+// The tag is looked for after the last "/" only, so a registry port
+// (registry:5000/app) is not mistaken for one (ISS-084).
+func pinnedImage(image string) bool {
+	if strings.Contains(image, "@") {
+		return true
+	}
+	name := image[strings.LastIndex(image, "/")+1:]
+	i := strings.LastIndex(name, ":")
+	return i >= 0 && name[i+1:] != "latest"
 }

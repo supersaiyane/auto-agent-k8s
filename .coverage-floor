@@ -11,4 +11,5 @@
 # 2026-10-08: 76.2 measured at the end of PLAN-003.
 # 2026-10-08: 76.5 measured at the end of PLAN-002 phase 14.
 # 2026-10-08: 76.9 measured at the end of PLAN-002 phase 15.
-76.9
+# 2026-10-08: 79.9 measured after PLAN-002 phase 16 D6 (storage, logging, obs, webhook tested).
+79.9

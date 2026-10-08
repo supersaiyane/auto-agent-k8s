@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
@@ -74,6 +75,11 @@ func (s *fsSink) Save(_ context.Context, key string, rec *Record) (string, error
 		return "", fmt.Errorf("storage: marshal: %w", err)
 	}
 	p := filepath.Join(s.base, key+".json")
+	// Keys come from namespace, workload and pod names; whatever they hold,
+	// the file stays under the base directory.
+	if rel, err := filepath.Rel(s.base, p); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("storage: key %q leaves %s", key, s.base)
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", fmt.Errorf("storage: mkdir: %w", err)
 	}
