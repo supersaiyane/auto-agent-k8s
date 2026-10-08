@@ -282,7 +282,7 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		LLM:   llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP),
 		Dedup: t.dedup, Limiter: ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute),
 		Sink: storage.NewSink(conf.Storage), CRDStore: crdStore,
-		GitOps: newGitOps(conf, cl.HTTP), Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
+		GitOps: newGitOps(conf, cl.HTTP), GitOpsValuesFile: conf.GitOpsValuesFile, Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
 		Breaker:      ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, time.Hour),
 		AlertManager: alertmanager.New(conf.AlertmanagerURL, cl.HTTP), AuditLog: t.audit,
 		BlastRadius: kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, time.Hour),
@@ -494,10 +494,11 @@ func newGitOps(conf config.Config, hc *http.Client) integrations.GitOps {
 		return nil
 	}
 	klog.Infof("gitops: configured (%s)", conf.GitOpsProvider)
+	author := integrations.WithAuthor(conf.GitOpsAuthorName, conf.GitOpsAuthorEmail)
 	if conf.GitOpsProvider == "gitlab" {
-		return integrations.NewGitLab(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc)
+		return integrations.NewGitLab(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc, author)
 	}
-	return integrations.NewGitHub(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc)
+	return integrations.NewGitHub(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc, author)
 }
 
 // newTicketer returns the ticket client, or nil when tickets are off.

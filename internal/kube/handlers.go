@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -122,16 +121,18 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 			}
 		}
 		prTitle := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
-		// Generate actual patch content
-		patchContent, changeDesc := GenerateMemoryBumpContent("", ns, wl, cname, memLimit, bumpPct)
+		filePath, content, changeDesc, note := memoryBumpChange(ctx, deps, ns, wl, cname, memLimit, bumpPct)
 		prBody := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nChange: %s\n\nIncident log: `%s`",
 			cname, memLimit, changeDesc, url)
+		if note != "" {
+			prBody += "\n\n" + note
+		}
 		prURL, err := deps.GitOps.OpenPR(ctx, integrations.GitOpsChange{
 			Title:    prTitle,
 			Body:     prBody,
-			Branch:   fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), time.Now().Unix()),
-			FilePath: fmt.Sprintf("patches/%s/%s-memory-bump.yaml", ns, deploymentName(wl)),
-			Content:  []byte(patchContent),
+			Branch:   fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), deps.clock().Unix()),
+			FilePath: filePath,
+			Content:  content,
 		})
 		if err != nil {
 			klog.Warningf("handler: failed to open OOM PR: %v", err)
@@ -398,4 +399,26 @@ func postSlack(deps *Deps, msg string) {
 		klog.Warningf("handler: slack post failed: %v", err)
 		obs.HandlerErrorsTotal.WithLabelValues("slack", "post").Inc()
 	}
+}
+
+// memoryBumpChange builds the OOM pull request's file change: the
+// workload's memory limit patched in gitops.valuesFile when that file has
+// exactly one place for it (ISS-032, ISS-083), otherwise a standalone patch
+// file. note says why the values file was not used, or is empty.
+func memoryBumpChange(ctx context.Context, deps *Deps, ns, wl, cname, memLimit string, pct int) (path string, content []byte, change, note string) {
+	name := deploymentName(wl)
+	if vf := deps.GitOpsValuesFile; vf != "" {
+		raw, err := deps.GitOps.ReadFile(ctx, vf)
+		if err == nil {
+			patched, desc, perr := PatchWorkloadMemory(string(raw), name, pct)
+			if perr == nil {
+				return vf, []byte(patched), desc, ""
+			}
+			err = perr
+		}
+		klog.Warningf("handler: OOM pull request for %s/%s: %s not patched: %v", ns, name, vf, err)
+		note = fmt.Sprintf("`%s` was not patched (%v), so a standalone patch file is proposed instead.", vf, err)
+	}
+	patch, desc := GenerateMemoryBumpContent(ns, wl, cname, memLimit, pct)
+	return fmt.Sprintf("patches/%s/%s-memory-bump.yaml", ns, name), []byte(patch), desc, note
 }

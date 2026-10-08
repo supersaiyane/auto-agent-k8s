@@ -596,3 +596,85 @@ func TestEvaluateAndScale_UsesLearnedThreshold(t *testing.T) {
 		t.Fatalf("the scaling message names the learned threshold: %q", msgs)
 	}
 }
+
+// ISS-083: only the named workload's limit changes; absent or ambiguous
+// keys are refused rather than guessed.
+func TestPatchWorkloadMemory(t *testing.T) {
+	values := `# shared environment values
+web:
+  resources:
+    limits:
+      memory: 512Mi # keep this comment
+api:
+  replicas: 2
+  resources:
+    limits:
+      memory: 1Gi
+`
+	out, change, err := PatchWorkloadMemory(values, "api", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "memory: 512Mi # keep this comment") || !strings.Contains(out, "memory: 1536Mi") {
+		t.Fatalf("api raised from 1Gi to 1536Mi, web untouched, comments kept:\n%s", out)
+	}
+	if change != "api.resources.limits.memory 1Gi -> 1536Mi (+50%)" {
+		t.Fatalf("change %q", change)
+	}
+	cases := []struct{ name, values, want string }{
+		{"absent", "web:\n  resources:\n    limits:\n      memory: 512Mi\n", "no api.resources.limits.memory"},
+		{"ambiguous", "a:\n  api:\n    resources: {limits: {memory: 1Gi}}\nb:\n  api:\n    resources: {limits: {memory: 2Gi}}\n", "2 keys named api"},
+		{"not a size", "api:\n  resources: {limits: {memory: lots}}\n", "not a whole number"},
+		{"not yaml", "api: [unclosed\n", "parse values file"},
+	}
+	for _, c := range cases {
+		if _, _, err := PatchWorkloadMemory(c.values, "api", 20); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", c.name, err, c.want)
+		}
+	}
+}
+
+// fakeGitOps serves one file and records the pull requests asked of it.
+type fakeGitOps struct {
+	files map[string]string
+	prs   []integrations.GitOpsChange
+}
+
+func (f *fakeGitOps) OpenPR(_ context.Context, ch integrations.GitOpsChange) (string, error) {
+	f.prs = append(f.prs, ch)
+	return "https://git/pr/1", nil
+}
+
+func (f *fakeGitOps) ReadFile(_ context.Context, path string) ([]byte, error) {
+	if v, ok := f.files[path]; ok {
+		return []byte(v), nil
+	}
+	return nil, integrations.ErrFileNotFound
+}
+
+// ISS-032: the OOM pull request patches gitops.valuesFile when it can, and
+// otherwise proposes a standalone patch file and says why.
+func TestMemoryBumpChange(t *testing.T) {
+	deps, _ := newTestDeps(t)
+	g := &fakeGitOps{files: map[string]string{"env/values.yaml": "api:\n  resources:\n    limits:\n      memory: 512Mi\n"}}
+	deps.GitOps = g
+	ctx := context.Background()
+
+	path, content, change, note := memoryBumpChange(ctx, deps, "default", "replicaset/api-7d9f84fd6c", "app", "512Mi", 20)
+	if path != "patches/default/api-memory-bump.yaml" || note != "" || !strings.Contains(string(content), "kind: Deployment") || change == "" {
+		t.Fatalf("no values file: %s %q %q", path, note, change)
+	}
+	deps.GitOpsValuesFile = "env/values.yaml"
+	path, content, change, note = memoryBumpChange(ctx, deps, "default", "replicaset/api-7d9f84fd6c", "app", "512Mi", 20)
+	if path != "env/values.yaml" || note != "" || !strings.Contains(string(content), "memory: 640Mi") || !strings.Contains(change, "512Mi -> 640Mi") {
+		t.Fatalf("values file patched: %s %q %q\n%s", path, note, change, content)
+	}
+	path, _, _, note = memoryBumpChange(ctx, deps, "default", "deployment/web", "app", "512Mi", 20)
+	if path != "patches/default/web-memory-bump.yaml" || !strings.Contains(note, "no web.resources.limits.memory") {
+		t.Fatalf("a workload the file lacks falls back with a reason: %s %q", path, note)
+	}
+	deps.GitOpsValuesFile = "env/gone.yaml"
+	if _, _, _, note = memoryBumpChange(ctx, deps, "default", "deployment/api", "app", "512Mi", 20); !strings.Contains(note, "file not found") {
+		t.Fatalf("a missing values file falls back with a reason: %q", note)
+	}
+}

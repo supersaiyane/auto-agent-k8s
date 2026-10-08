@@ -78,7 +78,7 @@ Go code reads them. Setting them changes nothing.
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **GitHub PRs** | Opens PRs to bump memory on OOMKilled | Set `GIT_TOKEN`, `GITOPS_REPO` | OOM handler logs recommendation but doesn't open PR |
+| **GitHub PRs** | Opens PRs to bump memory on OOMKilled. With `gitops.valuesFile` it patches `<deployment>.resources.limits.memory` in that file when exactly one such key exists, else proposes a standalone patch file and says why; `gitops.author` sets the commit author (ISS-032, ISS-083). Code: `internal/kube/handlers.go` (`memoryBumpChange`), `gitops_content.go` (`PatchWorkloadMemory`), `internal/integrations/gitops.go`. Tests: `TestPatchWorkloadMemory`, `TestMemoryBumpChange`, `TestGitHubReadFileAndAuthor`, `TestGitLabReadFileAndAuthor` | Set `GIT_TOKEN`, `GITOPS_REPO` | OOM handler logs recommendation but doesn't open PR |
 | **GitLab MRs** | Same as GitHub but for GitLab | Set `GIT_TOKEN`, `GITOPS_REPO`, `GITOPS_PROVIDER=gitlab` | No MRs opened |
 | **GitHub Issues** | Creates/updates issues for incidents with dedup | Set `TICKETS_ENABLED=true`, `TICKETS_PROVIDER=github`, `GITHUB_TOKEN`, `GITHUB_REPO` | No tickets created |
 | **Jira** | Creates Bug issues, adds ADF comments | Set `TICKETS_ENABLED=true`, `TICKETS_PROVIDER=jira`, `JIRA_TOKEN`, `JIRA_BASE_URL`, `JIRA_PROJECT_KEY`, `JIRA_EMAIL` | No Jira tickets |

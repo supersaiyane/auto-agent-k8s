@@ -62,27 +62,30 @@ type Deps struct {
 	handlerSlots chan struct{}
 	// inflight counts running handlers, so shutdown can wait for them
 	// before closing the audit log (ISS-054). A pointer: Deps is copied.
-	inflight      *sync.WaitGroup
-	Slack         SlackPoster
-	LLM           LLMDiagnoser
-	Dedup         *ratelimit.Deduplicator
-	Limiter       *ratelimit.ActionLimiter
-	Sink          storage.Sink
-	CRDStore      *crd.Store
-	GitOps        integrations.GitOps
-	Ticketer      integrations.Ticketer
-	Recorder      events.Sink
-	Breaker       *ratelimit.CircuitBreaker
-	AlertManager  *alertmanager.Client
-	AuditLog      *AuditLog
-	BlastRadius   *BlastRadiusTracker
-	QuietHours    *QuietHours
-	DryRunLog     *DryRunLog
-	FixTracker    *FixTracker
-	Escalation    *escalation.Chain
-	DeployTracker *DeployTracker
-	LearningMode  *LearningMode
-	Approvals     *Approvals // R3 approval queue; nil or no approvers: off
+	inflight *sync.WaitGroup
+	Slack    SlackPoster
+	LLM      LLMDiagnoser
+	Dedup    *ratelimit.Deduplicator
+	Limiter  *ratelimit.ActionLimiter
+	Sink     storage.Sink
+	CRDStore *crd.Store
+	GitOps   integrations.GitOps
+	// GitOpsValuesFile is the Helm values file an OOM pull request patches
+	// (gitops.valuesFile); empty proposes a standalone patch file.
+	GitOpsValuesFile string
+	Ticketer         integrations.Ticketer
+	Recorder         events.Sink
+	Breaker          *ratelimit.CircuitBreaker
+	AlertManager     *alertmanager.Client
+	AuditLog         *AuditLog
+	BlastRadius      *BlastRadiusTracker
+	QuietHours       *QuietHours
+	DryRunLog        *DryRunLog
+	FixTracker       *FixTracker
+	Escalation       *escalation.Chain
+	DeployTracker    *DeployTracker
+	LearningMode     *LearningMode
+	Approvals        *Approvals // R3 approval queue; nil or no approvers: off
 	// PolicyBudget counts actions for safety.maxActionsPerHour; nil refuses
 	// actions under a policy that sets it (fail closed, like the limiter).
 	PolicyBudget *PolicyBudget

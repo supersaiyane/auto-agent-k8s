@@ -2,6 +2,7 @@ package integrations
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -197,5 +198,92 @@ func TestGitLabMR(t *testing.T) {
 	defer bad.Close()
 	if _, err := NewGitLab("tok", "p", "main", bad.Client(time.Second)).OpenPR(ctx, GitOpsChange{}); err == nil {
 		t.Fatal("a failed branch create is an error")
+	}
+}
+
+// ISS-032: ReadFile returns a file from the base branch or ErrFileNotFound,
+// and gitops.author is sent with the commit.
+func TestGitHubReadFileAndAuthor(t *testing.T) {
+	ctx := context.Background()
+	s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/contents/env/values.yaml") && r.Method == "GET":
+			if r.URL.Query().Get("ref") != "main" {
+				httpxtest.JSON(w, 400, `{}`)
+				return
+			}
+			httpxtest.JSON(w, 200, `{"encoding":"base64","content":"YXBpOgogIHg6IDEK\n"}`)
+		case strings.Contains(r.URL.Path, "/contents/") && r.Method == "GET":
+			httpxtest.JSON(w, 404, `{}`)
+		case strings.HasSuffix(r.URL.Path, "/git/ref/heads/main"):
+			httpxtest.JSON(w, 200, `{"object":{"sha":"abc"}}`)
+		case strings.HasSuffix(r.URL.Path, "/pulls"):
+			httpxtest.JSON(w, 201, `{"html_url":"https://gh/pull/4"}`)
+		default:
+			httpxtest.JSON(w, 201, `{}`)
+		}
+	})
+	defer s.Close()
+	g := NewGitHub("tok", "o/r", "main", s.Client(time.Second), WithAuthor("Agent", "agent@corp.test"))
+	got, err := g.ReadFile(ctx, "env/values.yaml")
+	if err != nil || string(got) != "api:\n  x: 1\n" {
+		t.Fatalf("read: %q %v", got, err)
+	}
+	if _, err := g.ReadFile(ctx, "missing.yaml"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("missing file: %v", err)
+	}
+	if _, err := g.OpenPR(ctx, GitOpsChange{FilePath: "new.yaml", Content: []byte("a: 1\n"), Title: "t", Branch: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	var put string
+	for _, r := range s.Requests() {
+		if r.Method == "PUT" {
+			put = r.Body
+		}
+	}
+	if !strings.Contains(put, `"author":{"email":"agent@corp.test","name":"Agent"}`) || !strings.Contains(put, `"committer"`) {
+		t.Fatalf("the commit names the configured author: %s", put)
+	}
+	if strings.Contains(fmtSettings(NewGitHub("t", "r", "m", nil, WithAuthor("only-name", ""))), "only-name") {
+		t.Fatal("a name without an email is ignored")
+	}
+}
+
+func fmtSettings(g GitOps) string { return g.(*githubClient).authorName }
+
+func TestGitLabReadFileAndAuthor(t *testing.T) {
+	ctx := context.Background()
+	s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/raw") && strings.Contains(r.URL.Path, "values.yaml"):
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("api: {}\n"))
+		case strings.HasSuffix(r.URL.Path, "/raw"):
+			httpxtest.JSON(w, 404, `{}`)
+		case strings.HasSuffix(r.URL.Path, "/merge_requests"):
+			httpxtest.JSON(w, 201, `{"web_url":"https://gl/mr/1"}`)
+		default:
+			httpxtest.JSON(w, 201, `{}`)
+		}
+	})
+	defer s.Close()
+	g := NewGitLab("tok", "p", "main", s.Client(time.Second), WithAuthor("Agent", "agent@corp.test"))
+	if got, err := g.ReadFile(ctx, "values.yaml"); err != nil || string(got) != "api: {}\n" {
+		t.Fatalf("read: %q %v", got, err)
+	}
+	if _, err := g.ReadFile(ctx, "nope.yaml"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+	if _, err := g.OpenPR(ctx, GitOpsChange{FilePath: "values.yaml", Content: []byte("a"), Title: "t", Branch: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range s.Requests() {
+		if strings.HasSuffix(r.Path, "/commits") && strings.Contains(r.Body, `"author_email":"agent@corp.test"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the GitLab commit names the configured author")
 	}
 }

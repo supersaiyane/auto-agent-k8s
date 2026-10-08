@@ -83,18 +83,21 @@ type Config struct {
 	LLMModel             string
 
 	// Tickets and GitOps.
-	TicketsEnabled  bool
-	TicketsProvider string
-	GitHubRepo      string
-	GitHubToken     string
-	JiraBaseURL     string
-	JiraProjectKey  string
-	JiraToken       string
-	JiraEmail       string
-	GitToken        string
-	GitOpsRepo      string
-	GitOpsBranch    string
-	GitOpsProvider  string
+	TicketsEnabled    bool
+	TicketsProvider   string
+	GitHubRepo        string
+	GitHubToken       string
+	JiraBaseURL       string
+	JiraProjectKey    string
+	JiraToken         string
+	JiraEmail         string
+	GitToken          string
+	GitOpsRepo        string
+	GitOpsBranch      string
+	GitOpsValuesFile  string // GITOPS_VALUES_FILE: values file an OOM pull request patches; empty: a standalone patch file
+	GitOpsAuthorName  string // GITOPS_AUTHOR_NAME: commit author; used only with the email
+	GitOpsAuthorEmail string // GITOPS_AUTHOR_EMAIL
+	GitOpsProvider    string
 
 	// Logs, audit and retention.
 	Storage          Storage
@@ -244,18 +247,21 @@ func Load(get Getenv) Config {
 		LLMAPIKey:            r.str("LLM_API_KEY", ""),
 		LLMModel:             r.str("LLM_MODEL", ""),
 
-		TicketsEnabled:  r.str("TICKETS_ENABLED", "") == "true",
-		TicketsProvider: r.str("TICKETS_PROVIDER", ""),
-		GitHubRepo:      r.str("GITHUB_REPO", ""),
-		GitHubToken:     r.str("GITHUB_TOKEN", ""),
-		JiraBaseURL:     r.str("JIRA_BASE_URL", ""),
-		JiraProjectKey:  r.str("JIRA_PROJECT_KEY", ""),
-		JiraToken:       r.str("JIRA_TOKEN", ""),
-		JiraEmail:       r.str("JIRA_EMAIL", ""),
-		GitToken:        r.str("GIT_TOKEN", ""),
-		GitOpsRepo:      r.str("GITOPS_REPO", ""),
-		GitOpsBranch:    r.str("GITOPS_BRANCH", ""),
-		GitOpsProvider:  r.str("GITOPS_PROVIDER", "github"),
+		TicketsEnabled:    r.str("TICKETS_ENABLED", "") == "true",
+		TicketsProvider:   r.str("TICKETS_PROVIDER", ""),
+		GitHubRepo:        r.str("GITHUB_REPO", ""),
+		GitHubToken:       r.str("GITHUB_TOKEN", ""),
+		JiraBaseURL:       r.str("JIRA_BASE_URL", ""),
+		JiraProjectKey:    r.str("JIRA_PROJECT_KEY", ""),
+		JiraToken:         r.str("JIRA_TOKEN", ""),
+		JiraEmail:         r.str("JIRA_EMAIL", ""),
+		GitToken:          r.str("GIT_TOKEN", ""),
+		GitOpsRepo:        r.str("GITOPS_REPO", ""),
+		GitOpsBranch:      r.str("GITOPS_BRANCH", ""),
+		GitOpsValuesFile:  r.str("GITOPS_VALUES_FILE", ""),
+		GitOpsAuthorName:  r.str("GITOPS_AUTHOR_NAME", ""),
+		GitOpsAuthorEmail: r.str("GITOPS_AUTHOR_EMAIL", ""),
+		GitOpsProvider:    r.str("GITOPS_PROVIDER", "github"),
 
 		Storage: Storage{
 			Store:    r.str("LOG_STORE", ""),

@@ -1,52 +1,102 @@
 package kube
 
 import (
+	"bytes"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
-// PatchMemoryInValues takes a Helm values YAML string and increases the memory
-// limit for a container by the given percentage. Returns the patched content.
-//
-// This handles the common values.yaml pattern:
-//
-//	resources:
-//	  limits:
-//	    memory: "512Mi"
-//
-// It finds the memory line and bumps it.
-func PatchMemoryInValues(content string, containerPath string, bumpPercent int) (string, string) {
-	// Find memory limit pattern
-	memPattern := regexp.MustCompile(`(?m)(^\s*memory:\s*"?)(\d+)(Mi|Gi)("?\s*)$`)
-
-	var oldVal, newVal string
-	patched := memPattern.ReplaceAllStringFunc(content, func(match string) string {
-		if oldVal != "" {
-			return match // only patch first match
-		}
-		sub := memPattern.FindStringSubmatch(match)
-		if len(sub) < 5 {
-			return match
-		}
-		prefix, numStr, unit, suffix := sub[1], sub[2], sub[3], sub[4]
-		num, err := strconv.Atoi(numStr)
-		if err != nil {
-			return match
-		}
-		oldVal = fmt.Sprintf("%d%s", num, unit)
-		bumped := num + (num * bumpPercent / 100)
-		// Round up to nice number
-		bumped = roundUpNice(bumped)
-		newVal = fmt.Sprintf("%d%s", bumped, unit)
-		return fmt.Sprintf("%s%d%s%s", prefix, bumped, unit, suffix)
-	})
-
-	if oldVal == "" {
-		return content, ""
+// PatchWorkloadMemory raises one workload's memory limit in a Helm values
+// file: the value at <workload>.resources.limits.memory, at any depth. It
+// patches only when exactly one key named after the workload holds that
+// path, and refuses otherwise rather than guess, so a shared environment
+// file never has another service's memory changed (ISS-083). Comments are
+// kept; the file is re-encoded with two-space indentation.
+func PatchWorkloadMemory(content, workload string, bumpPercent int) (string, string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return "", "", fmt.Errorf("parse values file: %w", err)
 	}
-	return patched, fmt.Sprintf("%s -> %s (+%d%%)", oldVal, newVal, bumpPercent)
+	var hits []*yaml.Node
+	walkMappings(&doc, func(key string, val *yaml.Node) {
+		if key == workload {
+			if m := mappingPath(val, "resources", "limits", "memory"); m != nil && m.Kind == yaml.ScalarNode {
+				hits = append(hits, m)
+			}
+		}
+	})
+	switch len(hits) {
+	case 0:
+		return "", "", fmt.Errorf("no %s.resources.limits.memory in the values file", workload)
+	case 1:
+	default:
+		return "", "", fmt.Errorf("%d keys named %s hold resources.limits.memory; not guessing which", len(hits), workload)
+	}
+	old := hits[0].Value
+	mi, ok := memoryMi(old)
+	if !ok {
+		return "", "", fmt.Errorf("memory limit %q is not a whole number of Mi or Gi", old)
+	}
+	// Work in Mi: bumping "1Gi" as the integer 1 rounds to nothing (and
+	// roundUpNice's steps are Mi).
+	newVal := fmt.Sprintf("%dMi", roundUpNice(mi+mi*bumpPercent/100))
+	hits[0].Value = newVal
+	var b bytes.Buffer
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return "", "", fmt.Errorf("encode values file: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return "", "", fmt.Errorf("encode values file: %w", err)
+	}
+	return b.String(), fmt.Sprintf("%s.resources.limits.memory %s -> %s (+%d%%)", workload, old, newVal, bumpPercent), nil
+}
+
+// walkMappings calls fn for every key and value of every mapping in the tree.
+func walkMappings(n *yaml.Node, fn func(key string, val *yaml.Node)) {
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			fn(n.Content[i].Value, n.Content[i+1])
+		}
+	}
+	for _, c := range n.Content {
+		walkMappings(c, fn)
+	}
+}
+
+// mappingPath follows keys through nested mappings; nil when one is missing.
+func mappingPath(n *yaml.Node, keys ...string) *yaml.Node {
+	for _, k := range keys {
+		if n.Kind != yaml.MappingNode {
+			return nil
+		}
+		var next *yaml.Node
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == k {
+				next = n.Content[i+1]
+			}
+		}
+		if next == nil {
+			return nil
+		}
+		n = next
+	}
+	return n
+}
+
+// memoryMi reads "512Mi" or "2Gi" as Mi.
+func memoryMi(s string) (int, bool) {
+	for unit, scale := range map[string]int{"Mi": 1, "Gi": 1024} {
+		if num, ok := strings.CutSuffix(s, unit); ok {
+			v, err := strconv.Atoi(num)
+			return v * scale, err == nil && v > 0
+		}
+	}
+	return 0, false
 }
 
 // roundUpNice rounds a memory value to a nice number (power of 2 or multiple of 64).
@@ -59,14 +109,9 @@ func roundUpNice(v int) int {
 	return ((v + 255) / 256) * 256
 }
 
-// GenerateMemoryBumpContent creates the full file content for a GitOps PR
-// that bumps memory for a workload. If valuesContent is provided, it patches
-// that. Otherwise it generates a kustomize patch.
-func GenerateMemoryBumpContent(valuesContent, ns, workload, container, currentLimit string, bumpPercent int) (string, string) {
-	if valuesContent != "" {
-		return PatchMemoryInValues(valuesContent, workload, bumpPercent)
-	}
-
+// GenerateMemoryBumpContent creates a kustomize-style patch file that bumps
+// one container's memory limit, for when no values file can be patched.
+func GenerateMemoryBumpContent(ns, workload, container, currentLimit string, bumpPercent int) (string, string) {
 	// Generate a kustomize-style strategic merge patch
 	currentMi := parseMemoryMi(currentLimit)
 	newMi := currentMi + (currentMi * bumpPercent / 100)
