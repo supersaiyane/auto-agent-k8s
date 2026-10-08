@@ -32,10 +32,8 @@
 
 ## Next action
 
-1. Read the phase 12 kind e2e and e2e-raw results; then `make verify`, raise
-   `.coverage-floor` to the measured total, `make changelog`, commit phase 12.
-2. Push `plan-002`, open the PR to master (body drafted), then merge on the
-   owner's go ("finish p12 and then pr and merge", 2026-10-08).
+1. Phases 11 and 12 are merged (PR #3, f71c3c0, 2026-10-08).
+2. Start the next work from master.
 3. Then PLAN-002 phase 13 (native config reload), PLAN-003, phases 14 to 17.
 4. Stage `deployment/` before `make verify` (`check-manifests` diffs the index).
 5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.
