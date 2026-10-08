@@ -8,7 +8,8 @@ import (
 
 // checkGuardrails runs all safety checks before an action.
 // Returns (blocked bool, reason string).
-func checkGuardrails(ctx context.Context, deps *Deps, ns, wl string, labels map[string]string) (bool, string) {
+func checkGuardrails(ctx context.Context, deps *Deps, m mutation) (bool, string) {
+	ns, wl := m.Namespace, m.Workload
 	// Quiet hours
 	if deps.QuietHours != nil && deps.QuietHours.IsQuiet() {
 		return true, "quiet hours active: actions suppressed"
@@ -19,10 +20,9 @@ func checkGuardrails(ctx context.Context, deps *Deps, ns, wl string, labels map[
 		return true, "blast radius limit: too many namespaces affected this hour"
 	}
 
-	// CRD per-policy approval
-	crdPol := effectivePolicy(deps, ns, labels)
-	if !policyAllowsAction(crdPol) {
-		return true, "CRD policy requires manual approval"
+	// CRD per-policy limits (ISS-037)
+	if why := policyRefusal(deps, effectivePolicy(deps, ns, m.Labels), m.ActionType); why != "" {
+		return true, why
 	}
 
 	// Circuit breaker

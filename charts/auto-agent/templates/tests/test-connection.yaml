@@ -5,14 +5,23 @@ metadata:
   namespace: {{ include "auto-agent.namespace" . }}
   labels:
     {{- include "auto-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: helm-test   # admitted by the controller NetworkPolicy
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100           # curl_user in the curlimages image
+    seccompProfile: { type: RuntimeDefault }
   containers:
   - name: test-healthz
-    image: curlimages/curl:8.5.0
+    image: {{ .Values.testImage | quote }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: { drop: [ALL] }
     command: ['sh', '-c']
     args:
       - |

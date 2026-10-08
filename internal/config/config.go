@@ -74,12 +74,13 @@ type Config struct {
 	PrometheusURL   string
 
 	// Notifications and diagnosis.
-	SlackWebhookURL    string
-	SlackSigningSecret string
-	AlertmanagerURL    string
-	LLMAPIURL          string
-	LLMAPIKey          string
-	LLMModel           string
+	SlackWebhookURL      string
+	SlackChannelWebhooks map[string]string // SLACK_CHANNEL_WEBHOOKS: channel=webhook pairs for policy escalation.slackChannel
+	SlackSigningSecret   string
+	AlertmanagerURL      string
+	LLMAPIURL            string
+	LLMAPIKey            string
+	LLMModel             string
 
 	// Tickets and GitOps.
 	TicketsEnabled  bool
@@ -235,12 +236,13 @@ func Load(get Getenv) Config {
 		MetricsProvider: r.str("METRICS_PROVIDER", "metrics-server"),
 		PrometheusURL:   r.str("PROMETHEUS_URL", ""),
 
-		SlackWebhookURL:    r.str("SLACK_WEBHOOK_URL", ""),
-		SlackSigningSecret: r.str("SLACK_SIGNING_SECRET", ""),
-		AlertmanagerURL:    r.str("ALERTMANAGER_URL", ""),
-		LLMAPIURL:          r.str("LLM_API_URL", ""),
-		LLMAPIKey:          r.str("LLM_API_KEY", ""),
-		LLMModel:           r.str("LLM_MODEL", ""),
+		SlackWebhookURL:      r.str("SLACK_WEBHOOK_URL", ""),
+		SlackChannelWebhooks: r.pairs("SLACK_CHANNEL_WEBHOOKS"),
+		SlackSigningSecret:   r.str("SLACK_SIGNING_SECRET", ""),
+		AlertmanagerURL:      r.str("ALERTMANAGER_URL", ""),
+		LLMAPIURL:            r.str("LLM_API_URL", ""),
+		LLMAPIKey:            r.str("LLM_API_KEY", ""),
+		LLMModel:             r.str("LLM_MODEL", ""),
 
 		TicketsEnabled:  r.str("TICKETS_ENABLED", "") == "true",
 		TicketsProvider: r.str("TICKETS_PROVIDER", ""),
@@ -338,6 +340,18 @@ func (r reader) duration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// pairs reads "a=x,b=y" into a map; an entry without "=" is skipped. The
+// value is split at the first "=" only.
+func (r reader) pairs(key string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range r.list(key) {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) != "" {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return out
 }
 
 func (r reader) list(key string) []string {

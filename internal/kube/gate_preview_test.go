@@ -23,7 +23,7 @@ func TestGatePreview(t *testing.T) {
 	openGuardrails(deps)
 	deps.Policy().Mode = policy.Fix
 	before := deps.Limiter.Remaining()
-	if got := gateTable(GatePreview(deps, "default")); got != "mode=pass fix scope=pass quiet hours=pass blast radius=pass rate limit=pass circuit breaker=pass policy approval=pass" {
+	if got := gateTable(GatePreview(deps, "default")); got != "mode=pass fix scope=pass quiet hours=pass blast radius=pass rate limit=pass circuit breaker=pass policy limits=pass" {
 		t.Fatalf("open gate: %s", got)
 	}
 	for i := 0; i < 3; i++ {
@@ -40,7 +40,7 @@ func TestGatePreview(t *testing.T) {
 	deps.Breaker.RecordAndCheck("default", "api")
 	deps.Breaker.RecordAndCheck("default", "api")
 	rows := GatePreview(deps, "payments")
-	if got := gateTable(rows); got != "mode=block fix scope=block quiet hours=block blast radius=pass rate limit=block circuit breaker=pass policy approval=pass" {
+	if got := gateTable(rows); got != "mode=block fix scope=block quiet hours=block blast radius=pass rate limit=block circuit breaker=pass policy limits=pass" {
 		t.Fatalf("closed gate: %s", got)
 	}
 	if d := GatePreview(deps, "default")[5].Detail; !strings.Contains(d, "tripped, so blocked: api") {

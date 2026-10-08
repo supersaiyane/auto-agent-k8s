@@ -96,6 +96,9 @@ func report(ctx context.Context, deps *Deps, f finding) bool {
 	if queued != nil && isNew {
 		postApprovalButtons(deps, queued)
 	}
+	if f.Severity == eventsvc.SevCritical {
+		escalate(deps, f.Reason, f.Namespace, f.Workload, msg)
+	}
 	fireAlert(ctx, deps, f.Reason, f.Namespace, f.Workload, f.Pod, msg, string(f.Severity))
 	recordEvent(deps, eventsvc.Event{
 		Type: eventsvc.Incident, Severity: f.Severity,

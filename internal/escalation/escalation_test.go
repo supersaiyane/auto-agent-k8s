@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 func reply(status int) http.HandlerFunc {
@@ -158,10 +161,93 @@ func TestEmailFailureIsReturned(t *testing.T) {
 	}
 	h, p, _ := net.SplitHostPort(ln.Addr().String())
 	ln.Close() // nothing listens now
-	if err := NewEmail(h, p, "u", "p", "a@corp.test", "b@corp.test").Send(Incident{}); err == nil {
+	if err := NewEmail(h, p, "u", "p", "a@corp.test", "b@corp.test").Send(context.Background(), Incident{}); err == nil {
 		t.Fatal("an unreachable SMTP server is an error")
 	}
 	if NewEmail("h", "", "", "", "", "").port != "587" {
 		t.Fatal("default SMTP port is 587")
+	}
+}
+
+// ISS-080: failures come back joined and are counted per channel.
+func TestEscalate_ReturnsAndCountsFailures(t *testing.T) {
+	s := httpxtest.New(reply(500))
+	defer s.Close()
+	before := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("escalation", "pagerduty"))
+	c := NewChain(config.Escalation{PagerDutyRoutingKey: "rk", OpsGenieAPIKey: "k"}, s.Client(time.Second))
+	err := c.Escalate(context.Background(), Incident{Title: "x", Severity: SevCritical})
+	if err == nil || !strings.Contains(err.Error(), "pagerduty") || !strings.Contains(err.Error(), "opsgenie") {
+		t.Fatalf("want both failures, got %v", err)
+	}
+	if got := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("escalation", "pagerduty")) - before; got != 1 {
+		t.Fatalf("pagerduty failures counted %v, want 1", got)
+	}
+	var none *Chain
+	if none.Configured() || none.Escalate(context.Background(), Incident{}) != nil {
+		t.Fatal("a nil chain does nothing")
+	}
+	none.Send(Incident{})
+	none.Wait()
+}
+
+// ISS-080: Send never blocks the caller; beyond maxInFlight it drops and counts.
+func TestSend_BoundedAndAsync(t *testing.T) {
+	release := make(chan struct{})
+	s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		httpxtest.JSON(w, 202, `{}`)
+	})
+	defer s.Close()
+	c := NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, s.Client(5*time.Second))
+	dropped := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("escalation", "dropped"))
+	start := time.Now()
+	for i := 0; i < maxInFlight+1; i++ {
+		c.Send(Incident{Title: fmt.Sprint(i), Severity: SevCritical})
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("Send blocked the caller")
+	}
+	if got := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("escalation", "dropped")) - dropped; got != 1 {
+		t.Fatalf("dropped %v, want 1", got)
+	}
+	close(release)
+	c.Wait()
+	if n := len(s.Requests()); n != maxInFlight {
+		t.Fatalf("sent %d, want %d", n, maxInFlight)
+	}
+}
+
+// ISS-080: an SMTP server that never answers cannot hold the caller past ctx.
+func TestEmail_BoundedByContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			defer conn.Close()
+			time.Sleep(5 * time.Second) // accepts, never greets
+		}
+	}()
+	h, p, _ := net.SplitHostPort(ln.Addr().String())
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := NewEmail(h, p, "", "", "a@corp.test", "b@corp.test").Send(ctx, Incident{}); err == nil {
+		t.Fatal("a silent server is an error")
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("email took %s, past its deadline", time.Since(start))
+	}
+}
+
+// AUTH is never sent to a server that does not offer it.
+func TestEmail_AuthNeedsServerSupport(t *testing.T) {
+	host, port, _ := fakeSMTP(t)
+	err := NewEmail(host, port, "user", "pass", "a@corp.test", "b@corp.test").Send(context.Background(), Incident{})
+	if err == nil || !strings.Contains(err.Error(), "AUTH") {
+		t.Fatalf("want an AUTH refusal, got %v", err)
 	}
 }

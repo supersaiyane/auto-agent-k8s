@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,16 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/config"
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // Phase 12 audit of VerifyFixes (leader loop).
@@ -24,7 +35,7 @@ import (
 func TestAudit_VerifyFixes(t *testing.T) {
 	one := int32(1)
 	healthy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
-		Spec: appsv1.DeploymentSpec{Replicas: &one}, Status: appsv1.DeploymentStatus{ReadyReplicas: 1}}
+		Spec: appsv1.DeploymentSpec{Replicas: &one}, Status: appsv1.DeploymentStatus{ReadyReplicas: 1, UpdatedReplicas: 1}}
 	h := newFindingHarness(t, healthy)
 	now := testNow
 	ft := NewFixTracker(10)
@@ -41,8 +52,13 @@ func TestAudit_VerifyFixes(t *testing.T) {
 		once.Do(func() { ft.RecordAction("default", "replicaset/late-1", "late-1-x", "OOMKilled", "delete_pod") })
 	}}
 	VerifyFixes(context.Background(), h.deps)
+	if f := ft.Fixed(); len(f) != 0 {
+		t.Fatalf("one healthy sample is not a fix (ISS-038): %+v", f)
+	}
+	now = now.Add(fixStableFor)
+	VerifyFixes(context.Background(), h.deps)
 	if f := ft.Fixed(); len(f) != 1 || f[0].Workload != "replicaset/api-7d9f84fd6c" {
-		t.Fatalf("the healthy workload is verified: %+v", f)
+		t.Fatalf("the workload healthy for a minute is verified: %+v", f)
 	}
 	var pending []string
 	for _, p := range ft.Pending() {
@@ -51,10 +67,17 @@ func TestAudit_VerifyFixes(t *testing.T) {
 	if strings.Join(pending, ",") != "replicaset/gone-1,replicaset/late-1" {
 		t.Fatalf("the unhealthy one stays pending and the late one is kept: %v", pending)
 	}
+	pages := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 202, `{}`) })
+	defer pages.Close()
+	h.deps.Escalation = escalation.NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, pages.Client(time.Second))
 	now = now.Add(20 * time.Minute)
 	VerifyFixes(context.Background(), h.deps)
 	if len(ft.Failed()) != 2 {
 		t.Fatalf("after 15 minutes they are not fixed: %+v", ft.Failed())
+	}
+	h.deps.Escalation.Wait()
+	if r := pages.Requests(); len(r) != 2 || !strings.Contains(r[0].Body+r[1].Body, "FixNotRecovered") {
+		t.Fatalf("each fix that did not recover pages once (ISS-038): %+v", r)
 	}
 	VerifyFixes(context.Background(), &Deps{}) // no tracker: nothing to do
 }
@@ -143,5 +166,86 @@ func TestAudit_SelfCheck(t *testing.T) {
 	}
 	if evs := h2.rec.Recent(10); len(evs) != 1 || evs[0].Reason != "SelfCheckFailed" {
 		t.Fatalf("one event: %+v", evs)
+	}
+}
+
+// ISS-038: a Deployment mid-rollout, or one whose new spec is not yet
+// observed, has not recovered even when old replicas are ready.
+func TestDeploymentRecovered(t *testing.T) {
+	three := int32(3)
+	d := func(gen, observed int64, ready, updated, unavailable int32) *appsv1.Deployment {
+		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Generation: gen},
+			Spec: appsv1.DeploymentSpec{Replicas: &three},
+			Status: appsv1.DeploymentStatus{ObservedGeneration: observed, ReadyReplicas: ready,
+				UpdatedReplicas: updated, UnavailableReplicas: unavailable}}
+	}
+	cases := []struct {
+		name string
+		d    *appsv1.Deployment
+		ok   bool
+		want string
+	}{
+		{"rolled out", d(2, 2, 3, 3, 0), true, "3/3 ready"},
+		{"rollout in progress", d(2, 2, 3, 1, 0), false, "rollout in progress"},
+		{"spec not observed", d(3, 2, 3, 3, 0), false, "not yet observed"},
+		{"one unavailable", d(2, 2, 3, 3, 1), false, "3/3 ready"},
+		{"not enough ready", d(2, 2, 2, 3, 0), false, "2/3 ready"},
+	}
+	for _, c := range cases {
+		ok, detail := deploymentRecovered(c.d)
+		if ok != c.ok || !strings.Contains(detail, c.want) {
+			t.Errorf("%s: %v %q", c.name, ok, detail)
+		}
+	}
+}
+
+// ISS-038: a workload that drops out of health restarts the clock, and a
+// failed Deployment read is counted, never taken as "no deployment".
+func TestVerifyFixes_FlappingAndReadErrors(t *testing.T) {
+	one := int32(1)
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{Replicas: &one}, Status: appsv1.DeploymentStatus{ReadyReplicas: 1, UpdatedReplicas: 1}}
+	h := newFindingHarness(t, dep)
+	now := testNow
+	ft := NewFixTracker(10)
+	ft.now = func() time.Time { return now }
+	h.deps.FixTracker = ft
+	ft.RecordAction("default", "deployment/api", "", "CrashLoopBackOff", "delete_pod")
+	setReady := func(n int32) {
+		d, err := h.deps.Client.AppsV1().Deployments("default").Get(context.Background(), "api", metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Status.ReadyReplicas = n
+		if _, err := h.deps.Client.AppsV1().Deployments("default").UpdateStatus(context.Background(), d, metav1.UpdateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pass := func(step time.Duration) { now = now.Add(step); VerifyFixes(context.Background(), h.deps) }
+	pass(time.Minute) // healthy: clock starts
+	setReady(0)
+	pass(30 * time.Second) // unhealthy: clock resets
+	setReady(1)
+	pass(30 * time.Second) // healthy again: clock restarts
+	pass(30 * time.Second) // 30s healthy: not yet
+	if len(ft.Fixed()) != 0 {
+		t.Fatal("a flapping workload is not fixed until it stays healthy")
+	}
+	pass(30 * time.Second)
+	if len(ft.Fixed()) != 1 {
+		t.Fatalf("healthy for a minute: %+v", ft.Pending())
+	}
+
+	broken := newFindingHarness(t)
+	broken.deps.FixTracker = ft
+	ft.RecordAction("default", "deployment/db", "", "OOMKilled", "delete_pod")
+	broken.deps.Client.(*fake.Clientset).PrependReactor("get", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("etcd timeout")
+	})
+	h.deps = broken.deps
+	before := testutil.ToFloat64(obs.APIErrorsTotal.WithLabelValues("deployments", "other"))
+	pass(time.Minute)
+	if testutil.ToFloat64(obs.APIErrorsTotal.WithLabelValues("deployments", "other"))-before != 1 {
+		t.Fatal("a failed deployment read must be counted")
 	}
 }

@@ -90,7 +90,7 @@ func parse(u *unstructured.Unstructured) (Policy, error) {
 
 	if act, ok := spec["actions"].(map[string]interface{}); ok {
 		if v, ok := act["restartStuckPods"].(bool); ok {
-			p.RestartStuckPods = v
+			p.RestartStuckPods = &v
 		}
 		if v, ok := act["bumpMemoryPercent"].(int64); ok {
 			p.BumpMemoryPercent = int(v)

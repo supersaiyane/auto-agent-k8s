@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
@@ -68,14 +69,14 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "suggested", m.SuggestMsg)
 		return gateSuggested, fmt.Sprintf("_Suggest_: %s.\n", m.SuggestMsg)
 	case policy.DryRun:
-		msg := SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Reason, m.ActionType, m.SuccessMsg)
+		msg := SimulateAction(deps, m.Namespace, m.Workload, m.Pod, m.Labels, m.Reason, m.ActionType, m.SuccessMsg)
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "simulated", m.SuccessMsg)
 		return gateSimulated, msg
 	default:
 		return gateSkipped, ""
 	}
 
-	if blocked, why := checkGuardrails(ctx, deps, m.Namespace, m.Workload, m.Labels); blocked {
+	if blocked, why := checkGuardrails(ctx, deps, m); blocked {
 		klog.Infof("gate: BLOCKED %s %s/%s reason=%s by=%s", m.ActionType, m.Namespace, m.Workload, m.Reason, why)
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", approvalNote(m, why))
 		return gateBlocked, fmt.Sprintf("_Blocked_: %s.\n", why)
@@ -92,9 +93,11 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (gateOutcome, st
 		klog.Warningf("gate: %s failed for %s/%s: %v", m.ActionType, m.Namespace, m.Workload, err)
 		obs.HandlerErrorsTotal.WithLabelValues(m.Reason, m.ActionType).Inc()
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "failed", approvalNote(m, err.Error()))
+		escalateFailedFix(deps, m, err)
 		return gateFailed, fmt.Sprintf("_Action_: %s failed: %v\n", m.ActionType, err)
 	}
 
+	recordPolicyAction(deps, m)
 	klog.Infof("gate: APPLIED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
 	obs.ActionsTotal.WithLabelValues(m.ActionType, m.Namespace, m.Workload).Inc()
 	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "success", approvalNote(m, ""))
@@ -111,4 +114,28 @@ func mergePatch(v map[string]any) []byte {
 		panic(fmt.Sprintf("mergePatch: %v", err))
 	}
 	return b
+}
+
+// escalate pages the configured channels (PagerDuty, OpsGenie, email) for
+// a critical finding, after Slack and in the background (ISS-080). Callers
+// have already deduplicated it.
+func escalate(deps *Deps, reason, ns, wl, body string) {
+	if !deps.Escalation.Configured() {
+		return
+	}
+	title := reason + " " + wl
+	if ns != "" {
+		title = reason + " " + ns + "/" + wl
+	}
+	deps.Escalation.Send(escalation.Incident{Title: title, Body: body, Severity: escalation.SevCritical,
+		Namespace: ns, Workload: wl, Source: "auto-agent"})
+}
+
+// escalateFailedFix pages once per workload and action per dedup window
+// when a fix the gate sent is refused by the API server.
+func escalateFailedFix(deps *Deps, m mutation, err error) {
+	if !deps.Escalation.Configured() || deps.Dedup == nil || !deps.Dedup.Check(dedupKey(m.Namespace, m.Workload, "EscalateFailedFix/"+m.ActionType)) {
+		return
+	}
+	escalate(deps, "FixFailed", m.Namespace, m.Workload, fmt.Sprintf("%s failed for %s (%s): %v", m.ActionType, m.Workload, m.Reason, err))
 }

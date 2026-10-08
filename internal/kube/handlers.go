@@ -37,9 +37,9 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod CrashLoopBackOff", logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "CrashLoopBackOff", ns, wl, name, msg, "critical")
-	createTicket(ctx, deps, fmt.Sprintf("crashloop-%s-%s", ns, wl), fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("crashloop-%s-%s", ns, wl), fmt.Sprintf("CrashLoopBackOff: %s/%s", ns, wl), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "CrashLoopBackOff", Message: fmt.Sprintf("Container %s crash-looping", cname), LogURL: url})
@@ -76,9 +76,9 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "ImagePullBackOff", strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "ImagePullBackOff", ns, wl, name, msg, "critical")
-	createTicket(ctx, deps, fmt.Sprintf("imagepull-%s-%s", ns, wl), fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("imagepull-%s-%s", ns, wl), fmt.Sprintf("ImagePullBackOff: %s/%s image=%s", ns, wl, image), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ImagePullBackOff",
 		Message: fmt.Sprintf("Cannot pull image %s: %s", image, cause.label), LogURL: url, Rung: string(rung)})
@@ -146,9 +146,9 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Container OOMKilled", logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "OOMKilled", ns, wl, name, msg, "critical")
-	createTicket(ctx, deps, fmt.Sprintf("oom-%s-%s", ns, wl), fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("oom-%s-%s", ns, wl), fmt.Sprintf("OOMKilled: %s/%s limit=%s", ns, wl, memLimit), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "OOMKilled", Message: fmt.Sprintf("Container %s killed (limit: %s)", cname, memLimit), LogURL: url})
@@ -178,7 +178,7 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 	)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod NotReady", logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "NotReady", ns, wl, name, msg, "warning")
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "NotReady",
@@ -222,9 +222,9 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Pod stuck Pending", strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, "Pending", ns, wl, name, msg, "warning")
-	createTicket(ctx, deps, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s: %s", ns, wl, reason), msg)
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s: %s", ns, wl, reason), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending", Message: reason, LogURL: url})
 	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
@@ -261,16 +261,29 @@ func tryFixAction(ctx context.Context, deps *Deps, ns, wl, pod string, labels ma
 	return fmt.Sprintf("_Action_: %s (verifying recovery...).\n", successMsg)
 }
 
-// createTicket creates or updates a ticket if ticketing is configured.
-func createTicket(ctx context.Context, deps *Deps, key, title, body string) {
-	if deps.Ticketer == nil {
+// createTicket creates or updates a ticket if ticketing is configured. The
+// policy that selects the pods (labels) adds escalation.ticketing: its
+// assignees and labels, and its provider and project when the agent has
+// credentials for that provider (ISS-037).
+func createTicket(ctx context.Context, deps *Deps, ns string, podLabels map[string]string, key, title, body string) {
+	t := integrations.Ticket{Title: title, Body: body, Labels: []string{"auto-agent", "kubernetes"}}
+	tk := deps.Ticketer
+	if pol := effectivePolicy(deps, ns, podLabels); pol != nil {
+		pt := pol.Ticketing
+		t.Assignees = append(t.Assignees, pt.Assignees...)
+		t.Labels = append(t.Labels, pt.Labels...)
+		if pt.Provider != "" && deps.TicketerFor != nil {
+			if alt := deps.TicketerFor(pt.Provider, pt.ProjectOrRepo); alt != nil {
+				tk = alt
+			} else {
+				klog.Warningf("handler: policy %s/%s asks for %s tickets, which are not configured; using the default", pol.Namespace, pol.Name, pt.Provider)
+			}
+		}
+	}
+	if tk == nil {
 		return
 	}
-	_, err := deps.Ticketer.CreateOrUpdate(ctx, key, integrations.Ticket{
-		Title:  title,
-		Body:   body,
-		Labels: []string{"auto-agent", "kubernetes"},
-	})
+	_, err := tk.CreateOrUpdate(ctx, key, t)
 	if err != nil {
 		klog.Warningf("handler: ticket creation failed for %s: %v", key, err)
 		obs.HandlerErrorsTotal.WithLabelValues("ticket", "create").Inc()
@@ -354,4 +367,35 @@ func waitingMessage(pod *corev1.Pod, cname string) string {
 		}
 	}
 	return ""
+}
+
+// channelPoster is the part of the Slack client that posts to a named
+// channel's webhook.
+type channelPoster interface {
+	PostToChannel(channel, text string) error
+}
+
+// postIncident sends a handler's message to the channel named by the
+// policy that selects the pods (escalation.slackChannel), or to the default
+// webhook. A failed post is logged and counted (ISS-037, ISS-082).
+func postIncident(deps *Deps, ns string, podLabels map[string]string, msg string) {
+	if pol := effectivePolicy(deps, ns, podLabels); pol != nil && pol.SlackChannel != "" {
+		if cp, ok := deps.Slack.(channelPoster); ok {
+			if err := cp.PostToChannel(pol.SlackChannel, msg); err != nil {
+				klog.Warningf("handler: slack post to %s failed: %v", pol.SlackChannel, err)
+				obs.HandlerErrorsTotal.WithLabelValues("slack", "post").Inc()
+			}
+			return
+		}
+	}
+	postSlack(deps, msg)
+}
+
+// postSlack sends msg to the default webhook; a failure is logged and
+// counted, never dropped (ISS-082).
+func postSlack(deps *Deps, msg string) {
+	if err := deps.Slack.Post(msg); err != nil {
+		klog.Warningf("handler: slack post failed: %v", err)
+		obs.HandlerErrorsTotal.WithLabelValues("slack", "post").Inc()
+	}
 }

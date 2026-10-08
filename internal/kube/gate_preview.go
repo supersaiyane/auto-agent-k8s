@@ -51,9 +51,35 @@ func GatePreview(deps *Deps, ns string) []GateCheck {
 		}
 		out = append(out, GateCheck{"circuit breaker", true, detail})
 	}
-	approval := !policyAllowsAction(effectivePolicy(deps, ns, nil))
-	out = append(out, GateCheck{"policy approval", !approval, map[bool]string{true: "an AutoRemediationPolicy requires manual approval here", false: "no policy requires approval"}[approval]})
+	out = append(out, policyChecks(deps, ns))
 	return out
+}
+
+// policyChecks names the AutoRemediationPolicies in ns that limit actions.
+// The preview has no pod labels, so it lists them rather than guessing which
+// workload each one selects (ISS-081).
+func policyChecks(deps *Deps, ns string) GateCheck {
+	var limits []string
+	approval := false
+	for _, p := range deps.CRDStore.List(ns) {
+		var what []string
+		if p.RequireApproval {
+			what, approval = append(what, "requires approval"), true
+		}
+		if p.RestartStuckPods != nil && !*p.RestartStuckPods {
+			what = append(what, "no pod restarts")
+		}
+		if p.MaxActionsPerHour > 0 {
+			what = append(what, fmt.Sprintf("%d actions per hour", p.MaxActionsPerHour))
+		}
+		if len(what) > 0 {
+			limits = append(limits, p.Name+" ("+strings.Join(what, ", ")+")")
+		}
+	}
+	if len(limits) == 0 {
+		return GateCheck{"policy limits", true, "no AutoRemediationPolicy here limits actions"}
+	}
+	return GateCheck{"policy limits", !approval, "for the workloads they select: " + strings.Join(limits, "; ")}
 }
 
 func modeDetail(m policy.Mode) string {

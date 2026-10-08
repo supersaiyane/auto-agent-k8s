@@ -231,10 +231,20 @@ type trackers struct {
 	fixes    *kube.FixTracker
 }
 
+// newSlack builds the Slack client with the per-channel webhooks that
+// AutoRemediationPolicy escalation.slackChannel names (ISS-037).
+func newSlack(conf config.Config, cl Clients) *slack.Client {
+	c := slack.New(conf.SlackWebhookURL, conf.Policy.SlackTimeoutSec, cl.HTTP)
+	for channel, hook := range conf.SlackChannelWebhooks {
+		c.RegisterChannel(channel, hook)
+	}
+	return c
+}
+
 func newTrackers(conf config.Config, cl Clients) trackers {
 	pol := conf.Policy
 	t := trackers{
-		slack:   slack.New(conf.SlackWebhookURL, pol.SlackTimeoutSec, cl.HTTP),
+		slack:   newSlack(conf, cl),
 		dedup:   ratelimit.NewDeduplicator(time.Duration(pol.DedupTTLSeconds) * time.Second),
 		audit:   kube.NewAuditLog(conf.AuditLogPath),
 		deploys: kube.NewDeployTracker(100),
@@ -272,14 +282,14 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		LLM:   llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP),
 		Dedup: t.dedup, Limiter: ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute),
 		Sink: storage.NewSink(conf.Storage), CRDStore: crdStore,
-		GitOps: newGitOps(conf, cl.HTTP), Ticketer: newTicketer(conf, cl.HTTP), Recorder: a.ev.sink,
+		GitOps: newGitOps(conf, cl.HTTP), Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
 		Breaker:      ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, time.Hour),
 		AlertManager: alertmanager.New(conf.AlertmanagerURL, cl.HTTP), AuditLog: t.audit,
 		BlastRadius: kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, time.Hour),
 		QuietHours:  kube.NewQuietHours(conf.QuietHours), DryRunLog: t.dryRun,
 		Escalation: escalation.NewChain(conf.Escalation, cl.HTTP), DeployTracker: t.deploys,
 		LearningMode: t.learning, FixTracker: t.fixes,
-		Approvals: kube.NewApprovals(conf.Approvals.TTL, conf.Approvals.Approvers),
+		Approvals: kube.NewApprovals(conf.Approvals.TTL, conf.Approvals.Approvers), PolicyBudget: kube.NewPolicyBudget(),
 	}
 	return nil
 }
@@ -504,6 +514,37 @@ func newTicketer(conf config.Config, hc *http.Client) integrations.Ticketer {
 		return integrations.NewGitHubIssues(conf.GitHubToken, conf.GitHubRepo, hc)
 	default:
 		return integrations.NewNopTicketer()
+	}
+}
+
+// ticketerFor builds a ticketer for an AutoRemediationPolicy's
+// escalation.ticketing provider and project with the agent's own
+// credentials (ISS-037). Off with tickets disabled; nil for a provider whose
+// credentials are not set.
+func ticketerFor(conf config.Config, hc *http.Client) func(provider, project string) integrations.Ticketer {
+	if !conf.TicketsEnabled {
+		return nil
+	}
+	return func(provider, project string) integrations.Ticketer {
+		switch provider {
+		case "jira":
+			if conf.JiraToken == "" || conf.JiraBaseURL == "" {
+				return nil
+			}
+			if project == "" {
+				project = conf.JiraProjectKey
+			}
+			return integrations.NewJira(conf.JiraToken, conf.JiraBaseURL, project, conf.JiraEmail, hc)
+		case "github":
+			if conf.GitHubToken == "" {
+				return nil
+			}
+			if project == "" {
+				project = conf.GitHubRepo
+			}
+			return integrations.NewGitHubIssues(conf.GitHubToken, project, hc)
+		}
+		return nil
 	}
 }
 

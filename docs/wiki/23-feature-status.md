@@ -8,7 +8,7 @@ This page documents the honest status of every feature: what's actually working 
 |---------|-------|-------|
 | **Issue detectors** | Pod handlers in `internal/kube/watcher.go`; leader checks listed in `leaderChecks` (`cmd/auto-agent/run.go`); each audited and tested in `internal/kube/*_audit_test.go` (PLAN-002 phase 12); `TestEveryDetectorHasATest`, `TestEveryLeaderCheckHasATest` | Pod, node, workload, storage, network and security checks, each with its fix-ladder rung |
 | **Pod deletion (fix mode)** | `tryFixAction: SUCCESS` in agent logs | Deletes crashing pods, controller recreates them |
-| **Fix verification** | FixTracker confirmed 2+ fixes | Verifies deployment healthy after action (checks ReadyReplicas) |
+| **Fix verification** | A fix counts only when the Deployment has fully rolled out (spec observed, every replica updated and ready) and stays healthy for a minute; a failed read is counted (ISS-038). Code: `internal/kube/fixtracker.go`. Tests: `TestAudit_VerifyFixes`, `TestDeploymentRecovered`, `TestVerifyFixes_FlappingAndReadErrors` | Not fixed after 15 minutes |
 | **Dashboard UI (16 tabs, counted 2026-10-08)** | `internal/httpapi/ui/`; `make ui-test` opens every tab | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |
 | **Event persistence** | 258+ events on disk | Survives pod restarts via `events.jsonl` on hostPath volume |
 | **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | Fix scope, dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval |
@@ -24,7 +24,7 @@ This page documents the honest status of every feature: what's actually working 
 | **Network checks** (PLAN-002 phase 14) | `internal/kube/netprobe.go` (node probes), `netchecks.go` (leader); `netchecks_test.go` | Per-node DNS, Service and egress probes; sandbox/CNI failures; kube-proxy and CNI pods (when kube-system is watched); NetworkPolicy blocks; conntrack and CoreDNS (Prometheus); Ingress TLS secrets |
 | **Namespace selector** | `internal/httpapi/ui/app.js` (`fillNamespaces`, `inNs`); `make ui-test` | Filters every tab; never changes what the agent does |
 | **Audit log** | Actions logged to `audit.jsonl` | Persistent on hostPath volume |
-| **CRD controller** | Watches AutoRemediationPolicy resources | Policies loaded into in-memory cache |
+| **CRD controller** | Watches AutoRemediationPolicy resources; every field takes effect (ISS-037): restartStuckPods, scale min, max, step and allowHPAOverride, cooldown, maxActionsPerHour, requireApproval, slackChannel, ticketing. Dry-run and `agent gate` show the same refusals (ISS-081). Code: `internal/kube/policycheck.go`, `scaler.go` (`scaleLimitsFor`), `handlers.go` (`postIncident`, `createTicket`). Tests: `TestPolicyRefusal_GateAndDryRun`, `TestEvaluateAndScale_PolicyStepMinAndHPAOverride`, `TestEvaluateAndScale_PolicyCooldown`, `TestPolicySlackChannelAndTicketing` | Policies loaded into in-memory cache |
 | **Admission webhook** | Code ready, validates limits/probes | Needs TLS certs to activate (see below) |
 
 ## Added in PLAN-002 phase 10 (2026-10-08)
@@ -64,9 +64,9 @@ there until PLAN-002 phase 12 tests them.
 |---------|-------------|-----------------|------------|
 | **Slack** | Sends incident alerts with logs and LLM diagnosis. Interactive buttons are not sent yet (`BuildIncidentBlocks` has no caller, ISS-012); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and replies that no action was taken | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
 | **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired: `FireIncident()` returns nil |
-| **PagerDuty** | Would trigger PD incidents for critical/warning severity. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages: escalation chain skips PD |
-| **OpsGenie** | Would create OG alerts for critical/warning. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
-| **Email** | Would send email for critical incidents. **Not wired (checked 2026-10-07, ISS-012):** the escalation chain is built in `cmd/auto-agent/run.go` but no handler calls it, so this setting has no effect. | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
+| **PagerDuty** | Triggers an incident for every critical finding and every fix the API server refused, after Slack, deduplicated, redacted, in the background with a 10s timeout (ISS-080). Code: `internal/kube/gate.go` (`escalate`, `escalateFailedFix`), `internal/escalation/escalation.go`. Test: `TestEscalation_CriticalFindingsAndFailedFixes` | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages |
+| **OpsGenie** | Creates an alert for the same events as PagerDuty (ISS-080). Code and test as PagerDuty | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
+| **Email** | Sends an email for the same events; SMTP bounded by a 10s timeout, STARTTLS when offered (ISS-080). Tests: `TestEmail_BoundedByContext`, `TestEveryChannelIsRedacted` | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
 
 ### Chart values that nothing reads
 

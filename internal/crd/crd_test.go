@@ -49,8 +49,9 @@ func fullSpec(num func(int) interface{}) map[string]interface{} {
 }
 
 func TestParse_EveryField(t *testing.T) {
+	restart := true
 	want := Policy{
-		Namespace: "ns", Name: "p", RestartStuckPods: true, BumpMemoryPercent: 25,
+		Namespace: "ns", Name: "p", RestartStuckPods: &restart, BumpMemoryPercent: 25,
 		Scale:        ScaleConfig{Enabled: true, MinReplicas: 2, MaxReplicas: 8, Step: 1, AllowHPAOverride: true},
 		SlackChannel: "#ops", RunbookURL: "https://runbooks.corp.test/api",
 		Ticketing: Ticketing{Provider: "jira", ProjectOrRepo: "OPS", Assignees: []string{"alice"}, Labels: []string{"auto"}},
@@ -146,5 +147,13 @@ func waitUntil(t *testing.T, cond func() bool) {
 			t.Fatal("condition not reached")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A nil store answers reads with nothing instead of panicking.
+func TestStore_NilIsEmpty(t *testing.T) {
+	var s *Store
+	if len(s.List("ns")) != 0 || len(s.Match("ns", map[string]string{"a": "b"})) != 0 {
+		t.Fatal("a nil store has no policies")
 	}
 }

@@ -11,8 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/crd"
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
+	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 const (
@@ -24,9 +26,6 @@ const (
 // Must be called only by the leader.
 func EvaluateAndScale(ctx context.Context, deps *Deps) {
 	pol := deps.Policy()
-
-	cooldownUp := parseDuration(pol.CooldownUp, "2m")
-	cooldownDown := parseDuration(pol.CooldownDown, "10m")
 
 	for _, ns := range watchedNamespaces(ctx, deps) {
 		dl, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
@@ -42,8 +41,14 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				rep = *d.Spec.Replicas
 			}
 
-			// HPA coexistence check: skip if HPA exists for this deployment
-			if pol.HPACoexistence {
+			// The AutoRemediationPolicy that selects this Deployment's pods
+			// tunes its limits (ISS-037).
+			cp := effectivePolicy(deps, ns, d.Spec.Template.Labels)
+			lim := scaleLimitsFor(pol, cp)
+
+			// HPA coexistence check: skip if HPA exists for this deployment,
+			// unless its policy sets scale.allowHPAOverride.
+			if pol.HPACoexistence && !lim.overrideHPA {
 				hasHPA, err := deploymentHasHPA(ctx, deps, ns, d.Name)
 				if err != nil {
 					klog.V(3).Infof("scaler: HPA check failed for %s/%s: %v", ns, d.Name, err)
@@ -55,7 +60,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			}
 
 			// Check scale-up cooldown
-			if inCooldown(d.Annotations, annoLastScaleUp, cooldownUp) {
+			if inCooldown(d.Annotations, annoLastScaleUp, lim.cooldownUp) {
 				continue
 			}
 
@@ -71,23 +76,13 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 
 			// --- Scale Up ---
 			if cpu > pol.CPUThreshold && gateActive {
-				// Determine max replicas (from CRD policy or global)
-				maxRep := pol.MaxReplicas
-				crdPolicies := deps.CRDStore.Match(ns, d.Spec.Template.Labels)
-				for _, cp := range crdPolicies {
-					if cp.Scale.Enabled && cp.Scale.MaxReplicas > 0 {
-						maxRep = cp.Scale.MaxReplicas
-						break
-					}
-				}
-
+				maxRep := lim.max
 				if rep >= maxRep {
 					klog.V(2).Infof("scaler: %s/%s at max replicas (%d)", ns, d.Name, maxRep)
 					continue
 				}
 
-				step := int32(pol.MaxScaleStep)
-				newRep := rep + step
+				newRep := rep + lim.step
 				if newRep > maxRep {
 					newRep = maxRep
 				}
@@ -99,7 +94,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 
 				msg := fmt.Sprintf("*ScaleUp*: `%s/%s` %d -> %d (cpu=%.2f, gate=%t)", ns, d.Name, rep, newRep, cpu, gateActive)
 				klog.Infof("scaler: %s", msg)
-				deps.Slack.Post(msg)
+				postSlack(deps, msg)
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleUp",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
@@ -110,15 +105,15 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			// --- Scale Down ---
 			// Scale down if CPU is low AND either no gates configured (CPU-only) or gates show no load
 			canScaleDown := !gatesConfigured || !gateActive
-			if cpu < 0.3 && canScaleDown && rep > pol.MinReplicas {
+			if cpu < 0.3 && canScaleDown && rep > lim.min {
 				// Check scale-down cooldown (longer than scale-up)
-				if inCooldown(d.Annotations, annoLastScaleDown, cooldownDown) {
+				if inCooldown(d.Annotations, annoLastScaleDown, lim.cooldownDown) {
 					continue
 				}
 
 				newRep := rep - 1
-				if newRep < pol.MinReplicas {
-					newRep = pol.MinReplicas
+				if newRep < lim.min {
+					newRep = lim.min
 				}
 				if newRep == rep {
 					continue
@@ -131,7 +126,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 
 				msg := fmt.Sprintf("*ScaleDown*: `%s/%s` %d -> %d (cpu=%.2f)", ns, d.Name, rep, newRep, cpu)
 				klog.Infof("scaler: %s", msg)
-				deps.Slack.Post(msg)
+				postSlack(deps, msg)
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleDown",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
@@ -222,4 +217,35 @@ func scaleDeployment(ctx context.Context, deps *Deps, d *appsv1.Deployment, from
 			return err
 		},
 	})
+}
+
+// scaleLimits are the bounds the scaler uses for one Deployment.
+type scaleLimits struct {
+	min, max, step           int32
+	cooldownUp, cooldownDown time.Duration
+	overrideHPA              bool
+}
+
+// scaleLimitsFor applies an AutoRemediationPolicy's scale and cooldown
+// settings over the global policy (ISS-037). Scale fields count only with
+// scale.enabled; safety.cooldown applies to both directions. A policy
+// minimum above its maximum is ignored rather than trusted.
+func scaleLimitsFor(pol *policy.Policy, cp *crd.Policy) scaleLimits {
+	l := scaleLimits{min: pol.MinReplicas, max: pol.MaxReplicas, step: int32(pol.MaxScaleStep)}
+	l.cooldownUp, l.cooldownDown = effectiveCooldown(cp, pol.CooldownUp, pol.CooldownDown)
+	if cp == nil || !cp.Scale.Enabled {
+		return l
+	}
+	sc := cp.Scale
+	if sc.MaxReplicas > 0 {
+		l.max = sc.MaxReplicas
+	}
+	if sc.MinReplicas > 0 && sc.MinReplicas <= l.max {
+		l.min = sc.MinReplicas
+	}
+	if sc.Step > 0 {
+		l.step = sc.Step
+	}
+	l.overrideHPA = sc.AllowHPAOverride
+	return l
 }

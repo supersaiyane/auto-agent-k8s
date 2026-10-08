@@ -64,12 +64,12 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 	}
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, reason, logs+"\n"+strings.Join(events, "\n"))
-	deps.Slack.Post(msg)
+	postIncident(deps, ns, pod.Labels, msg)
 	fireAlert(ctx, deps, reason, ns, wl, name, msg, string(sev))
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: sev,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: reason, Message: message, LogURL: url})
-	createTicket(ctx, deps, fmt.Sprintf("%s-%s-%s", strings.ToLower(reason), ns, wl),
+	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("%s-%s-%s", strings.ToLower(reason), ns, wl),
 		fmt.Sprintf("%s: %s/%s", reason, ns, wl), msg)
 	obs.IncidentsTotal.WithLabelValues(reason, ns, wl).Inc()
 }
