@@ -16,7 +16,7 @@ const maxIngestBody = 1 << 20
 
 // handleIngest accepts events forwarded by node agents (ADR-001). It has
 // its own token, separate from the dashboard's, and stores only events
-// from allowlisted namespaces, with their text redacted.
+// from watched namespaces, with their text redacted.
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	if s.internalToken == "" || s.ingest == nil {
 		http.Error(w, "event ingest disabled on this pod", http.StatusServiceUnavailable)

@@ -164,9 +164,12 @@ func TestIntegrationSelection(t *testing.T) {
 	if hostname() == "" {
 		t.Fatal("hostname is never empty")
 	}
-	nss := namespaceList(&policy.Policy{NamespaceAllow: map[string]struct{}{"a": {}, "b": {}}})
-	if len(nss) != 2 {
-		t.Fatalf("namespaceList: %v", nss)
+	both := policy.NamespaceSet("a", "b")
+	if got := scopeSummary(&policy.Policy{WatchNamespaces: both, FixNamespaces: both, FixCeiling: policy.NamespaceSet("a")}); got != "watch=a,b fix=a anywhere=false" {
+		t.Fatalf("scopeSummary: %s", got)
+	}
+	if got := scopeSummary(&policy.Policy{WatchAll: true}); got != "watch=all non-system namespaces fix= anywhere=false" {
+		t.Fatalf("scopeSummary: %s", got)
 	}
 }
 

@@ -104,14 +104,14 @@ func executeKubectl(ctx context.Context, kc kubernetes.Interface, cmd string, al
 	}
 }
 
-// clusterScoped resources are readable regardless of the namespace allowlist.
+// clusterScoped resources are readable regardless of the watch scope.
 var clusterScoped = map[string]bool{
 	"nodes": true, "node": true, "no": true,
 	"namespaces": true, "namespace": true, "ns": true,
 }
 
-// checkKubectlScope applies the namespace allowlist to namespaced reads
-// (CLAUDE.md constraint 4). A nil allowlist denies them.
+// checkKubectlScope applies the watch scope to namespaced reads
+// (CLAUDE.md constraint 4). A nil filter denies them.
 func checkKubectlScope(verb string, args []string, allowNS func(string) bool) error {
 	switch verb {
 	case "get", "describe", "logs", "top":
@@ -123,10 +123,10 @@ func checkKubectlScope(verb string, args []string, allowNS func(string) bool) er
 		return nil
 	}
 	if allNs {
-		return fmt.Errorf("all namespaces is not in the namespace allowlist; use -n <namespace>")
+		return fmt.Errorf("listing across all namespaces is not supported yet; use -n <namespace>")
 	}
 	if allowNS == nil || !allowNS(ns) {
-		return fmt.Errorf("namespace %q is not in the namespace allowlist", ns)
+		return fmt.Errorf("namespace %q is outside the watch scope", ns)
 	}
 	return nil
 }

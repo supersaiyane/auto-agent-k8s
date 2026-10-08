@@ -131,7 +131,7 @@ func (s *Server) handleResourcesNs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.nsAllowed(ns) {
-		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
+		http.Error(w, "namespace is outside the watch scope", http.StatusForbidden)
 		return
 	}
 

@@ -18,7 +18,7 @@ import (
 // CheckFailedJobs scans for failed Jobs and CronJobs and alerts.
 // Must be called only by the leader.
 func CheckFailedJobs(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		jobs, err := deps.Client.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(3).Infof("jobs: failed to list jobs in %s: %v", ns, err)

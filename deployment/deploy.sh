@@ -141,7 +141,8 @@ Done.
   Node agents:  kubectl logs -n $NS -l app=auto-agent -f
   Controller:   kubectl logs -n $NS -l app=auto-agent-controller -f
   Mode:         $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.AUTO_MODE}')
-  Watching:     $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')
+  Watching:     $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.WATCH_NAMESPACES}') (empty: every non-system namespace)
+  Fixing in:    $(k get configmap auto-agent-config -n "$NS" -o jsonpath='{.data.FIX_NAMESPACES}')
   Change it:    kubectl edit configmap auto-agent-config -n $NS   (reloads without a restart)
   Remove it:    deployment/teardown.sh
 DONE

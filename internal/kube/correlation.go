@@ -90,7 +90,7 @@ func ScanDeployments(ctx context.Context, deps *Deps) {
 	if deps.DeployTracker == nil {
 		return
 	}
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "deployments", ns)

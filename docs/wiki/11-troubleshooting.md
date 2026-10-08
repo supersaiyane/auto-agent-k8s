@@ -13,7 +13,7 @@
 
 | Symptom | Check |
 |---------|-------|
-| No events in dashboard | Is the namespace in `NAMESPACE_ALLOWLIST`? |
+| No events in dashboard | Is the namespace in the watch scope (`agent.watchNamespaces`)? |
 | Pod crashing but no alert | Does pod have `auto-agent.io/disable` annotation? |
 | Events appear but no actions | Is `AUTO_MODE` set to `fix`? (not `observe`) |
 | Only ImagePullBackOff detected | Cluster can't pull images: fix registry access first |

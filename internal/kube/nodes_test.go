@@ -24,7 +24,9 @@ func TestNodePressure_OnlyAgentOnThatNodeActs(t *testing.T) {
 
 	for _, agentNode := range []string{"node-1", "node-2", "node-3", ""} {
 		deps := *base
-		deps.Policies = policy.Static(&policy.Policy{Mode: policy.Fix, NamespaceAllow: base.Policy().NamespaceAllow})
+		fix := *base.Policy()
+		fix.Mode = policy.Fix
+		deps.Policies = policy.Static(&fix)
 		openGuardrails(&deps)
 		deps.NodeName = agentNode
 		// Each agent is its own pod with its own in-memory dedup, as in a cluster.

@@ -25,10 +25,14 @@ func CheckSecurityIssues(ctx context.Context, deps *Deps) {
 func checkCertExpiry(ctx context.Context, deps *Deps) {
 	// Reading secrets is an opt-in grant (chart rbac.readTLSSecrets sets
 	// TLS_CERT_CHECK); without it the check does not run at all (ISS-009).
+	// The grant sits in the write Roles, so only the fix ceiling is read.
 	if !deps.TLSCertCheck {
 		return
 	}
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
+		if !deps.Policy().InCeiling(ns) {
+			continue
+		}
 		secrets, err := deps.Client.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "type=kubernetes.io/tls",
 		})
@@ -90,7 +94,7 @@ func checkCertExpiry(ctx context.Context, deps *Deps) {
 
 // checkLimitRangeViolations detects pods that violate namespace LimitRange defaults.
 func checkLimitRangeViolations(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		lrs, err := deps.Client.CoreV1().LimitRanges(ns).List(ctx, metav1.ListOptions{})
 		if err != nil || len(lrs.Items) == 0 {
 			continue
@@ -172,7 +176,7 @@ func containsAny(s string, substrs ...string) bool {
 
 // detectWebhookBlocking checks events for admission webhook rejections.
 func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "events", ns)
@@ -207,7 +211,7 @@ func CheckWebhookBlocking(ctx context.Context, deps *Deps) {
 
 // CheckRBACDenied detects RBAC permission errors in events.
 func CheckRBACDenied(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		events, err := deps.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "events", ns)

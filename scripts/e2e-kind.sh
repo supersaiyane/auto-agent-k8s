@@ -44,7 +44,7 @@ kind load docker-image "$IMAGE" --name "$CLUSTER"
 log "installing chart in $MODE mode"
 helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" \
 	--set image.repository=auto-agent --set image.tag=e2e --set image.pullPolicy=Never \
-	--set "agent.mode=$MODE" --set "agent.namespaceAllowlist={$NS_TEST}" \
+	--set "agent.mode=$MODE" --set "agent.fixNamespaces={$NS_TEST}" \
 	--set dashboard.token=e2e-token \
 	--set "env[0].name=JOB_INTERVAL" --set "env[0].value=30s" \
 	--set "env[1].name=QUOTA_INTERVAL" --set "env[1].value=40s" \
@@ -100,7 +100,7 @@ log "kubectl -n kube-system -> $KUBECTL"
 [ "$NO_TOKEN" = "401" ] || fail "/api/status without token returned $NO_TOKEN, want 401"
 [ "$WITH_TOKEN" = "200" ] || fail "/api/status with token returned $WITH_TOKEN, want 200"
 [ "$HEALTH" = "200" ] || fail "/healthz returned $HEALTH, want 200"
-echo "$KUBECTL" | grep -q "not in the namespace allowlist" || fail "kubectl endpoint read kube-system"
+echo "$KUBECTL" | grep -q "outside the watch scope" || fail "kubectl endpoint read kube-system"
 
 kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$NODE_POD" 18081:8080 >/dev/null 2>&1 &
 PF=$!

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,7 +98,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	hotReloader := policy.NewHotReloader(pol, podNS, "auto-agent-config")
 	go hotReloader.Start(ctx, cl.Kube)
 
-	klog.Infof("auto-agent %s starting (role=%s, mode=%s, namespaces=%v)", version, conf.Role, pol.Mode, namespaceList(pol))
+	klog.Infof("auto-agent %s starting (role=%s, mode=%s, %s)", version, conf.Role, pol.Mode, scopeSummary(pol))
 	obs.InfoGauge.WithLabelValues(version, string(pol.Mode)).Set(1)
 
 	// The controller keeps the one event log; a node agent forwards to it.
@@ -240,7 +241,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 		SlackSigningSecret: conf.SlackSigningSecret,
 		Cost:               conf.Cost,
 		HTTPClient:         cl.HTTP,
-		AllowNamespace:     func(ns string) bool { return hotReloader.Get().AllowedNamespace(ns) },
+		AllowNamespace:     func(ns string) bool { return hotReloader.Get().Watched(ns) },
 		IsLeader:           isLeader,
 		Leader:             leaderTarget,
 		HealthOnly:         onlyNode,
@@ -396,12 +397,13 @@ func hostname() string {
 	return h
 }
 
-func namespaceList(pol *policy.Policy) []string {
-	nss := make([]string, 0, len(pol.NamespaceAllow))
-	for ns := range pol.NamespaceAllow {
-		nss = append(nss, ns)
+// scopeSummary describes the watch scope and fix scope for the start log.
+func scopeSummary(pol *policy.Policy) string {
+	watch := "all non-system namespaces"
+	if names, all := pol.WatchList(); !all {
+		watch = strings.Join(names, ",")
 	}
-	return nss
+	return fmt.Sprintf("watch=%s fix=%s anywhere=%v", watch, strings.Join(pol.FixScope(), ","), pol.FixAnywhere)
 }
 
 // electorView is what the leader resolver needs from the elector.

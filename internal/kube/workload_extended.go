@@ -18,7 +18,7 @@ import (
 
 // CheckStatefulSetStuck detects StatefulSets stuck in ordered ready (pod N waiting for N-1).
 func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		stss, err := deps.Client.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "statefulsets", ns)
@@ -55,7 +55,7 @@ func CheckStatefulSetStuck(ctx context.Context, deps *Deps) {
 
 // CheckDaemonSetMissing detects DaemonSets not running on all expected nodes.
 func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		dss, err := deps.Client.AppsV1().DaemonSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "daemonsets", ns)
@@ -87,7 +87,7 @@ func CheckDaemonSetMissing(ctx context.Context, deps *Deps) {
 // CheckHPAIssues detects HPAs at max replicas or unable to scale.
 func CheckHPAIssues(ctx context.Context, deps *Deps) {
 	now := deps.clock()
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		hpas, err := deps.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "horizontalpodautoscalers", ns)
@@ -157,7 +157,7 @@ func hpaCondition(h *autoscalingv2.HorizontalPodAutoscaler, t autoscalingv2.Hori
 
 // CheckCronJobMissed detects CronJobs that missed their schedule.
 func CheckCronJobMissed(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		crons, err := deps.Client.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "cronjobs", ns)
@@ -194,7 +194,7 @@ func CheckCronJobMissed(ctx context.Context, deps *Deps) {
 
 // CheckDeploymentPaused detects deployments someone paused and forgot.
 func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		deploys, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "deployments", ns)
@@ -221,7 +221,7 @@ func CheckDeploymentPaused(ctx context.Context, deps *Deps) {
 
 // CheckReplicaSetFailure detects ReplicaSets that can't create pods.
 func CheckReplicaSetFailure(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		rss, err := deps.Client.AppsV1().ReplicaSets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "replicasets", ns)

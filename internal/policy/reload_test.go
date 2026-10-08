@@ -7,9 +7,9 @@ import (
 
 func basePolicy() *Policy {
 	return &Policy{
-		Mode:           Fix,
-		NamespaceAllow: map[string]struct{}{"default": {}},
-		CPUThreshold:   0.8, MaxScaleStep: 2, MaxActionsPer10m: 10,
+		Mode:            Fix,
+		WatchNamespaces: NamespaceSet("default"),
+		CPUThreshold:    0.8, MaxScaleStep: 2, MaxActionsPer10m: 10,
 		MaxReplicas: 50, MinReplicas: 1, CooldownUp: "2m", CooldownDown: "10m", ScaleWindow: "5m",
 	}
 }
@@ -40,8 +40,8 @@ func TestReload_DoesNotChangeHeldSnapshot(t *testing.T) {
 	if held.Mode != Fix {
 		t.Errorf("held snapshot mode changed to %s", held.Mode)
 	}
-	if _, ok := held.NamespaceAllow["default"]; !ok || len(held.NamespaceAllow) != 1 {
-		t.Errorf("held snapshot allowlist changed: %v", held.NamespaceAllow)
+	if !held.Watched("default") || held.Watched("other") {
+		t.Errorf("held snapshot watch scope changed: %v", held.WatchNamespaces)
 	}
 	if hr.Get() == held {
 		t.Error("reload returned the same snapshot pointer")
@@ -59,7 +59,7 @@ func TestReload_ConcurrentGetAndReload(t *testing.T) {
 			for j := 0; j < 200; j++ {
 				p := hr.Get()
 				_ = p.Mode
-				_ = p.AllowedNamespace("default")
+				_ = p.Fixable("default")
 			}
 		}()
 	}

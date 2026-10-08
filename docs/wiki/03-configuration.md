@@ -36,10 +36,13 @@ New cluster? → observe (1 week)
 ## Namespace Control
 
 ```yaml
-NAMESPACE_ALLOWLIST: "default,prod,staging"
+WATCH_NAMESPACES: ""              # every namespace except the system ones
+FIX_NAMESPACES: "default,prod"    # where the agent may act
 ```
 
-Agent ONLY watches namespaces in this list. Everything else is ignored. Start narrow, expand as confidence grows.
+The agent reads everywhere it watches and acts only in the fix scope, inside
+the ceiling the chart grants (ADR-002, `docs/CONFIGURATION.md`). Start narrow,
+expand as confidence grows.
 
 ## Scaling
 

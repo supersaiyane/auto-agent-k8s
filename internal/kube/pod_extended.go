@@ -76,7 +76,7 @@ func handleAdditionalPodIssue(ctx context.Context, deps *Deps, pod *corev1.Pod, 
 
 // CheckDeadlineExceeded detects pods that exceeded their activeDeadlineSeconds.
 func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
@@ -111,7 +111,7 @@ func CheckDeadlineExceeded(ctx context.Context, deps *Deps) {
 
 // CheckEphemeralStorageFull detects pods evicted due to ephemeral storage.
 func CheckEphemeralStorageFull(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})

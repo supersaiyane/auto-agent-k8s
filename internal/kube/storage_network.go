@@ -15,7 +15,7 @@ import (
 
 // CheckStorageIssues detects PVC Lost, VolumeAttachment stuck, and StorageClass problems.
 func CheckStorageIssues(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "persistentvolumeclaims", ns)
@@ -131,7 +131,7 @@ func checkDNSHealth(ctx context.Context, deps *Deps) {
 }
 
 func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		svcs, err := deps.Client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "services", ns)
@@ -163,7 +163,7 @@ func checkLoadBalancerPending(ctx context.Context, deps *Deps) {
 }
 
 func checkIngressBackends(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		ingresses, err := deps.Client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "ingresses", ns)

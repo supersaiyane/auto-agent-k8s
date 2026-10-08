@@ -67,7 +67,8 @@ func (hr *HotReloader) reload(data map[string]string) {
 	hr.mu.Lock()
 	hr.policy = newPol
 	hr.mu.Unlock()
-	klog.Infof("policy: reloaded from ConfigMap (mode=%s, namespaces=%v)", newPol.Mode, namespaceKeys(newPol))
+	watch, all := newPol.WatchList()
+	klog.Infof("policy: reloaded from ConfigMap (mode=%s, watch all=%v %v, fix=%v)", newPol.Mode, all, watch, newPol.FixScope())
 }
 
 // applyConfigMapData creates a new policy from configmap key-value pairs,
@@ -113,20 +114,32 @@ func applyConfigMapData(existing *Policy, data map[string]string) *Policy {
 	if v := get("COOLDOWN_DOWN", ""); v != "" {
 		p.CooldownDown = v
 	}
-	if v := get("NAMESPACE_ALLOWLIST", ""); v != "" {
-		ns := parseNamespaceList(v)
-		if len(ns) > 0 {
-			p.NamespaceAllow = ns
+	// The ceiling (FIX_CEILING, FIX_ANYWHERE) mirrors the chart's RBAC and
+	// changes only with a Helm upgrade, so it is not reloaded here.
+	// The ceiling (FIX_CEILING, FIX_ANYWHERE) mirrors the chart's RBAC and
+	// changes only with a Helm upgrade, so it is not reloaded here.
+	if v, ok := scopeValue(data, "WATCH_NAMESPACES"); ok {
+		p.WatchAll = isAll(v)
+		p.WatchNamespaces = nil
+		if !p.WatchAll {
+			p.WatchNamespaces = parseNamespaceList(v)
 		}
+	}
+	if v, ok := scopeValue(data, "FIX_NAMESPACES"); ok {
+		p.FixNamespaces = parseNamespaceList(v)
 	}
 
 	return &p
 }
 
-func namespaceKeys(p *Policy) []string {
-	keys := make([]string, 0, len(p.NamespaceAllow))
-	for k := range p.NamespaceAllow {
-		keys = append(keys, k)
+// scopeValue reads a scope key; a present key wins even when empty, so the
+// list can be cleared. NAMESPACE_ALLOWLIST is the deprecated fallback.
+func scopeValue(data map[string]string, key string) (string, bool) {
+	if v, ok := data[key]; ok {
+		return v, true
 	}
-	return keys
+	if v := data["NAMESPACE_ALLOWLIST"]; v != "" {
+		return v, true
+	}
+	return "", false
 }

@@ -57,12 +57,12 @@ func CheckStuckFinalizers(ctx context.Context, deps *Deps) {
 	} else {
 		for i := range nss.Items {
 			n := &nss.Items[i]
-			if deps.Policy().AllowedNamespace(n.Name) {
+			if deps.Policy().Watched(n.Name) {
 				checkNamespaceStuck(ctx, deps, n, now)
 			}
 		}
 	}
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "persistentvolumeclaims", ns)
@@ -138,7 +138,7 @@ func podsUsingClaim(ctx context.Context, deps *Deps, ns, claim string) []string 
 // evictions hang (PLAN-002 10.6).
 func CheckDisruptionBudgets(ctx context.Context, deps *Deps) {
 	now := deps.clock()
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pdbs, err := deps.Client.PolicyV1().PodDisruptionBudgets(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "poddisruptionbudgets", ns)

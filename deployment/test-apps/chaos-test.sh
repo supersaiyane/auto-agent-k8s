@@ -41,13 +41,13 @@ else
     err "Agent NOT running"; exit 1
 fi
 
-# The chaos namespace must be allowlisted by the generated manifests, which
-# also grant the write Roles there; patching the allowlist here would leave
-# the agent without permission to act (PLAN-002 11.4).
-ALLOWLIST=$(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.NAMESPACE_ALLOWLIST}')
-case ",$ALLOWLIST," in
-*,chaos,*) ok "chaos is allowlisted" ;;
-*) echo "The agent does not watch the chaos namespace (allowlist: $ALLOWLIST). Regenerate the manifests (make manifests) and redeploy." >&2; exit 1 ;;
+# The chaos namespace must be in the fix scope of the generated manifests,
+# which also grant the write Roles there; patching the list here would leave
+# the agent without permission to act (PLAN-002 11.4, ADR-002).
+FIXLIST=$(kubectl get cm auto-agent-config -n auto-agent -o jsonpath='{.data.FIX_NAMESPACES}')
+case ",$FIXLIST," in
+*,chaos,*) ok "chaos is in the fix scope" ;;
+*) echo "The agent may not act in the chaos namespace (fix scope: $FIXLIST). Regenerate the manifests (make manifests) and redeploy." >&2; exit 1 ;;
 esac
 
 # Dashboard: reuse a port-forward if one answers; never kill another process.

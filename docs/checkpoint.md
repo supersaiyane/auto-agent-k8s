@@ -25,15 +25,16 @@
 | 2026-10-08 | PR #2 opened; ISS-059 | PR #1 merge refused by the permission guard (owner merges); plan-002 pushed, PR #2 stacked on phase0-1-safety; ISS-059 done; verify and kind e2e with leader failover passed (leader moved, history kept); committed and pushed to PR #2 | events.Tee and NewReplicaForwarder (leader copies its log to the standby), Forwarder sends to resolved peers with RoutedHeader, httpapi Options.Ingest, newPeerResolver, e2e deletes the leader and checks the history | internal/events/replicate.go:18 (Tee), replicate.go:35 (NewReplicaForwarder), cmd/auto-agent/run.go:122 (events.Tee), run.go:449 (newPeerResolver), scripts/e2e-kind.sh:132 (ISS-059 block) |
 | 2026-10-08 | PLAN-002 11.2, ISS-059 backfill, 11.4 | Done; verify, make e2e (with ui-test and two leader changes) and make e2e-raw passed; committed (be1b043, ea308c1, a5f96bf), not pushed | 11.2: audit events from the gate, compliance from events, security headers, UI split into index.html, app.css, app.js with new views and filters, make ui-test in headless Chrome (ISS-051, ISS-053, ISS-060, ISS-061). ISS-059: events.Backfill copies a peer log before a fresh controller joins the election. 11.4: deploy.sh, teardown.sh, lib.sh, demo namespaces test1,test2,chaos, e2e-raw runs the scripts (ISS-049, ISS-052) | charts/auto-agent/values.yaml:6 (namespace: kube-system), values.yaml:87 (leaderElection.namespace), internal/config/config.go:185 (LEADER_LEASE_NAMESPACE default), cmd/auto-agent/run.go:94 (podNS fallback), scripts/e2e-kind.sh:13 (NS_AGENT), cmd/auto-agent/run.go (shutdown after <-ctx.Done()) |
 | 2026-10-08 | PR #1 merged; branch cleanup; kind demo; ADR-002 | Done: PR #1 merged (39269d3), PR #2 retargeted to master and CI started, phase0-1-safety deleted; merging PR #2 refused by the permission guard (owner merges after CI); demo cluster auto-agent-demo running with deploy.sh and demo apps, dashboard on localhost:8080; ADR-002 accepted (option 3) and committed (8fcefc5), not built | ADR-002: watch every namespace except system ones, fix inside a Helm ceiling or with rbac.fixAnywhere, initial fix list from Helm then a Settings tab (what, how, why, warnings, confirmation, audit), namespace dropdown on every tab; ISS-062; PLAN-002 11.8 | docs/adr/ADR-002-watch-and-fix-scope.md, internal/policy/policy.go:27 (NamespaceAllow), internal/kube (46 uses of NamespaceAllow and AllowedNamespace across 20 files), charts/auto-agent/templates/roles.yaml, internal/httpapi/ui/app.js (toolbar f-ns) |
+| 2026-10-08 | PR #2 merged; PLAN-002 11.8 step 1 (watch scope, fix scope) | Done: `make verify` passed (coverage 55.2% measured); `make e2e` PASS on kind (dry-run untouched, kube-system refused as outside the watch scope, RBAC complete with every namespace watched) | `internal/policy/scope.go` (new), `policy.go`, `reload.go`; `internal/kube/namespaces.go` (new), `gate.go` fix scope check, 29 detector loops; chart values, `_helpers.tpl` fixCeiling, `roles.yaml` ceiling or fixAnywhere ClusterRoles, `configmap.yaml`; RBAC tests in both modes; CONFIGURATION, README, GUIDE, wiki 03, 11, 21; CLAUDE.md constraint 4 | `internal/kube/gate.go:47` (fix scope check), `internal/policy/scope.go:55` (loadScope), `charts/auto-agent/templates/_helpers.tpl` (fixCeiling), e2e log in the session scratchpad `e2e.txt` |
 
 ## Next action
 
-1. Owner merges PR #2 after CI passes: `gh pr merge 2 --merge --delete-branch`.
-2. PLAN-002 11.8 (ADR-002), on the owner's go, in four commits: (a) policy
-   watch scope and fix scope, detectors iterate the watch scope, gate
-   enforces the fix scope; (b) chart values watchNamespaces, fixNamespaces,
-   fixCeiling, rbac.fixAnywhere, the auto-agent-scope ConfigMap and its RBAC;
-   (c) scope API and Settings tab; (d) namespace dropdown on every tab and
-   browser-test cases.
-3. Then the 11.3 remainder (ISS-050), 11.5 and 11.6.
-4. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.
+1. 11.8 step 1 is committed. `check-manifests` diffs `deployment/` against
+   the index, so stage `deployment/` before `make verify`.
+2. 11.8 step 2: `auto-agent-scope` ConfigMap read by the hot reloader
+   (`Policy.WithFixOverride`), `/api/scope` GET and PUT (confirm typed names,
+   audit event), controller RBAC get, update (pinned) and create on it.
+3. 11.8 step 3: Settings tab (what, how, why, fix-anywhere warning) and the
+   top-bar namespace dropdown, browser test. Step 4: e2e case and docs.
+4. Then the 11.3 remainder (ISS-050), 11.5 and 11.6. Push only on approval.
+5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.

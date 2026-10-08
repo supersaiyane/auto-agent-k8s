@@ -110,7 +110,7 @@ func StartWatchers(ctx context.Context, deps *Deps) {
 
 // handlePodUpdate dispatches pod status changes to appropriate handlers.
 func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod) {
-	if !deps.Policy().AllowedNamespace(newPod.Namespace) {
+	if !deps.Policy().Watched(newPod.Namespace) {
 		return
 	}
 	if hasAnnotation(newPod, deps.Policy().ExcludedAnnotation) {

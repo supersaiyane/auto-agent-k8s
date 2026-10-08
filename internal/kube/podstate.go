@@ -45,7 +45,7 @@ func CheckPodStates(ctx context.Context, deps *Deps) {
 	now := deps.clock()
 	byUID := map[types.UID]*corev1.Pod{}
 	var all []nsPods
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "pods", ns)

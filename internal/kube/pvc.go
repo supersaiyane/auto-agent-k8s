@@ -15,7 +15,7 @@ import (
 // CheckPendingPVCs detects PersistentVolumeClaims stuck in Pending.
 // Must be called only by the leader.
 func CheckPendingPVCs(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pvcs, err := deps.Client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(3).Infof("pvc: failed to list in %s: %v", ns, err)

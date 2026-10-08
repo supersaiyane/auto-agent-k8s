@@ -1,7 +1,70 @@
 # Namespaced permissions (CLAUDE.md constraints 4 and 7).
-# Workload writes: one Role per role per allowlisted namespace, nowhere else
-# (ADR-001: the controller fixes workloads, node agents act on pods).
-{{- range .Values.agent.namespaceAllowlist }}
+# Workload writes (ADR-001: the controller fixes workloads, node agents act on
+# pods) exist only inside the fix ceiling (ADR-002): one Role per role per
+# ceiling namespace, or with rbac.fixAnywhere one ClusterRole per role.
+{{- $ceiling := include "auto-agent.fixCeiling" . }}
+{{- if .Values.rbac.fixAnywhere }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auto-agent-write
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["patch", "update"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["delete"]
+{{- if .Values.rbac.readTLSSecrets }}
+# Certificate expiry check reads TLS secrets. Off by default (ISS-009).
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["list"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-agent-write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auto-agent-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: auto-agent-node-write
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-agent-node-write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: auto-agent-node-write
+subjects:
+- kind: ServiceAccount
+  name: auto-agent-node
+  namespace: {{ .Values.namespace }}
+{{- else }}
+{{- range splitList "," $ceiling | compact }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -65,6 +128,7 @@ subjects:
 - kind: ServiceAccount
   name: auto-agent-node
   namespace: {{ $.Values.namespace }}
+{{- end }}
 {{- end }}
 ---
 # Leader election in leaderElection.namespace (LEADER_LEASE_NAMESPACE). get and update are pinned to the agent's own lease; create cannot

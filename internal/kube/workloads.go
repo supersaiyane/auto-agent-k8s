@@ -19,7 +19,7 @@ import (
 // CheckStuckRollouts scans deployments for ProgressDeadlineExceeded and optionally rolls back.
 // Must be called only by the leader.
 func CheckStuckRollouts(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		deployments, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			klog.V(3).Infof("rollouts: failed to list deployments in %s: %v", ns, err)
@@ -171,7 +171,7 @@ var evictedReasons = map[string]bool{
 // once rather than once per dead pod.
 // Must be called only by the leader.
 func CleanupEvictedPods(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		pods, err := deps.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "status.phase=Failed",
 		})
@@ -222,7 +222,7 @@ func CleanupEvictedPods(ctx context.Context, deps *Deps) {
 // CheckServiceEndpoints detects services with 0 ready endpoints.
 // Must be called only by the leader.
 func CheckServiceEndpoints(ctx context.Context, deps *Deps) {
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		endpoints, err := deps.Client.CoreV1().Endpoints(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			countAPIError(err, "endpoints", ns)

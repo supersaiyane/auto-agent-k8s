@@ -47,11 +47,12 @@ func queryVector(ctx context.Context, deps *Deps, check, q string) ([]metrics.Sa
 	return v, true
 }
 
-// allowlistMatcher is a PromQL regex of the allowlisted namespaces, so the
-// query itself never reads outside the allowlist (constraint 4).
-func allowlistMatcher(deps *Deps) string {
-	names := make([]string, 0, len(deps.Policy().NamespaceAllow))
-	for ns := range deps.Policy().NamespaceAllow {
+// watchMatcher is a PromQL regex of the watched namespaces, so the query
+// itself never reads outside the watch scope (constraint 4).
+func watchMatcher(ctx context.Context, deps *Deps) string {
+	watched := watchedNamespaces(ctx, deps)
+	names := make([]string, 0, len(watched))
+	for _, ns := range watched {
 		names = append(names, metricsLabel(ns))
 	}
 	sort.Strings(names)
@@ -71,7 +72,7 @@ func metricsLabel(s string) string {
 // CheckResourcePressure reports throttled containers (10.9) and claims
 // close to full (10.10). Without Prometheus it does nothing.
 func CheckResourcePressure(ctx context.Context, deps *Deps) {
-	nsRe := allowlistMatcher(deps)
+	nsRe := watchMatcher(ctx, deps)
 	if nsRe == "" {
 		return
 	}
@@ -95,7 +96,7 @@ func checkCPUThrottling(ctx context.Context, deps *Deps, nsRe string) {
 	}, name: func(p *corev1.Pod) string { return p.Name }, resource: "pods"}
 	for _, s := range v {
 		ns, podName, cname := s.Labels["namespace"], s.Labels["pod"], s.Labels["container"]
-		if s.Value < throttleRatioMin || !deps.Policy().AllowedNamespace(ns) {
+		if s.Value < throttleRatioMin || !deps.Policy().Watched(ns) {
 			continue
 		}
 		p := pods.get(ns, podName)
@@ -138,7 +139,7 @@ func checkVolumeFullness(ctx context.Context, deps *Deps, nsRe string) {
 	}, name: func(c *corev1.PersistentVolumeClaim) string { return c.Name }, resource: "persistentvolumeclaims"}
 	for _, s := range v {
 		ns, claim := s.Labels["namespace"], s.Labels["persistentvolumeclaim"]
-		if s.Value < volumeWarnRatio || !deps.Policy().AllowedNamespace(ns) {
+		if s.Value < volumeWarnRatio || !deps.Policy().Watched(ns) {
 			continue
 		}
 		pvc := claims.get(ns, claim)

@@ -41,7 +41,7 @@ type Server struct {
 	meta    *AgentMeta
 	kc      kubernetes.Interface
 	token   string            // DASHBOARD_TOKEN; empty disables /api/ (ISS-005)
-	allowNS func(string) bool // namespace allowlist for kubectl reads
+	allowNS func(string) bool // watch scope for kubectl reads
 	cost    CostConfig        // Cost tab pricing (PLAN-002 9.3)
 	ext     ExtendedDeps      // extended endpoints (PLAN-002 9.4)
 	http    *http.Client      // outbound calls (Kubecost, OpenCost)
@@ -176,11 +176,11 @@ func (s *Server) Start() {
 
 func (s *Server) SetLeaderFunc(fn func() bool) { s.meta.IsLeaderFn = fn }
 
-// SetNamespaceFilter sets the allowlist the kubectl endpoint enforces. Until
+// SetNamespaceFilter sets the watch scope filter the kubectl endpoint enforces. Until
 // it is set, namespaced kubectl reads are denied.
 func (s *Server) SetNamespaceFilter(fn func(string) bool) { s.allowNS = fn }
 
-// nsAllowed applies the namespace allowlist to dashboard reads (CLAUDE.md
+// nsAllowed applies the watch scope to dashboard reads (CLAUDE.md
 // constraint 4, ISS-028). Until a filter is set, nothing is allowed.
 func (s *Server) nsAllowed(ns string) bool { return s.allowNS != nil && s.allowNS(ns) }
 
@@ -415,7 +415,7 @@ func (s *Server) handleNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.nsAllowed(ns) {
-		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
+		http.Error(w, "namespace is outside the watch scope", http.StatusForbidden)
 		return
 	}
 
@@ -628,7 +628,7 @@ func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
 	var eventList *corev1.EventList
 	var err error
 	if ns != "" && !s.nsAllowed(ns) {
-		http.Error(w, "namespace is not in the namespace allowlist", http.StatusForbidden)
+		http.Error(w, "namespace is outside the watch scope", http.StatusForbidden)
 		return
 	}
 	if ns != "" {
@@ -641,7 +641,7 @@ func (s *Server) handleK8sEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allowlisted namespaces (ISS-028).
+	// Only watched namespaces (ISS-028).
 	items := make([]corev1.Event, 0, len(eventList.Items))
 	for _, e := range eventList.Items {
 		if s.nsAllowed(e.Namespace) {

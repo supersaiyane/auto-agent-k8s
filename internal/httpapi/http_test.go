@@ -97,7 +97,7 @@ func TestKubectl_NamespaceAllowlist(t *testing.T) {
 		{"top pods -n kube-system", false},
 	} {
 		_, err := executeKubectl(ctx, kc, tc.cmd, allow)
-		denied := err != nil && strings.Contains(err.Error(), "not in the namespace allowlist")
+		denied := err != nil && (strings.Contains(err.Error(), "outside the watch scope") || strings.Contains(err.Error(), "not supported yet"))
 		if tc.allowed == denied {
 			t.Errorf("%q: allowed=%v, err=%v", tc.cmd, tc.allowed, err)
 		}

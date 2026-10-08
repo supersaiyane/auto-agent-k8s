@@ -175,7 +175,7 @@ func CollectBaselines(ctx context.Context, deps *Deps) {
 	if deps.LearningMode == nil {
 		return
 	}
-	for ns := range deps.Policy().NamespaceAllow {
+	for _, ns := range watchedNamespaces(ctx, deps) {
 		dl, err2 := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err2 != nil {
 			continue

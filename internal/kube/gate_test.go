@@ -250,6 +250,45 @@ func TestGate_NoMutationOutsideFixOrWhenBlocked(t *testing.T) {
 	}
 }
 
+// ADR-002: outside the fix scope the gate only describes the change, in fix
+// mode with open guardrails too. Node actions are cluster-scoped and still
+// pass, so every driver may write to nodes and to nothing else.
+func TestGate_OutsideFixScopeOnlySuggests(t *testing.T) {
+	outside := func(deps *Deps) {
+		deps.Policies = policy.Static(deps.Policy().WithFixOverride([]string{}))
+		deps.Policy().Mode = policy.Fix
+	}
+	for _, d := range mutatingDrivers {
+		t.Run(d.name, func(t *testing.T) {
+			for _, w := range runDriver(t, d, outside) {
+				if !strings.Contains(w, " nodes/") {
+					t.Fatalf("write outside the fix scope: %s", w)
+				}
+			}
+		})
+	}
+
+	deps, _ := newHandlerTestDeps(t)
+	openGuardrails(deps)
+	outside(deps)
+	called := 0
+	m := mutation{Namespace: "default", Workload: "api", ActionType: "delete_pod", SuggestMsg: "delete the pod",
+		Apply: func() error { called++; return nil }}
+	outcome, msg := applyMutation(context.Background(), deps, m)
+	if outcome != gateSuggested || called != 0 || !strings.Contains(msg, "outside the fix scope") {
+		t.Fatalf("namespaced change: %v %q, applied %d times", outcome, msg, called)
+	}
+	m.Namespace = ""
+	if outcome, _ := applyMutation(context.Background(), deps, m); outcome != gateApplied || called != 1 {
+		t.Fatalf("cluster-scoped change: %v, applied %d times", outcome, called)
+	}
+	deps.Policy().Mode = policy.Observe
+	m.Namespace = "default"
+	if outcome, _ := applyMutation(context.Background(), deps, m); outcome != gateSkipped {
+		t.Fatalf("observe mode stays silent outside the fix scope: %v", outcome)
+	}
+}
+
 func TestGate_DryRunRecordsSimulation(t *testing.T) {
 	for _, d := range mutatingDrivers {
 		t.Run(d.name, func(t *testing.T) {

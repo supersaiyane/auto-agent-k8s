@@ -45,8 +45,9 @@ rate limit.
 | **DaemonSet** | One copy of the agent runs on every node. Each copy watches the pods on its own node. |
 | **Leader** | One copy is elected leader (a Kubernetes Lease named `auto-agent-leader`). Only the leader runs the cluster-wide checks, so they are not done N times. |
 | **Mode** | How much the agent may do: `observe` (alert only), `suggest` (alert and say what it would do), `dry-run` (record the exact action it would take, the default), `fix` (take the action). |
-| **Allowlist** | The namespaces the agent may look at and act in (`agent.namespaceAllowlist`). It ignores everything else, dashboard included. |
-| **Gate** | The single function every cluster change goes through (`applyMutation` in `internal/kube/gate.go`). It checks mode, guardrails and the rate limit. |
+| **Watch scope** | The namespaces the agent reads and reports on, dashboard included (`agent.watchNamespaces`; empty means every namespace except the system ones). |
+| **Fix scope** | The namespaces the agent may act in today (`agent.fixNamespaces` at install, then the dashboard Settings tab), always inside the **fix ceiling** (`agent.fixCeiling`, where the chart grants writes). Outside it, fixes are only suggested (ADR-002). |
+| **Gate** | The single function every cluster change goes through (`applyMutation` in `internal/kube/gate.go`). It checks the fix scope, mode, guardrails and the rate limit. |
 | **Guardrails** | Quiet hours, blast radius (max distinct namespaces acted on per hour), circuit breaker (max actions per workload per hour), and CRD `requireApproval`. |
 | **Detector** | A check for one failure pattern, for example CrashLoopBackOff or a stuck rollout. |
 | **Remediation** | The fix for a detected problem, for example deleting a crashlooping pod so it restarts. |
@@ -83,7 +84,7 @@ kind load docker-image auto-agent:dev
 TOKEN=$(openssl rand -hex 32)
 helm upgrade --install auto-agent charts/auto-agent -n kube-system \
   --set image.repository=auto-agent --set image.tag=dev --set image.pullPolicy=Never \
-  --set "agent.namespaceAllowlist={default}" \
+  --set "agent.fixNamespaces={default}" \
   --set dashboard.token="$TOKEN"
 
 kubectl -n kube-system rollout status ds/auto-agent
@@ -147,7 +148,7 @@ Write your settings in a values file rather than on the command line:
 # my-values.yaml
 agent:
   mode: dry-run
-  namespaceAllowlist: ["payments", "orders"]
+  fixNamespaces: ["payments", "orders"]   # watched: every non-system namespace
 dashboard:
   token: "<from your secret store>"
 networkPolicy:
@@ -223,7 +224,10 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | Value | Default | What it does |
 | --- | --- | --- |
 | `agent.mode` | `dry-run` | `observe`, `suggest`, `dry-run` or `fix` |
-| `agent.namespaceAllowlist` | `["default"]` | Namespaces to watch and act in; each must exist |
+| `agent.watchNamespaces` | `[]` (every non-system namespace) | Namespaces to read and report on |
+| `agent.fixNamespaces` | `[]` (nowhere) | Namespaces to act in at install; each must exist |
+| `agent.fixCeiling` | `[]` (same as `fixNamespaces`) | Where write Roles exist, so the most the dashboard can enable |
+| `rbac.fixAnywhere` | `false` | One write ClusterRole; a leaked token can then disrupt any namespace |
 | `agent.excludedAnnotation` | `auto-agent.io/disable` | Put this annotation on a pod to make the agent ignore it |
 | `agent.maxActionsPer10m` | `10` | Global rate limit |
 | `agent.dedupTtlSeconds` | `300` | Same problem on the same workload is reported once per window |
@@ -480,8 +484,9 @@ anomaly alerts). Parsed but **not used yet**: `actions.restartStuckPods`,
 
 ### 8.6 Add a namespace
 
-Create the namespace, add it to `agent.namespaceAllowlist`, and
-`helm upgrade`. The upgrade creates its write Role.
+It is watched as soon as it exists. To let the agent act there, add it to
+`agent.fixNamespaces` (or to `agent.fixCeiling` and enable it from the
+Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 
 ---
 

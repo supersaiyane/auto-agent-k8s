@@ -105,7 +105,7 @@ func handleNodePressure(ctx context.Context, deps *Deps, oldNode, newNode *corev
 		evicted, simulated, refused := 0, 0, 0
 		for i := range pl.Items {
 			p := &pl.Items[i]
-			if !deps.Policy().AllowedNamespace(p.Namespace) || isCriticalPod(p) {
+			if !deps.Policy().Fixable(p.Namespace) || isCriticalPod(p) {
 				continue
 			}
 			if isStatefulSetPod(p) {

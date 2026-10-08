@@ -64,12 +64,13 @@ not just describe it:
 
 ```bash
 helm upgrade --install auto-agent charts/auto-agent -n kube-system \
-  --set "agent.namespaceAllowlist={default,payments}" \
+  --set "agent.fixNamespaces={default,payments}" \
   --set dashboard.token="$(openssl rand -hex 32)"
 ```
 
-- Every namespace in `agent.namespaceAllowlist` must exist; each gets a write
-  Role, and the agent reads and acts nowhere else.
+- The agent watches every namespace except the system ones and acts only in
+  `agent.fixNamespaces` (ADR-002). Each of those must exist; each gets a write
+  Role, and the agent never acts outside them.
 - Start in `dry-run` (the default), watch `/api/dry-run`, then set
   `agent.mode=fix` when the simulated actions look right.
 - Without `dashboard.token` the `/api/` endpoints return 503.

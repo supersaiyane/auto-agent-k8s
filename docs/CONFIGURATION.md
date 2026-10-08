@@ -22,10 +22,11 @@ that is neither read nor listed under
 
 **Live reload.** These ConfigMap keys take effect within seconds, without a
 restart: `AUTO_MODE`, `SCALE_CPU_THRESHOLD`, `MAX_SCALE_STEP`, `MAX_REPLICAS`,
-`MIN_REPLICAS`, `COOLDOWN_UP`, `COOLDOWN_DOWN`, `NAMESPACE_ALLOWLIST`. An
+`MIN_REPLICAS`, `COOLDOWN_UP`, `COOLDOWN_DOWN`, `WATCH_NAMESPACES`,
+`FIX_NAMESPACES` (and the deprecated `NAMESPACE_ALLOWLIST`). An
 invalid `AUTO_MODE` is ignored and the old mode stays. Every other key needs a
 pod restart (`kubectl -n kube-system rollout restart ds/auto-agent`). Adding a
-namespace to the allowlist also needs `helm upgrade`, which creates its write
+namespace to the fix ceiling also needs `helm upgrade`, which creates its write
 Role.
 
 **Reading the tables.** "env only" means there is no Helm value; set it with
@@ -46,7 +47,11 @@ env:
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
 | `AUTO_MODE` | `agent.mode` | `observe`, `suggest`, `dry-run`, `fix` | `dry-run` | `observe`: alert only. `suggest`: alert and describe the fix. `dry-run`: record the exact fix in the dry-run log. `fix`: apply it through the gate. Invalid at startup means `observe`; invalid on reload is ignored. Live reload. | `internal/policy/policy.go` |
-| `NAMESPACE_ALLOWLIST` | `agent.namespaceAllowlist` | comma-separated namespace names | `default` | The only namespaces the agent reads and acts in, dashboard included. Each must exist at install (it gets a write Role). Live reload. | `internal/policy/policy.go` |
+| `WATCH_NAMESPACES` | `agent.watchNamespaces` | comma-separated namespace names; empty, `*` or `all` for every namespace | empty | Where the agent reads, detects and reports, and what the dashboard and kubectl panel show (ADR-002). Empty watches every namespace except `kube-system`, `kube-public`, `kube-node-lease` and the agent's own. Live reload. | `internal/policy/scope.go` |
+| `FIX_NAMESPACES` | `agent.fixNamespaces` | comma-separated namespace names | empty | Where the agent may act at install. The dashboard Settings tab replaces it later; the effective fix scope is always inside the ceiling. Outside it, every fix is only suggested. Live reload. | `internal/policy/scope.go` |
+| `FIX_CEILING` | `agent.fixCeiling` (empty: `agent.fixNamespaces`) | comma-separated namespace names | the fix list | Where the chart renders write Roles, so the most the Settings tab can enable. Each namespace must exist at install. Needs a Helm upgrade to change. | `internal/policy/scope.go` |
+| `FIX_ANYWHERE` | `rbac.fixAnywhere` | `true`, `false` | `false` | Renders one write ClusterRole, and the ceiling becomes every non-system namespace. A leaked token can then disrupt any namespace; the agent warns at every start. Needs a Helm upgrade to change. | `internal/policy/scope.go` |
+| `NAMESPACE_ALLOWLIST` | removed from the chart (it fails with a pointer to the values above) | comma-separated namespace names | unset | Deprecated alias, read for one release: sets both `WATCH_NAMESPACES` and `FIX_NAMESPACES` when those are unset, with a warning. | `internal/policy/scope.go` |
 | `EXCLUDED_ANNOTATION` | `agent.excludedAnnotation` | annotation key | `auto-agent.io/disable` | Pods carrying this annotation are ignored | `internal/policy/policy.go` |
 | `DEDUP_TTL_SECONDS` | `agent.dedupTtlSeconds` | positive integer | `300` | The same problem on the same workload is reported once per window | `internal/policy/policy.go` |
 
@@ -255,7 +260,8 @@ These do not become variables; they change what the chart renders.
 | `logs.efs.path` | `/var/log/auto-agent` | Host directory mounted at `/var/log/auto-agent` |
 | `networkPolicy.enabled` | `true` | Render the NetworkPolicy |
 | `networkPolicy.allowFromNamespaces` | `["monitoring"]` | Namespaces allowed to reach port 8080 |
-| `rbac.readTLSSecrets` | `false` | Also grants secret list in allowlisted namespaces (see `TLS_CERT_CHECK`) |
+| `rbac.readTLSSecrets` | `false` | Also grants secret list in the fix ceiling namespaces, which is where the check reads (see `TLS_CERT_CHECK`) |
+| `rbac.fixAnywhere` | `false` | One write ClusterRole instead of a Role per ceiling namespace (see `FIX_ANYWHERE`) |
 | `webhook.enabled` | `false` | Render the webhook registration and Service |
 | `webhook.failurePolicy` | `Ignore` | `Ignore` or `Fail` when the webhook is unreachable |
 | `webhook.caBundle` | empty | Base64 CA bundle for the webhook registration |
