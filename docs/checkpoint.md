@@ -27,17 +27,14 @@
 | 2026-10-08 | PR #1 merged; branch cleanup; kind demo; ADR-002 | Done: PR #1 merged (39269d3), PR #2 retargeted to master and CI started, phase0-1-safety deleted; merging PR #2 refused by the permission guard (owner merges after CI); demo cluster auto-agent-demo running with deploy.sh and demo apps, dashboard on localhost:8080; ADR-002 accepted (option 3) and committed (8fcefc5), not built | ADR-002: watch every namespace except system ones, fix inside a Helm ceiling or with rbac.fixAnywhere, initial fix list from Helm then a Settings tab (what, how, why, warnings, confirmation, audit), namespace dropdown on every tab; ISS-062; PLAN-002 11.8 | docs/adr/ADR-002-watch-and-fix-scope.md, internal/policy/policy.go:27 (NamespaceAllow), internal/kube (46 uses of NamespaceAllow and AllowedNamespace across 20 files), charts/auto-agent/templates/roles.yaml, internal/httpapi/ui/app.js (toolbar f-ns) |
 | 2026-10-08 | PR #2 merged; PLAN-002 11.8 step 1 (watch scope, fix scope) | Done: `make verify` passed (coverage 55.2% measured); `make e2e` PASS on kind (dry-run untouched, kube-system refused as outside the watch scope, RBAC complete with every namespace watched) | `internal/policy/scope.go` (new), `policy.go`, `reload.go`; `internal/kube/namespaces.go` (new), `gate.go` fix scope check, 29 detector loops; chart values, `_helpers.tpl` fixCeiling, `roles.yaml` ceiling or fixAnywhere ClusterRoles, `configmap.yaml`; RBAC tests in both modes; CONFIGURATION, README, GUIDE, wiki 03, 11, 21; CLAUDE.md constraint 4 | `internal/kube/gate.go:47` (fix scope check), `internal/policy/scope.go:55` (loadScope), `charts/auto-agent/templates/_helpers.tpl` (fixCeiling), e2e log in the session scratchpad `e2e.txt` |
 | 2026-10-08 | PLAN-002 11.8 steps 2 to 4 (Settings tab, `/api/scope`, namespace selector) | Done: `make e2e` PASS on kind with the new scope case (ceiling refused, choice applied by every agent, kept across `helm upgrade`, audited, cleared); `make ui-test` PASS and falsified | `internal/httpapi/scope.go`, `internal/kube/scope_settings.go`, `internal/policy/reload.go` (WatchScope, fail closed until synced), UI files, chart scope Role, guard ISS-064 | `internal/kube/scope_settings.go:30` (SaveFixScope), `internal/httpapi/scope.go:55` (handleScope), `internal/httpapi/ui/app.js` (viewSettings), `scripts/e2e-kind.sh` (scope case) |
+| 2026-10-08 | PLAN-002 11.5, 11.6, 11.3, 11.7: phase 11 complete | Done: `make verify` (coverage 56.4% measured, floor raised to it), `make e2e` and `make e2e-raw` PASS on kind; not pushed | ed4ddab (shutdown, notices, check-config), bace559 (docs owners, changelog, docs check), 11.3 commit (namespace, image digest), 11.7 records | `cmd/auto-agent/run.go` (`shutdown`, `leaderChecks`), `cmd/auto-agent/main.go` (`command`), `internal/httpapi/docs_test.go`, `charts/auto-agent/templates/_helpers.tpl` |
 
 ## Next action
 
-1. 11.5 is in `git stash` ("11.5 wip": `Deps.WaitIdle`, `config.UnknownKeys`,
-   `config.Describe`, `KUBE_API_QPS`, `KUBE_API_BURST`). `git stash pop`, then
-   finish: main.go subcommands `version` and `check-config`, kubeconfig
-   fallback, `flag.Set` error, shutdown order (HTTP, handlers and loops,
-   forwarders, recorder and audit log), leader-only Slack notices, `run()`
-   split under 50 lines, tests, `cmd` at 85 percent.
-2. 11.3 remainder (ISS-050): chart namespace defaults to the release
-   namespace, `helm-install` into `auto-agent`, image digest value.
-3. 11.6 docs (ISS-057), then 11.7 records. Push only on approval.
+1. Phase 11 is complete and committed on `plan-002`, not pushed. Push and
+   open a PR only on the owner's approval.
+2. Then PLAN-002 phase 12 (detector audit and tests, ISS-039), phase 13
+   (native config reload), PLAN-003 (terminal), phases 14 to 17.
+3. Open: ISS-063 (terminal `-A`, PLAN-003), ISS-065 (helm test pod).
 4. Stage `deployment/` before `make verify` (`check-manifests` diffs the index).
 5. Demo cluster: `kind delete cluster --name auto-agent-demo` when done.

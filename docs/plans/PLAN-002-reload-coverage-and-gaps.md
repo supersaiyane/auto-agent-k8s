@@ -406,8 +406,15 @@ rungs, filters, refresh control and deep links (ISS-053, ISS-060);
 process killing, opt-in cost tools and ownership labels; demo apps in
 labelled namespaces `test1`, `test2`, `chaos` (the raw allowlist); `make
 e2e-raw` runs both scripts on kind; shellcheck in CI (ISS-049, ISS-052).
-Next: 11.8 (ADR-002, watch and fix scope with the Settings tab), then the
-11.3 remainder (one namespace name, image digest), 11.5, 11.6.
+11.8 done 2026-10-08 (c3e88c4, 826d32f): watch scope and fix scope
+(ADR-002, ISS-062); `/api/scope` and the Settings tab; header namespace
+selector; ISS-064 found and fixed. 11.5 done (ed4ddab): ordered shutdown,
+leader-only notices, `check-config`, kubeconfig fallback, API limits
+(ISS-054, ISS-055, ISS-056). 11.6 done (bace559): one owner per topic,
+generated changelog, docs check (ISS-057). 11.3 done: the chart defaults to
+the release namespace, `image.digest`, the helm test fixed (ISS-050;
+ISS-065 opened for the rest). 11.7: records, coverage floor raised to the
+measured total. **Phase 11 is complete.** Next: phase 12.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong
