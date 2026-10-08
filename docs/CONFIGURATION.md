@@ -25,7 +25,7 @@ restart: `AUTO_MODE`, `SCALE_CPU_THRESHOLD`, `MAX_SCALE_STEP`, `MAX_REPLICAS`,
 `MIN_REPLICAS`, `COOLDOWN_UP`, `COOLDOWN_DOWN`, `WATCH_NAMESPACES`,
 `FIX_NAMESPACES` (and the deprecated `NAMESPACE_ALLOWLIST`). An
 invalid `AUTO_MODE` is ignored and the old mode stays. Every other key needs a
-pod restart (`kubectl -n kube-system rollout restart ds/auto-agent`). Adding a
+pod restart (`kubectl -n auto-agent rollout restart ds/auto-agent`). Adding a
 namespace to the fix ceiling also needs `helm upgrade`, which creates its write
 Role.
 
@@ -157,7 +157,7 @@ env:
 | --- | --- | --- | --- | --- | --- |
 | `DASHBOARD_TOKEN` | `dashboard.token` (Secret) | any string; use `openssl rand -hex 32` | empty | Bearer token for every `/api/` route. Empty means `/api/` returns 503 | `internal/httpapi/http.go` |
 | `TLS_CERT_CHECK` | `rbac.readTLSSecrets` | `true`, anything else is off | `false` | Runs the TLS certificate expiry check; the same value grants the secret-list RBAC it needs | `internal/kube/security.go` |
-| `LEADER_LEASE_NAMESPACE` | `leaderElection.namespace` | namespace | `kube-system` | Where the `auto-agent-leader` Lease lives; the chart's lease Role follows it | `cmd/auto-agent/run.go` |
+| `LEADER_LEASE_NAMESPACE` | `leaderElection.namespace` (empty: the agent's namespace) | namespace | `kube-system` when unset; the chart always sets it | Where the `auto-agent-leader` Lease lives; the chart's lease Role follows it | `cmd/auto-agent/run.go` |
 
 ## Admission webhook
 
@@ -248,8 +248,9 @@ These do not become variables; they change what the chart renders.
 
 | Helm value | Default | Effect |
 | --- | --- | --- |
+| `image.digest` | empty | Pins the image as `repository@digest`; `image.tag` is then ignored (CLAUDE.md constraint 11). Set it in production |
 | `image.repository`, `image.tag`, `image.pullPolicy` | `ghcr.io/supersaiyane/auto-agent-k8s`, `1.0.0`, `IfNotPresent` | Agent image |
-| `namespace` | `kube-system` | Namespace the agent, ConfigMap and Secret live in |
+| `namespace` | empty: the release namespace (`helm -n auto-agent`) | Namespace the agent, ConfigMap and Secret live in; never watched |
 | `priorityClassName` | `system-node-critical` | Keeps the agent scheduled under node pressure |
 | `initImage` | `busybox:1.36` pinned by digest | Init container that chowns the log directory |
 | `tolerations` | tolerate everything | Node agents run on every node, control plane included |

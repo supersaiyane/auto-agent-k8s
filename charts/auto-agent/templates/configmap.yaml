@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: auto-agent-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 data:
   AUTO_MODE: "{{ .Values.agent.mode }}"
   HPA_COEXISTENCE: "{{ .Values.agent.hpaCoexistence }}"
@@ -11,7 +11,7 @@ data:
   MAX_SCALE_STEP: "{{ .Values.agent.maxScaleStep }}"
   MAX_ACTIONS_PER_10M: "{{ .Values.agent.maxActionsPer10m }}"
   TLS_CERT_CHECK: "{{ .Values.rbac.readTLSSecrets }}"
-  LEADER_LEASE_NAMESPACE: "{{ .Values.leaderElection.namespace }}"
+  LEADER_LEASE_NAMESPACE: "{{ include "auto-agent.leaseNamespace" . }}"
   CIRCUIT_BREAKER_THRESHOLD: "{{ .Values.guardrails.circuitBreakerThreshold }}"
   BLAST_RADIUS_MAX_NAMESPACES: "{{ .Values.guardrails.blastRadiusMaxNamespaces }}"
   WATCH_NAMESPACES: "{{ join "," .Values.agent.watchNamespaces }}"

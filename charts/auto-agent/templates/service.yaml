@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: auto-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 spec:
   # Controllers only: they serve the dashboard, the API and event ingest
   # (ADR-001). Node agents serve probes and metrics on their own pods.

@@ -63,7 +63,7 @@ not just describe it:
 ## Install (Helm)
 
 ```bash
-helm upgrade --install auto-agent charts/auto-agent -n kube-system \
+helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace \
   --set "agent.fixNamespaces={default,payments}" \
   --set dashboard.token="$(openssl rand -hex 32)"
 ```

@@ -10,7 +10,7 @@ set -eu
 
 CLUSTER="${CLUSTER:-auto-agent-e2e}"
 IMAGE="auto-agent:e2e"
-NS_AGENT="kube-system"
+NS_AGENT="auto-agent"
 NS_TEST="default"
 WAIT_SECONDS="${WAIT_SECONDS:-240}"
 # CHART lets a broken copy of the chart prove the RBAC check can fail.
@@ -42,7 +42,7 @@ docker build -t "$IMAGE" .
 kind load docker-image "$IMAGE" --name "$CLUSTER"
 
 log "installing chart in $MODE mode"
-helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" \
+helm upgrade --install auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" --create-namespace \
 	--set image.repository=auto-agent --set image.tag=e2e --set image.pullPolicy=Never \
 	--set "agent.mode=$MODE" --set "agent.fixNamespaces={$NS_TEST}" \
 	--set dashboard.token=e2e-token \
@@ -198,7 +198,7 @@ CODE=$(put_scope '{"fixNamespaces":[],"confirm":[]}')
 scope_data | grep -q '"fixNamespaces":""' || fail "auto-agent-scope does not hold the empty choice: $(scope_data)"
 wait_scope_log "is now [] (dashboard choice: true)" || fail "not every controller and node agent applied the dashboard choice"
 log "every controller and node agent applied the empty fix scope"
-helm upgrade auto-agent "$CHART" --kube-context "$CTX" --reuse-values --wait --timeout 180s >/dev/null
+helm upgrade auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" --reuse-values --wait --timeout 180s >/dev/null
 scope_data | grep -q '"fixNamespaces":""' || fail "a Helm upgrade changed the dashboard choice: $(scope_data)"
 scope_json | grep -q '"choice":\[\]' || fail "after a Helm upgrade /api/scope lost the choice: $(scope_json)"
 log "a Helm upgrade kept the dashboard choice"

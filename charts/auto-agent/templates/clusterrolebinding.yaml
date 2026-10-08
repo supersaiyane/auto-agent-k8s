@@ -9,7 +9,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -22,4 +22,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: auto-agent-node
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}

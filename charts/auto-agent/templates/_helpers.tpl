@@ -23,3 +23,22 @@ namespace outside the ceiling, so a typo never installs silently.
 {{- end -}}
 {{- join "," $ceiling -}}
 {{- end -}}
+
+{{/* The agent's namespace: .Values.namespace, else the release namespace (helm -n). */}}
+{{- define "auto-agent.namespace" -}}
+{{- .Values.namespace | default .Release.Namespace -}}
+{{- end -}}
+
+{{/* Where the leader Lease lives: leaderElection.namespace, else the agent's namespace. */}}
+{{- define "auto-agent.leaseNamespace" -}}
+{{- .Values.leaderElection.namespace | default (include "auto-agent.namespace" .) -}}
+{{- end -}}
+
+{{/* The agent image, pinned by digest when image.digest is set (constraint 11). */}}
+{{- define "auto-agent.image" -}}
+{{- if .Values.image.digest -}}
+{{ .Values.image.repository }}@{{ .Values.image.digest }}
+{{- else -}}
+{{ .Values.image.repository }}:{{ .Values.image.tag }}
+{{- end -}}
+{{- end -}}

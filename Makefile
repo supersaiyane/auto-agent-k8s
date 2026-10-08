@@ -103,7 +103,7 @@ push:
 	docker push $(IMAGE)
 
 helm-install:
-	helm upgrade --install auto-agent charts/auto-agent -n kube-system --create-namespace
+	helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace
 
 # docs/wiki/19-changelog.md, generated from git history (ISS-057).
 changelog:

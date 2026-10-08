@@ -1,9 +1,14 @@
 image:
   repository: ghcr.io/supersaiyane/auto-agent-k8s
   tag: "1.0.0"
+  # Pin the image by digest in production (CLAUDE.md constraint 11): when set,
+  # the pods use repository@digest and tag is ignored.
+  digest: ""
   pullPolicy: IfNotPresent
 
-namespace: kube-system
+# The agent's namespace. Empty means the release namespace, so install with
+# helm -n auto-agent --create-namespace. Watched namespaces never include it.
+namespace: ""
 # Kept on purpose (reviewed 2026-10-07, ISS-010): node actions are taken only
 # by the agent on that node (ISS-004), so it must run on every node and must
 # not be evicted by the node pressure it is handling.
@@ -99,7 +104,7 @@ rbac:
   fixAnywhere: false
 
 leaderElection:
-  namespace: kube-system           # where the auto-agent-leader Lease lives
+  namespace: ""                    # where the auto-agent-leader Lease lives; empty: the agent's namespace
 
 guardrails:
   circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips

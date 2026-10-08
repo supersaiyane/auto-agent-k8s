@@ -13,7 +13,7 @@ This page documents the honest status of every feature: what's actually working 
 | **Event persistence** | 258+ events on disk | Survives pod restarts via `events.jsonl` on hostPath volume |
 | **Dedup / rate limiter / circuit breaker** | Dedup skipped events visible in logs | Fix scope, dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval |
 | **Node-local pod informer** | Filtered by `NODE_NAME` env var | Each pod watches only its own node's pods |
-| **Leader election** | One pod acquires lease, runs periodic scans | Lease-based via `kube-system/auto-agent-leader` |
+| **Leader election** | One pod acquires lease, runs periodic scans | Lease `auto-agent-leader` in the agent's namespace |
 | **Config hot-reload** | ConfigMap changes picked up every 30s | No pod restart needed for config changes |
 | **Cost estimation** | Working with built-in instance prices | 40+ AWS/GCP/Azure instance types hardcoded |
 | **Resource efficiency** | Pod overuse/underuse/no-limits analysis | Based on requests vs limits comparison |

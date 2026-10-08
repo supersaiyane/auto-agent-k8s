@@ -6,7 +6,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auto-agent-controller
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
   labels:
     {{- include "auto-agent.labels" . | nindent 4 }}
     app.kubernetes.io/component: controller
@@ -49,7 +49,7 @@ spec:
         emptyDir: {}
       containers:
       - name: agent
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        image: "{{ include "auto-agent.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         envFrom:
           - configMapRef: { name: auto-agent-config }

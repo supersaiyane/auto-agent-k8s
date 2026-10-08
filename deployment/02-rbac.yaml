@@ -227,7 +227,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: auto-agent-leader
-  namespace: kube-system
+  namespace: auto-agent
 rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
@@ -362,7 +362,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: auto-agent-leader
-  namespace: kube-system
+  namespace: auto-agent
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

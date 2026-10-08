@@ -82,19 +82,19 @@ docker build -t auto-agent:dev .
 kind load docker-image auto-agent:dev
 
 TOKEN=$(openssl rand -hex 32)
-helm upgrade --install auto-agent charts/auto-agent -n kube-system \
+helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace \
   --set image.repository=auto-agent --set image.tag=dev --set image.pullPolicy=Never \
   --set "agent.fixNamespaces={default}" \
   --set dashboard.token="$TOKEN"
 
-kubectl -n kube-system rollout status ds/auto-agent
+kubectl -n auto-agent rollout status ds/auto-agent
 ```
 
 Make something break and watch the agent notice:
 
 ```bash
 kubectl run crasher --image=busybox:1.36 --restart=Always -- sh -c 'echo boom; exit 1'
-kubectl -n kube-system logs -l app=auto-agent -c agent -f | grep crasher
+kubectl -n auto-agent logs -l app=auto-agent -c agent -f | grep crasher
 ```
 
 You should see `CrashLoopBackOff detected on default/crasher` within a
@@ -102,7 +102,7 @@ minute. The pod is **not** deleted, because the agent is in dry-run. See what
 it would have done:
 
 ```bash
-kubectl -n kube-system port-forward svc/auto-agent 8080:8080 &
+kubectl -n auto-agent port-forward svc/auto-agent 8080:8080 &
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/dry-run
 ```
 
@@ -158,8 +158,8 @@ slack:
 ```
 
 ```bash
-helm upgrade --install auto-agent charts/auto-agent -n kube-system -f my-values.yaml
-kubectl -n kube-system rollout status ds/auto-agent
+helm upgrade --install auto-agent charts/auto-agent -n auto-agent --create-namespace -f my-values.yaml
+kubectl -n auto-agent rollout status ds/auto-agent
 ```
 
 Secrets (`dashboard.token`, `slack.webhookUrl`, `slack.signingSecret`) end
@@ -182,13 +182,13 @@ Let it run in dry-run for a few days. Check:
 When the simulated actions look right:
 
 ```bash
-helm upgrade auto-agent charts/auto-agent -n kube-system -f my-values.yaml --set agent.mode=fix
+helm upgrade auto-agent charts/auto-agent -n auto-agent -f my-values.yaml --set agent.mode=fix
 ```
 
 or, without a rollout, edit the ConfigMap (the agent reloads it live):
 
 ```bash
-kubectl -n kube-system patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}'
+kubectl -n auto-agent patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}'
 ```
 
 To stop all actions immediately, set `AUTO_MODE` back to `dry-run` the same
@@ -197,8 +197,8 @@ way.
 ### 4.5 Upgrade and uninstall
 
 ```bash
-helm upgrade auto-agent charts/auto-agent -n kube-system -f my-values.yaml
-helm uninstall auto-agent -n kube-system
+helm upgrade auto-agent charts/auto-agent -n auto-agent -f my-values.yaml
+helm uninstall auto-agent -n auto-agent
 ```
 
 Uninstall leaves the `auto-agent-leader` Lease and any nodes the agent
@@ -231,7 +231,7 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | `agent.excludedAnnotation` | `auto-agent.io/disable` | Put this annotation on a pod to make the agent ignore it |
 | `agent.maxActionsPer10m` | `10` | Global rate limit |
 | `agent.dedupTtlSeconds` | `300` | Same problem on the same workload is reported once per window |
-| `namespace` | `kube-system` | Where the agent itself runs |
+| `namespace` | empty: the release namespace (`helm -n auto-agent`) | Where the agent itself runs; never watched |
 
 ### 5.2 Guardrails
 
@@ -291,7 +291,7 @@ ISS-012): `escalation.*` (PagerDuty, OpsGenie, email), `gitops.mode`,
 | `networkPolicy.enabled` | `true` | Restrict who can reach port 8080 |
 | `networkPolicy.allowFromNamespaces` | `["monitoring"]` | Namespaces allowed in |
 | `rbac.readTLSSecrets` | `false` | Grants secret list in allowlisted namespaces and turns on the certificate expiry check |
-| `leaderElection.namespace` | `kube-system` | Where the leader Lease lives (the Role follows it) |
+| `leaderElection.namespace` | empty: the agent's namespace | Where the leader Lease lives (the Role follows it) |
 | `webhook.enabled` | `false` | Admission webhook that rejects workloads without limits or probes |
 
 ### 5.6 Timing (advanced)
@@ -308,7 +308,7 @@ gates (`scalingGates.*`); see [CONFIGURATION.md](CONFIGURATION.md#scaling).
 ### 6.1 Open it
 
 ```bash
-kubectl -n kube-system port-forward svc/auto-agent 8080:8080
+kubectl -n auto-agent port-forward svc/auto-agent 8080:8080
 ```
 
 Open `http://localhost:8080` and sign in with the dashboard token. It stays in
@@ -454,7 +454,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -X POST -d '{"command":"get pods -n de
 ### 8.1 Change the mode without a restart
 
 ```bash
-kubectl -n kube-system patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}'
+kubectl -n auto-agent patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}'
 ```
 
 Takes effect within seconds; an invalid value is ignored with a warning and
@@ -533,7 +533,7 @@ Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 | Dashboard panels are empty | Wrong or missing token. Reload the tab to re-enter it; check `curl /api/status` returns 200 |
 | `/api/...` returns 503 | `dashboard.token` is not set |
 | Problems detected but nothing is fixed | Check the mode (`/api/status`) and the fix scope (Settings tab): outside it fixes are only suggested. In `fix`, look for `gate: BLOCKED` in the logs: quiet hours, blast radius, circuit breaker or `requireApproval` stopped it, or `RATE LIMITED` |
-| Node pressure ignored | Node actions are taken only by the agent pod on that node; check it runs there (`kubectl -n kube-system get pods -o wide`) and that `NODE_NAME` is set |
+| Node pressure ignored | Node actions are taken only by the agent pod on that node; check it runs there (`kubectl -n auto-agent get pods -o wide`) and that `NODE_NAME` is set |
 | `auto_agent_api_errors_total{reason="forbidden"}` rising | The chart is missing a grant for that resource. The warning log names it. Please open an issue; `TestRBAC_ChartMatchesCode` should have caught it |
 | Kubectl panel says "outside the watch scope" | Expected for namespaces outside `agent.watchNamespaces`, the system namespaces and the agent's own; `-A` is not supported yet (PLAN-003) |
 | Slack buttons answer "no action was taken" | Buttons are not wired yet (ISS-012) |
@@ -542,8 +542,8 @@ Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 Useful commands:
 
 ```bash
-kubectl -n kube-system exec deploy/auto-agent-controller -c agent -- /auto-agent check-config
-kubectl -n kube-system exec deploy/auto-agent-controller -c agent -- /auto-agent version
+kubectl -n auto-agent exec deploy/auto-agent-controller -c agent -- /auto-agent check-config
+kubectl -n auto-agent exec deploy/auto-agent-controller -c agent -- /auto-agent version
 ```
 
 Outside a cluster the agent uses your kubeconfig (`KUBECONFIG` or
@@ -554,9 +554,9 @@ last events, and only then closes the event and audit logs. Slack gets one
 "leading" notice per leader term and one stop notice from the leader.
 
 ```bash
-kubectl -n kube-system logs -l app=auto-agent -c agent --tail=200
-kubectl -n kube-system get lease auto-agent-leader -o yaml
-kubectl -n kube-system get configmap auto-agent-config -o yaml
+kubectl -n auto-agent logs -l app=auto-agent -c agent --tail=200
+kubectl -n auto-agent get lease auto-agent-leader -o yaml
+kubectl -n auto-agent get configmap auto-agent-config -o yaml
 ```
 
 ---

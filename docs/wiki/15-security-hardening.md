@@ -13,7 +13,7 @@ missing or unused grant.
   create pod evictions, patch/update deployments, delete jobs. No workload
   write exists outside the allowlist. Each allowlisted namespace must exist
   before install.
-- **Role `auto-agent-leader` in `kube-system`**: create leases, and get/update
+- **Role `auto-agent-leader` in the agent's namespace**: create leases, and get/update
   only the `auto-agent-leader` lease.
 - **Role `auto-agent-config` in the agent namespace**: read its ConfigMap.
 - **TLS secrets**: `rbac.readTLSSecrets: true` grants secret list in

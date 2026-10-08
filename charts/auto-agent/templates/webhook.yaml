@@ -19,7 +19,7 @@ webhooks:
     clientConfig:
       service:
         name: auto-agent-webhook
-        namespace: {{ .Values.namespace }}
+        namespace: {{ include "auto-agent.namespace" . }}
         path: /validate
         port: 8443
       {{- if .Values.webhook.caBundle }}
@@ -35,7 +35,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: auto-agent-webhook
-  namespace: {{ .Values.namespace }}
+  namespace: {{ include "auto-agent.namespace" . }}
 spec:
   selector:
     app: auto-agent-controller
