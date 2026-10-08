@@ -205,6 +205,18 @@ func TestConfigReference_MatchesCodeAndChart(t *testing.T) {
 			t.Errorf("%s is listed as not read, but the code reads it; move it to its section", v)
 		}
 	}
+	reserved := map[string]bool{}
+	for _, v := range Reserved() {
+		reserved[v] = true
+		if !unread[v] {
+			t.Errorf("config.Reserved names %s, which docs/CONFIGURATION.md does not list as not read", v)
+		}
+	}
+	for v := range unread {
+		if !reserved[v] {
+			t.Errorf("docs/CONFIGURATION.md lists %s as not read, but config.Reserved does not, so check-config would call it unknown", v)
+		}
+	}
 
 	chart := chartEnvVars(t)
 	undocumented := map[string]bool{}

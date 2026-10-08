@@ -38,6 +38,8 @@ agent:
   dedupTtlSeconds: 300             # deduplication TTL (5 min)
   llmTimeoutSec: 10
   slackTimeoutSec: 5
+  apiQps: 50                       # Kubernetes API requests per second, per pod
+  apiBurst: 100                    # short bursts above apiQps, per pod
 
 llm:
   apiUrl: "https://llm-gateway.internal/v1/chat/completions"

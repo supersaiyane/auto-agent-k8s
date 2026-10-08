@@ -21,7 +21,12 @@ complete. PR #2 merged 2026-10-08 (c5298ac). 11.8 done 2026-10-08 (ADR-002, ISS-
 gate only suggests outside the fix scope; `/api/scope` and the Settings tab
 change the fix scope inside the Helm ceiling (`auto-agent-scope` ConfigMap,
 kept across Helm upgrades, audited); a header namespace selector filters
-every tab; ISS-064 (guard blind to stored clients) found and fixed. Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
+every tab; ISS-064 (guard blind to stored clients) found and fixed. 11.5 done
+2026-10-08 (ISS-054, ISS-055, ISS-056): shutdown waits for handlers and
+loops before closing the audit log; leader-only Slack notices; `auto-agent
+version` and `check-config`; kubeconfig fallback; `KUBE_API_QPS` and
+`KUBE_API_BURST`; `run()` split under 50 lines; `cmd` coverage 86.6%
+(measured). Next: 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
 (config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
 are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
 95 percent. PLAN-001 is complete (PR #1).

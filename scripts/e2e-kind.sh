@@ -102,6 +102,15 @@ log "kubectl -n kube-system -> $KUBECTL"
 [ "$HEALTH" = "200" ] || fail "/healthz returned $HEALTH, want 200"
 echo "$KUBECTL" | grep -q "outside the watch scope" || fail "kubectl endpoint read kube-system"
 
+for pod in "$AGENT_POD" "$NODE_POD"; do
+	CHECK=$(kubectl --context "$CTX" -n "$NS_AGENT" exec "$pod" -c agent -- /auto-agent check-config 2>&1) \
+		|| { echo "$CHECK" | tail -5; fail "check-config in $pod found keys the agent does not read (ISS-056)"; }
+	echo "$CHECK" | grep -q "DASHBOARD_TOKEN=(set, redacted)" || [ "$pod" = "$NODE_POD" ] \
+		|| fail "check-config in $pod did not redact the dashboard token"
+	if echo "$CHECK" | grep -q "e2e-token"; then fail "check-config in $pod printed a secret"; fi
+done
+log "check-config: every key the chart sets is read, secrets redacted"
+
 kubectl --context "$CTX" -n "$NS_AGENT" port-forward "pod/$NODE_POD" 18081:8080 >/dev/null 2>&1 &
 PF=$!
 sleep 3

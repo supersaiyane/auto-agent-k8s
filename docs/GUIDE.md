@@ -528,17 +528,30 @@ Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `helm install` fails: namespace not found | Every allowlisted namespace must exist first; create it |
+| `helm install` fails: namespace not found | Every namespace in `agent.fixCeiling` (or `agent.fixNamespaces`) must exist first; create it |
+| A setting seems to have no effect | Run `auto-agent check-config` in the pod: it prints every setting the agent reads (secrets redacted) and names any key it does not read, such as a misspelling. The agent also logs `config: X is set but the agent does not read it` at start |
 | Dashboard panels are empty | Wrong or missing token. Reload the tab to re-enter it; check `curl /api/status` returns 200 |
 | `/api/...` returns 503 | `dashboard.token` is not set |
-| Problems detected but nothing is fixed | Check the mode (`/api/status`). In `fix`, look for `gate: BLOCKED` in the logs: quiet hours, blast radius, circuit breaker or `requireApproval` stopped it, or `RATE LIMITED` |
+| Problems detected but nothing is fixed | Check the mode (`/api/status`) and the fix scope (Settings tab): outside it fixes are only suggested. In `fix`, look for `gate: BLOCKED` in the logs: quiet hours, blast radius, circuit breaker or `requireApproval` stopped it, or `RATE LIMITED` |
 | Node pressure ignored | Node actions are taken only by the agent pod on that node; check it runs there (`kubectl -n kube-system get pods -o wide`) and that `NODE_NAME` is set |
 | `auto_agent_api_errors_total{reason="forbidden"}` rising | The chart is missing a grant for that resource. The warning log names it. Please open an issue; `TestRBAC_ChartMatchesCode` should have caught it |
-| Kubectl panel says "not in the namespace allowlist" | Expected for namespaces outside the allowlist and for `-A` |
+| Kubectl panel says "outside the watch scope" | Expected for namespaces outside `agent.watchNamespaces`, the system namespaces and the agent's own; `-A` is not supported yet (PLAN-003) |
 | Slack buttons answer "no action was taken" | Buttons are not wired yet (ISS-012) |
 | No leader | Look for `acquired leader lease` in the logs and check the Lease in `leaderElection.namespace` |
 
 Useful commands:
+
+```bash
+kubectl -n kube-system exec deploy/auto-agent-controller -c agent -- /auto-agent check-config
+kubectl -n kube-system exec deploy/auto-agent-controller -c agent -- /auto-agent version
+```
+
+Outside a cluster the agent uses your kubeconfig (`KUBECONFIG` or
+`~/.kube/config`), so `go run ./cmd/auto-agent` works against a kind cluster.
+On SIGTERM it stops taking API requests, waits up to 15 seconds for running
+handlers and leader loops (so a fix in flight is still audited), sends its
+last events, and only then closes the event and audit logs. Slack gets one
+"leading" notice per leader term and one stop notice from the leader.
 
 ```bash
 kubectl -n kube-system logs -l app=auto-agent -c agent --tail=200

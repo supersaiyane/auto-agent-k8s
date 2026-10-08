@@ -36,6 +36,10 @@ type Config struct {
 	PodName      string
 	PodNamespace string
 
+	// API client rate limits, per pod (ISS-056).
+	APIQPS   float32
+	APIBurst int
+
 	// Role and the node to controller link (ADR-001).
 	Role          string // all, node or controller
 	ControllerURL string // where a node agent sends its events
@@ -174,6 +178,9 @@ func Load(get Getenv) Config {
 		NodeName:     r.str("NODE_NAME", ""),
 		PodName:      r.str("POD_NAME", ""),
 		PodNamespace: r.str("POD_NAMESPACE", ""),
+
+		APIQPS:   float32(r.positiveInt("KUBE_API_QPS", 50)),
+		APIBurst: r.positiveInt("KUBE_API_BURST", 100),
 
 		Role:          r.str("AGENT_ROLE", RoleAll),
 		ControllerURL: r.str("CONTROLLER_URL", ""),

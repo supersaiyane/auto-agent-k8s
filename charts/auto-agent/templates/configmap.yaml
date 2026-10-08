@@ -27,6 +27,8 @@ data:
   DEDUP_TTL_SECONDS: "{{ .Values.agent.dedupTtlSeconds }}"
   LLM_TIMEOUT_SEC: "{{ .Values.agent.llmTimeoutSec }}"
   SLACK_TIMEOUT_SEC: "{{ .Values.agent.slackTimeoutSec }}"
+  KUBE_API_QPS: "{{ .Values.agent.apiQps }}"
+  KUBE_API_BURST: "{{ .Values.agent.apiBurst }}"
   METRICS_PROVIDER: "{{ .Values.metricsProvider.type }}"
   PROMETHEUS_URL: "{{ .Values.metricsProvider.prometheusUrl }}"
   LLM_ENABLED: "{{ .Values.llm.enabled }}"
