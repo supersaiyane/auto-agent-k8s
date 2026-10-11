@@ -287,3 +287,54 @@ func TestGitLabReadFileAndAuthor(t *testing.T) {
 		t.Fatal("the GitLab commit names the configured author")
 	}
 }
+
+// ISS-012: live mode commits to the base branch with no branch and no PR.
+func TestCommitToBaseBranch(t *testing.T) {
+	ctx := context.Background()
+	gh := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/contents/") && r.Method == "GET":
+			httpxtest.JSON(w, 404, `{}`)
+		default:
+			httpxtest.JSON(w, 200, `{"commit":{"html_url":"https://gh/commit/1"}}`)
+		}
+	})
+	defer gh.Close()
+	url, err := NewGitHub("tok", "o/r", "main", gh.Client(time.Second)).Commit(ctx, GitOpsChange{FilePath: "values.yaml", Content: []byte("a: 1\n"), Title: "bump"})
+	if err != nil || url != "https://gh/commit/1" {
+		t.Fatalf("github commit: %q %v", url, err)
+	}
+	if got := calls(gh); got != "GET /repos/o/r/contents/values.yaml, PUT /repos/o/r/contents/values.yaml" {
+		t.Fatalf("github live mode touches only the file: %s", got)
+	}
+	if !strings.Contains(gh.Requests()[1].Body, `"branch":"main"`) {
+		t.Fatal("the commit goes to the base branch")
+	}
+	if _, err := NewGitHub("", "o/r", "main", nil).Commit(ctx, GitOpsChange{}); err == nil {
+		t.Fatal("no token is an error")
+	}
+
+	gl := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.WriteHeader(404)
+			return
+		}
+		httpxtest.JSON(w, 201, `{"web_url":"https://gl/commit/1"}`)
+	})
+	defer gl.Close()
+	url, err = NewGitLab("tok", "p", "main", gl.Client(time.Second)).Commit(ctx, GitOpsChange{FilePath: "values.yaml", Content: []byte("a"), Title: "bump"})
+	if err != nil || url != "https://gl/commit/1" {
+		t.Fatalf("gitlab commit: %q %v", url, err)
+	}
+	for _, r := range gl.Requests() {
+		if strings.Contains(r.Path, "merge_requests") || strings.Contains(r.Path, "branches") {
+			t.Fatalf("live mode opened a branch or MR: %s", r.Path)
+		}
+	}
+	if !strings.Contains(gl.Requests()[1].Body, `"branch":"main"`) || !strings.Contains(gl.Requests()[1].Body, `"action":"create"`) {
+		t.Fatalf("gitlab commit body: %s", gl.Requests()[1].Body)
+	}
+	if _, err := NewGitLab("", "p", "main", nil).Commit(ctx, GitOpsChange{}); err == nil {
+		t.Fatal("no token is an error")
+	}
+}

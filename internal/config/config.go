@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
@@ -98,6 +100,7 @@ type Config struct {
 	GitToken          string
 	GitOpsRepo        string
 	GitOpsBranch      string
+	GitOpsMode        string // GITOPS_MODE: pr (default) or live (commit straight to the branch, no review)
 	GitOpsValuesFile  string // GITOPS_VALUES_FILE: values file an OOM pull request patches; empty: a standalone patch file
 	GitOpsAuthorName  string // GITOPS_AUTHOR_NAME: commit author; used only with the email
 	GitOpsAuthorEmail string // GITOPS_AUTHOR_EMAIL
@@ -265,6 +268,7 @@ func Load(get Getenv) Config {
 		GitToken:          r.str("GIT_TOKEN", ""),
 		GitOpsRepo:        r.str("GITOPS_REPO", ""),
 		GitOpsBranch:      r.str("GITOPS_BRANCH", ""),
+		GitOpsMode:        r.oneOf("GITOPS_MODE", "pr", "pr", "live"),
 		GitOpsValuesFile:  r.str("GITOPS_VALUES_FILE", ""),
 		GitOpsAuthorName:  r.str("GITOPS_AUTHOR_NAME", ""),
 		GitOpsAuthorEmail: r.str("GITOPS_AUTHOR_EMAIL", ""),
@@ -357,6 +361,22 @@ func (r reader) duration(key string, def time.Duration) time.Duration {
 
 // pairs reads "a=x,b=y" into a map; an entry without "=" is skipped. The
 // value is split at the first "=" only.
+// oneOf reads key as one of allowed; anything else is reported and the
+// default used, so a typo cannot turn on a mode nobody asked for.
+func (r reader) oneOf(key, def string, allowed ...string) string {
+	v := strings.TrimSpace(r.get(key))
+	if v == "" {
+		return def
+	}
+	for _, a := range allowed {
+		if v == a {
+			return v
+		}
+	}
+	klog.Warningf("config: %s=%q is not one of %v; using %q", key, v, allowed, def)
+	return def
+}
+
 func (r reader) pairs(key string) map[string]string {
 	out := map[string]string{}
 	for _, kv := range r.list(key) {

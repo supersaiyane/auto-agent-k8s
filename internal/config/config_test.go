@@ -132,3 +132,18 @@ func TestLoad_ChannelWebhooks(t *testing.T) {
 		}
 	}
 }
+
+// ISS-012: GITOPS_MODE is pr or live; a typo is not taken for live.
+func TestLoad_GitOpsMode(t *testing.T) {
+	for in, want := range map[string]string{"": "pr", "pr": "pr", "live": "live", "LIVE": "pr", "liv": "pr"} {
+		c := Load(func(k string) string {
+			if k == "GITOPS_MODE" {
+				return in
+			}
+			return ""
+		})
+		if c.GitOpsMode != want {
+			t.Errorf("GITOPS_MODE=%q: %q, want %q", in, c.GitOpsMode, want)
+		}
+	}
+}

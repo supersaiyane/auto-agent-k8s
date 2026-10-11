@@ -127,6 +127,7 @@ env:
 | `GITOPS_REPO` | `gitops.repo` | `owner/repo` or GitLab project | chart: placeholder | Repository for those pull requests; PRs need both token and repo | `cmd/auto-agent/run.go` |
 | `GITOPS_BRANCH` | `gitops.branch` | branch name | chart: `main` | Base branch for the pull requests | `cmd/auto-agent/run.go` |
 | `GITOPS_PROVIDER` | `gitops.provider` | `github`, `gitlab` | `github` (anything but `gitlab`) | Pull request host | `cmd/auto-agent/run.go` |
+| `GITOPS_MODE` | `gitops.mode` | `pr`, `live` | `pr` (any other value: `pr`, with a warning) | `pr` opens a pull request for the OOM memory bump. **`live` commits it straight to `GITOPS_BRANCH` with no pull request and no review**; each commit passes the mutation gate (fix mode, fix scope, guardrails, rate limiter), is audited as `gitops_commit`, and the agent warns at startup (ISS-012) | `internal/kube/handlers.go` (`memoryBumpGitOps`) |
 | `GITOPS_VALUES_FILE` | `gitops.valuesFile` | path in the repository | chart: `environments/prod/values.yaml` | The OOM pull request patches `<deployment>.resources.limits.memory` in this file when it holds exactly one such key; otherwise, or when empty, it proposes a standalone patch file and says why (ISS-032, ISS-083) | `internal/kube/handlers.go` (`memoryBumpChange`) |
 | `GITOPS_AUTHOR_NAME` | `gitops.author.name` | name | empty | Commit author of those pull requests; used only together with the email, otherwise the token's user | `cmd/auto-agent/run.go` (`newGitOps`) |
 | `GITOPS_AUTHOR_EMAIL` | `gitops.author.email` | email | empty | Commit author email | `cmd/auto-agent/run.go` (`newGitOps`) |
@@ -297,17 +298,14 @@ The chart sets these from the pod itself. Do not override them.
 The chart writes these into the ConfigMap, but no code reads them, so
 **changing them does nothing** (ISS-012, ISS-032).
 
-> **Warning: `gitops.mode` and `images.mirror.*` are not implemented.** By
-> owner decision (2026-10-07) they stay as flags, **off by default**, and will
-> be built in PLAN-002 phase 17. When built, `gitops.mode: live` commits fixes
-> straight to the branch and **skips code review**; `images.mirror` makes the
-> admission webhook **rewrite images as pods are created**. Both will log a
-> warning at startup when turned on.
+> **Warning: `images.mirror.*` is not implemented yet.** By owner decision
+> (2026-10-07) it stays a flag, **off by default**, built in PLAN-002 phase
+> 17: it will make the admission webhook **rewrite images as pods are
+> created**, and log a warning at startup when turned on.
 
 | Variable | Helm value |
 | --- | --- |
 | `ANOMALIES_POLL_INTERVAL` | `anomalies.pollInterval` |
-| `GITOPS_MODE` | `gitops.mode` |
 | `IMAGE_MIRROR_ENABLED` | `images.mirror.enabled` |
 | `IMAGE_MIRROR_PREFIX` | `images.mirror.prefix` |
 | `IMAGE_MIRROR_ALLOWLIST` | `images.mirror.allowList` |

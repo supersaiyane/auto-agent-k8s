@@ -27,7 +27,7 @@ func Environ() []string { return os.Environ() }
 // decision 2026-10-07, PLAN-002 phase 17). They are neither read nor
 // unknown. docs/CONFIGURATION.md lists the same keys, which a test checks.
 func Reserved() []string {
-	return []string{"ANOMALIES_POLL_INTERVAL", "GITOPS_MODE",
+	return []string{"ANOMALIES_POLL_INTERVAL",
 		"IMAGE_MIRROR_ENABLED", "IMAGE_MIRROR_PREFIX", "IMAGE_MIRROR_ALLOWLIST"}
 }
 

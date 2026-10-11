@@ -293,7 +293,7 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		LLM:   llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP),
 		Dedup: t.dedup, Limiter: ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute),
 		Sink: storage.NewSink(conf.Storage), CRDStore: crdStore,
-		GitOps: newGitOps(conf, cl.HTTP), GitOpsValuesFile: conf.GitOpsValuesFile, Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
+		GitOps: newGitOps(conf, cl.HTTP), GitOpsValuesFile: conf.GitOpsValuesFile, GitOpsLive: conf.GitOpsMode == "live", Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
 		Breaker:      ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, time.Hour),
 		AlertManager: alertmanager.New(conf.AlertmanagerURL, cl.HTTP), AuditLog: t.audit,
 		BlastRadius: kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, time.Hour),
@@ -508,6 +508,9 @@ func newGitOps(conf config.Config, hc *http.Client) integrations.GitOps {
 		return nil
 	}
 	klog.Infof("gitops: configured (%s)", conf.GitOpsProvider)
+	if conf.GitOpsMode == "live" {
+		klog.Warningf("gitops: mode=live: OOM fixes are committed straight to %s with NO pull request and no review; each commit still passes the mutation gate", conf.GitOpsBranch)
+	}
 	author := integrations.WithAuthor(conf.GitOpsAuthorName, conf.GitOpsAuthorEmail)
 	if conf.GitOpsProvider == "gitlab" {
 		return integrations.NewGitLab(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc, author)
