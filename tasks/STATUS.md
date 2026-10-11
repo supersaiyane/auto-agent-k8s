@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-07
+Last updated: 2026-10-11
 
 ## Active plan
 
@@ -44,10 +44,10 @@ one command table (get 20 kinds, describe, logs, events, rollout, auth can-i,
 agent commands), refuses writes, exec and secrets with the reason, and shows
 the table in a panel; ISS-063 fixed. Phase 14 done 2026-10-08 (ISS-033,
 ISS-036): per-node DNS, Service and egress probes; sandbox and CNI events;
-NetworkPolicy analysis; conntrack and CoreDNS; Ingress TLS secrets. Phase 15 done 2026-10-08: approve to fix (R3), a queue applied once through the gate after a listed Slack approver presses Approve; six fixes live behind it; Approvals tab; ISS-077 (quota ceiling, OPEN) and ISS-078 (queue in memory) recorded. Phase 16 done 2026-10-11: escalation, CRD policy fields, learned thresholds, gitops values file, webhook certificates, tracing and bounded metrics, D6 tests, D8 mutation testing (`make mutation`, own CI job). Phase 17 done 2026-10-11: gitops.mode live through the gate, images.mirror webhook, Argo Rollouts in config reload, every chart key read, floor 83.0 measured (95 target not met, ISS-088). PLAN-002 complete. Next: owner questions ISS-025, ISS-077; 11.3 remainder, 11.5, 11.6. Then phase 12 (detector audit), phase 13
-(config reload), PLAN-003 (terminal), phases 14 to 17. Old phases 11 to 16
-are now 12 to 17. Native config reload, weak-feature fixes, fix ladder, coverage to
-95 percent. PLAN-001 is complete (PR #1).
+NetworkPolicy analysis; conntrack and CoreDNS; Ingress TLS secrets. Phase 15 done 2026-10-08: approve to fix (R3), a queue applied once through the gate after a listed Slack approver presses Approve; six fixes live behind it; Approvals tab; ISS-077 (quota ceiling, OPEN) and ISS-078 (queue in memory) recorded. Phase 16 done 2026-10-11: escalation, CRD policy fields, learned thresholds, gitops values file, webhook certificates, tracing and bounded metrics, D6 tests, D8 mutation testing (`make mutation`, own CI job). Phase 17 done 2026-10-11: gitops.mode live through the gate, images.mirror webhook, Argo Rollouts in config reload, every chart key read, floor 83.0 measured (95 target not met, ISS-088). PLAN-002 complete, merged in PR #9 (3620892) on 2026-10-11.
+PLAN-001 (PR #1) and PLAN-003 are complete too; no plan is active. Next:
+owner questions ISS-020, ISS-025 and ISS-077; ISS-088 (coverage to 95
+percent) needs a new plan.
 
 ## Previous plan
 

@@ -43,12 +43,11 @@
 | 2026-10-11 | PR #8 merged (a7cfc8c); PLAN-002 complete | CI verify, e2e and mutation green; local make e2e and e2e-raw PASS; coverage 83.0% measured, floor 83.0 | gitops live, image mirror, Argo Rollouts reload, ISS-087, ISS-089; ISS-088 (95% target) open | `docs/plans/PLAN-002-reload-coverage-and-gaps.md` (phase 17 as built), `tasks/ISSUES.md` (ISS-025, ISS-077, ISS-088 open) |
 | 2026-10-11 | PR #9 opened (docs, ISS-021 and ISS-058 closed); demo redeployed; terminal UI rework per owner | Command list moved from the Terminal side panel to Settings ("Terminal commands"); terminal back to one flex column, welcome line removed; `make verify` exit 0; demo serves it; visual check pending owner sign-in; staged, not committed | lesson added (look at the page before calling a UI done) | `internal/httpapi/ui/app.js` (`terminalCommands`, `viewSettings`), `internal/httpapi/ui/index.html:98`, `internal/httpapi/ui/app.css` (cmd-table), `docs/GUIDE.md:360`, `docs/plans/PLAN-003-terminal.md` (Changed 2026-10-11) |
 | 2026-10-11 | ISS-090 found and fixed: UI served with Cache-Control no-cache | The browser pane kept the old dashboard (embedded files have no modtime, so no Last-Modified or ETag); `noCache` wraps the file server, `TestUIFilesAreNotCached` falsified once; demo rebuilt and serving it; visual check of Terminal and Settings still waits for the owner to sign in to the pane; all staged, not committed | port-forward bira47qwu running | `internal/httpapi/http.go` (`noCache`, the "/" handler), `internal/httpapi/http_test.go` (`TestUIFilesAreNotCached`) |
+| 2026-10-11 | PR #9 merged (3620892); ISS-032 closed; STATUS header current | e2e failed on a stale ui-test check for `#term-help`; fixed in 9a2755c (command list checked under Settings, falsified once), CI green, merged on the owner's go; branch `docs-records` from master closes ISS-032 (`TestConfigReference_MatchesCodeAndChart` passes) and rewrites the stale Next line in STATUS | port-forward bira47qwu running | `tasks/STATUS.md:3`, `tasks/STATUS.md` Active plan last paragraph, `tasks/ISSUES.md` ISS-032 row |
 
 ## Next action
 
-1. After the owner signs in to the demo dashboard (localhost:18080, port-
-   forward running), screenshot the Terminal and Settings tabs at desktop and
-   narrow width; fix anything off; then commit the staged UI change and push
-   it onto PR #9.
-2. Merge PR #9 on the owner's go.
-3. Owner questions: ISS-025, ISS-077, ISS-088.
+1. Push `docs-records` and merge it on the owner's go.
+2. Owner questions: ISS-020 (Jira URL in history), ISS-025 (housekeeping
+   budget), ISS-077 (quota ceiling).
+3. ISS-088 (coverage to 95 percent) needs a new plan if the owner wants it.
