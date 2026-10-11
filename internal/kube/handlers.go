@@ -42,7 +42,7 @@ func handleCrashLoop(ctx context.Context, deps *Deps, pod *corev1.Pod, cname str
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "CrashLoopBackOff", Message: fmt.Sprintf("Container %s crash-looping", cname), LogURL: url})
-	obs.IncidentsTotal.WithLabelValues("CrashLoopBackOff", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("CrashLoopBackOff", ns).Inc()
 }
 
 func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
@@ -81,7 +81,7 @@ func handleImagePullBackOff(ctx context.Context, deps *Deps, pod *corev1.Pod, cn
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "ImagePullBackOff",
 		Message: fmt.Sprintf("Cannot pull image %s: %s", image, cause.label), LogURL: url, Rung: string(rung)})
-	obs.IncidentsTotal.WithLabelValues("ImagePullBackOff", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("ImagePullBackOff", ns).Inc()
 }
 
 func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
@@ -153,7 +153,7 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevCritical,
 		Namespace: ns, Workload: wl, Pod: name, Node: pod.Spec.NodeName,
 		Reason: "OOMKilled", Message: fmt.Sprintf("Container %s killed (limit: %s)", cname, memLimit), LogURL: url})
-	obs.IncidentsTotal.WithLabelValues("OOMKilled", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("OOMKilled", ns).Inc()
 }
 
 func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
@@ -184,7 +184,7 @@ func handleNotReady(ctx context.Context, deps *Deps, pod *corev1.Pod, cname stri
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "NotReady",
 		Message: fmt.Sprintf("Container %s failing readiness probe", cname), LogURL: url})
-	obs.IncidentsTotal.WithLabelValues("NotReady", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("NotReady", ns).Inc()
 }
 
 func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
@@ -228,7 +228,7 @@ func handlePending(ctx context.Context, deps *Deps, pod *corev1.Pod) {
 	createTicket(ctx, deps, ns, pod.Labels, fmt.Sprintf("pending-%s-%s", ns, wl), fmt.Sprintf("Pending: %s/%s: %s", ns, wl, reason), msg)
 	recordEvent(deps, eventsvc.Event{Type: eventsvc.Incident, Severity: eventsvc.SevWarning,
 		Namespace: ns, Workload: wl, Pod: name, Reason: "Pending", Message: reason, LogURL: url})
-	obs.IncidentsTotal.WithLabelValues("Pending", ns, wl).Inc()
+	obs.IncidentsTotal.WithLabelValues("Pending", ns).Inc()
 }
 
 // tryFixAction sends a remediation for an unhealthy workload through the

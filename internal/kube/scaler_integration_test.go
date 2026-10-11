@@ -678,3 +678,35 @@ func TestMemoryBumpChange(t *testing.T) {
 		t.Fatalf("a missing values file falls back with a reason: %q", note)
 	}
 }
+
+// D8: a policy cooldown of zero is not a cooldown; the global values stay.
+func TestEffectiveCooldown_ZeroKeepsGlobal(t *testing.T) {
+	zero := crdPolicy("p", func(p *crd.Policy) { p.Cooldown = "0s" })
+	if up, down := effectiveCooldown(&zero, "2m", "10m"); up != 2*time.Minute || down != 10*time.Minute {
+		t.Fatalf("cooldown 0s: up %s down %s, want the global 2m and 10m", up, down)
+	}
+	set := crdPolicy("p", func(p *crd.Policy) { p.Cooldown = "1s" })
+	if up, down := effectiveCooldown(&set, "2m", "10m"); up != time.Second || down != time.Second {
+		t.Fatalf("cooldown 1s: up %s down %s", up, down)
+	}
+}
+
+// D8: only a policy with a limit spends the budget, and a missing budget
+// is not a panic.
+func TestRecordPolicyAction(t *testing.T) {
+	deps, _ := newTestDeps(t)
+	deps.PolicyBudget = NewPolicyBudget()
+	api := map[string]string{"app": "api"}
+	deps.CRDStore.Update("default", []crd.Policy{crdPolicy("free", func(*crd.Policy) {})})
+	recordPolicyAction(deps, mutation{Namespace: "default", Labels: api})
+	if used := deps.PolicyBudget.Used("default/free", deps.clock()); used != 0 {
+		t.Fatalf("a policy without maxActionsPerHour used %d", used)
+	}
+	deps.CRDStore.Update("default", []crd.Policy{crdPolicy("capped", func(p *crd.Policy) { p.MaxActionsPerHour = 3 })})
+	recordPolicyAction(deps, mutation{Namespace: "default", Labels: api})
+	if used := deps.PolicyBudget.Used("default/capped", deps.clock()); used != 1 {
+		t.Fatalf("a capped policy used %d, want 1", used)
+	}
+	deps.PolicyBudget = nil
+	recordPolicyAction(deps, mutation{Namespace: "default", Labels: api}) // must not panic
+}

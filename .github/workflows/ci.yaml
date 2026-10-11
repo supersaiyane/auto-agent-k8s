@@ -93,6 +93,21 @@ jobs:
       - name: make e2e
         run: make e2e
 
+  # Mutation testing on the gate, guardrails, approvals, policy checks,
+  # redaction and rate limits (PLAN-002 D8): a surviving mutant fails.
+  mutation:
+    runs-on: ubuntu-latest
+    needs: [verify]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: make tools
+        run: make tools
+      - name: make mutation
+        run: make mutation
+
   image:
     runs-on: ubuntu-latest
     needs: [verify, e2e]

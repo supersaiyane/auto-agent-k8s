@@ -132,7 +132,7 @@ func VerifyFixes(ctx context.Context, deps *Deps) {
 				Message: fmt.Sprintf("Fixed: %s → %s (verified healthy after %s)",
 					rec.Reason, rec.Action, deps.FixTracker.clock().Sub(rec.Timestamp).Round(time.Second)),
 			})
-			obs.ActionsTotal.WithLabelValues("verified_fix", rec.Namespace, rec.Workload).Inc()
+			obs.ActionsTotal.WithLabelValues("verified_fix", rec.Namespace).Inc()
 			klog.Infof("fixtracker: VERIFIED FIX %s/%s reason=%s action=%s recovery=%s",
 				rec.Namespace, rec.Workload, rec.Reason, rec.Action, deps.FixTracker.clock().Sub(rec.Timestamp).Round(time.Second))
 		} else {

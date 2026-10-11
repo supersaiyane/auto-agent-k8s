@@ -99,7 +99,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleUp",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f over the %s threshold %.2f)", rep, newRep, cpu, source, threshold)})
-				obs.ScalingDecisionsTotal.WithLabelValues("up", ns, d.Name).Inc()
+				obs.ScalingDecisionsTotal.WithLabelValues("up", ns).Inc()
 				continue
 			}
 
@@ -131,7 +131,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 				recordEvent(deps, eventsvc.Event{Type: eventsvc.Scaling, Severity: eventsvc.SevInfo,
 					Namespace: ns, Workload: d.Name, Reason: "ScaleDown",
 					Message: fmt.Sprintf("%d -> %d replicas (cpu=%.2f)", rep, newRep, cpu)})
-				obs.ScalingDecisionsTotal.WithLabelValues("down", ns, d.Name).Inc()
+				obs.ScalingDecisionsTotal.WithLabelValues("down", ns).Inc()
 			}
 		}
 	}

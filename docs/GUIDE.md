@@ -466,7 +466,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -X POST -d '{"command":"get pods -n de
 
 | Metric | Meaning |
 | --- | --- |
-| `auto_agent_incidents_total` | Problems detected, by reason, namespace, workload |
+| `auto_agent_incidents_total` | Problems detected, by reason and namespace (the workload is on each event) |
 | `auto_agent_actions_total` | Actions applied, by type |
 | `auto_agent_rate_limited_total` | Actions refused by the rate limiter |
 | `auto_agent_dedup_skipped_total` | Duplicate reports suppressed |

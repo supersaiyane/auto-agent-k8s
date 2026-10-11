@@ -4,11 +4,16 @@
 
 All metrics prefixed with `auto_agent_`.
 
+Since 2026-10-08 (ISS-018) no counter carries a workload, pod or
+deployment label: their number grows with every rollout and every new pod.
+The workload is on each event (`/api/events`) and audit entry instead.
+`TestMetricLabelsAreBounded` keeps it that way.
+
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `auto_agent_incidents_total` | Counter | reason, namespace, workload | Incidents detected |
-| `auto_agent_actions_total` | Counter | type, namespace, workload | Remediation actions taken |
-| `auto_agent_scaling_decisions_total` | Counter | direction, namespace, deployment | Scale up/down decisions |
+| `auto_agent_incidents_total` | Counter | reason, namespace | Incidents detected |
+| `auto_agent_actions_total` | Counter | type, namespace | Remediation actions taken |
+| `auto_agent_scaling_decisions_total` | Counter | direction, namespace | Scale up/down decisions |
 | `auto_agent_dedup_skipped_total` | Counter | reason | Events deduplicated |
 | `auto_agent_rate_limited_total` | Counter |: | Actions blocked by rate limiter |
 | `auto_agent_handler_errors_total` | Counter | handler, error_type | Errors in event handlers |
@@ -81,7 +86,7 @@ Import `dashboards/auto-agent.json` into Grafana. 12 panels:
 rate(auto_agent_incidents_total[5m]) * 60
 
 # Top 5 failing workloads
-topk(5, sum(auto_agent_incidents_total) by (namespace, workload))
+topk(5, sum(auto_agent_incidents_total) by (namespace, reason))
 
 # Action success rate
 sum(auto_agent_actions_total{type="verified_fix"}) / sum(auto_agent_actions_total) * 100

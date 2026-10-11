@@ -476,7 +476,40 @@ Phase 15 done 2026-10-08 (Part C, C1.1 to C1.3, C2): as built,
   outside the fix scope), sandbox failures (no single change), and quota
   exhaustion (no ceiling is defined, ISS-077).
 
-Next: phase 16.
+Phase 16 done 2026-10-11 (Part B remaining, D6, D8): as built,
+
+- Escalation wired (ISS-080): critical findings, refused fixes and fixes
+  that do not recover page PagerDuty, OpsGenie and email after Slack,
+  bounded and redacted. Fix verification needs a finished rollout and a
+  minute of health (ISS-038).
+- Every AutoRemediationPolicy field takes effect (ISS-037); dry-run and the
+  gate preview show the same refusals (ISS-081); Slack post errors counted
+  (ISS-082); the helm test pod pinned and admitted (ISS-065).
+- Learned CPU baselines set the scale-up threshold, clamped to 0.5 to 0.95
+  (ISS-012). OOM pull requests patch `gitops.valuesFile` with a YAML-aware
+  patch and use `gitops.author` (ISS-032, ISS-083).
+- The admission webhook gets a certificate from cert-manager or a Secret,
+  binds before ready and reloads renewed certificates (ISS-032).
+- Opt-in OpenTelemetry spans for findings and gate decisions; counters
+  lost their per-object labels (ISS-018).
+- D6: storage, logging, obs and webhook tested (90.7, 100, 100, 91.7
+  percent); found and fixed `LOG_FORMAT=json` printing one line (ISS-032)
+  and the webhook's registry-port tag check (ISS-084).
+- D8: `make mutation` (gremlins v0.6.0, `scripts/mutation.sh`) mutates
+  redact, ratelimit and, in internal/kube, gate.go, guardrails.go,
+  approvals.go and policycheck.go; any surviving or timed-out mutant fails,
+  a mutant on a line no test runs, and a run that killed nothing. Its own
+  CI job. Measured 2026-10-11: redact 1, ratelimit 30, kube 104 mutants,
+  all killed. Closed on the way: three circuit-breaker window boundaries;
+  approvals matching a decided or other-namespace item; proposable outside
+  the fix scope; uncounted button-post failures; escalation without a
+  dedup store; a zero policy cooldown; the budget for unlimited policies;
+  a full queue; a tripped breaker with Alertmanager. `policyRefusal`
+  became an if chain because Go coverage has no block for a case
+  expression, which hid its conditions from mutation testing.
+- ISS-025 (housekeeping budget) stays an owner question.
+
+Next: phase 17.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

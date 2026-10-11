@@ -3,11 +3,12 @@ IMAGE ?= ghcr.io/supersaiyane/auto-agent-k8s:1.0.0
 # Pinned tool versions. `make tools` downloads them into bin/tools.
 GOLANGCI_LINT_VERSION ?= v1.64.8
 GOVULNCHECK_VERSION   ?= v1.1.4
+GREMLINS_VERSION      ?= v0.6.0
 TOOLS_BIN             := $(CURDIR)/bin/tools
 # Ratchet base for lint: only code changed since BASE is held to golangci-lint.
 BASE                  ?= origin/master
 
-.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full lint-shell ui-test e2e e2e-raw manifests check-manifests coverage-check changelog
+.PHONY: build test lint vet docker push helm-install clean tools vuln check-writing helm-lint verify verify-full lint-shell ui-test e2e e2e-raw manifests check-manifests coverage-check changelog mutation
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -32,6 +33,13 @@ vet:
 tools:
 	GOBIN=$(TOOLS_BIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	GOBIN=$(TOOLS_BIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	GOBIN=$(TOOLS_BIN) go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)
+
+# Mutation testing on the safety-critical code (PLAN-002 D8): any surviving
+# mutant fails. Slow (each mutant rebuilds the test binary), so it is its own
+# CI job, not part of verify.
+mutation:
+	GREMLINS=$(TOOLS_BIN)/gremlins sh scripts/mutation.sh
 
 lint: vet
 	@test -x $(TOOLS_BIN)/golangci-lint || { echo "golangci-lint missing: run 'make tools'"; exit 1; }

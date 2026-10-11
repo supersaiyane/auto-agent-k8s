@@ -1,10 +1,43 @@
 {{- if .Values.webhook.enabled }}
+{{- $ns := include "auto-agent.namespace" . }}
+{{- $useCM := and .Values.webhook.tls.certManager (not .Values.webhook.tls.secretName) }}
+{{- if and (not $useCM) (not .Values.webhook.tls.secretName) }}
+{{- fail "webhook.enabled needs a serving certificate: keep webhook.tls.certManager true (cert-manager installed) or set webhook.tls.secretName and webhook.caBundle" }}
+{{- end }}
+{{- if $useCM }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: auto-agent-webhook
+  namespace: {{ $ns }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auto-agent-webhook
+  namespace: {{ $ns }}
+spec:
+  secretName: {{ include "auto-agent.webhookSecret" . }}
+  dnsNames:
+    - auto-agent-webhook.{{ $ns }}.svc
+    - auto-agent-webhook.{{ $ns }}.svc.cluster.local
+  issuerRef:
+    name: auto-agent-webhook
+    kind: Issuer
+---
+{{- end }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: auto-agent-webhook
   labels:
     {{- include "auto-agent.labels" . | nindent 4 }}
+  {{- if $useCM }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ $ns }}/auto-agent-webhook
+  {{- end }}
 webhooks:
   - name: validate.autoagent.io
     admissionReviewVersions: ["v1"]
@@ -22,7 +55,7 @@ webhooks:
         namespace: {{ include "auto-agent.namespace" . }}
         path: /validate
         port: 8443
-      {{- if .Values.webhook.caBundle }}
+      {{- if and (not $useCM) .Values.webhook.caBundle }}
       caBundle: {{ .Values.webhook.caBundle }}
       {{- end }}
     namespaceSelector:

@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
@@ -291,5 +292,6 @@ func postApprovalButtons(deps *Deps, p *pendingApproval) {
 	}
 	if err := bp.PostBlocks(blocks); err != nil {
 		klog.Warningf("approvals: posting buttons for %s: %v", p.id, err)
+		obs.HandlerErrorsTotal.WithLabelValues("approvals", "slack").Inc()
 	}
 }

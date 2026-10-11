@@ -1,6 +1,6 @@
 # Project map: auto-agent-k8s
 
-Last checked against the code: 2026-10-08, after PR #4 merged and PLAN-002 phase 16 part 1 (PR #5 open): adds internal/kube approvals.go, approval_fixes.go, policycheck.go (and learning.go scaleUpThreshold, gitops_content.go PatchWorkloadMemory), internal/logging json.go (klog as JSON), internal/httpapi approvals.go, cmd/auto-agent approvals.go; the chart's helm test pod is admitted by the controller NetworkPolicy.
+Last checked against the code: 2026-10-08, after PR #4 merged and PLAN-002 phase 16 part 1 (PR #5 open): adds internal/kube approvals.go, approval_fixes.go, policycheck.go (and learning.go scaleUpThreshold, gitops_content.go PatchWorkloadMemory), internal/logging json.go (klog as JSON), internal/tracing (opt-in OpenTelemetry spans, ISS-018), internal/webhook certReloader (served TLS cert reloaded on renewal), scripts/mutation.sh (D8: `make mutation`, gremlins on redact, ratelimit and kube gate.go, guardrails.go, approvals.go, policycheck.go; fails on lived, timed out or uncovered mutants; its own CI job), internal/httpapi approvals.go, cmd/auto-agent approvals.go; the chart's helm test pod is admitted by the controller NetworkPolicy.
 
 Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet.
 

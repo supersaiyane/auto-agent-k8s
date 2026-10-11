@@ -18,10 +18,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/escalation"
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
 	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
@@ -364,5 +371,174 @@ func TestEscalation_CriticalFindingsAndFailedFixes(t *testing.T) {
 	if len(reqs) != 2 || !strings.Contains(reqs[0].Body+reqs[1].Body, "NodeDown default/deployment/b") ||
 		!strings.Contains(reqs[0].Body+reqs[1].Body, "FixFailed default/deployment/c") {
 		t.Fatalf("want one page for the critical finding and one for the failed fix, got %d: %+v", len(reqs), reqs)
+	}
+}
+
+// ISS-018: a finding and a gate decision each leave a span with names only.
+func TestTracing_FindingAndGateSpans(t *testing.T) {
+	before := otel.GetTracerProvider()
+	defer otel.SetTracerProvider(before)
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	otel.SetTracerProvider(tp)
+
+	h, _, _ := approvalHarness(t, nil, testHPA())
+	report(context.Background(), h.deps, finding{Reason: "NodeDown", Namespace: "default", Workload: "deployment/b",
+		Severity: eventsvc.SevCritical, Rung: RungAlert, Summary: "secret=hunter2 in the summary"})
+	applyMutation(context.Background(), h.deps, mutation{Namespace: "default", Workload: "deployment/c", Reason: "r",
+		ActionType: "delete_pod", Apply: func() error { return nil }})
+	spans := exp.GetSpans()
+	names := map[string]map[string]string{}
+	for _, s := range spans {
+		attrs := map[string]string{}
+		for _, a := range s.Attributes {
+			attrs[string(a.Key)] = a.Value.String()
+			if strings.Contains(a.Value.String(), "hunter2") {
+				t.Fatalf("span %s carries message text", s.Name)
+			}
+		}
+		names[s.Name] = attrs
+	}
+	if names["finding NodeDown"]["workload"] != "deployment/b" || names["finding NodeDown"]["rung"] != "R0" {
+		t.Fatalf("finding span: %+v", names)
+	}
+	if names["gate delete_pod"]["outcome"] != "applied" {
+		t.Fatalf("gate span: %+v", names)
+	}
+}
+
+// D8: only a pending item for the very same change absorbs a proposal; a
+// decided one, or one for another namespace, does not.
+func TestApprovals_ProposeMatchesOnlyAPendingSameChange(t *testing.T) {
+	a := NewApprovals(time.Hour, []string{approver})
+	m := mutation{ActionType: "raise_hpa_max", Namespace: "default", Workload: "deployment/web", SuggestMsg: "raise to 6"}
+	first, isNew, err := a.propose(m, "", testNow)
+	if err != nil || !isNew {
+		t.Fatal(err)
+	}
+	other := m
+	other.Namespace = "payments"
+	if p, isNew, _ := a.propose(other, "", testNow); !isNew || p.id == first.id {
+		t.Fatal("the same action in another namespace is a new approval")
+	}
+	first.state = approvalRejected
+	if p, isNew, _ := a.propose(m, "", testNow); !isNew || p.id == first.id {
+		t.Fatal("a decided item never absorbs a new proposal")
+	}
+}
+
+// D8: proposable is fix mode and inside the fix scope; cluster-scoped
+// changes have no namespace and are proposable in fix mode.
+func TestProposable(t *testing.T) {
+	pol := testPolicy() // fix mode, fix scope "default"
+	cases := []struct {
+		ns   string
+		want bool
+	}{{"default", true}, {"payments", false}, {"", true}}
+	for _, c := range cases {
+		if got := proposable(pol, mutation{Namespace: c.ns}); got != c.want {
+			t.Errorf("namespace %q: %v, want %v", c.ns, got, c.want)
+		}
+	}
+	dry := testPolicy()
+	dry.Mode = policy.DryRun
+	if proposable(dry, mutation{Namespace: "default"}) {
+		t.Fatal("dry-run never proposes")
+	}
+}
+
+type failingBlocks struct{ mockSlackClient }
+
+func (*failingBlocks) PostBlocks([]map[string]interface{}) error { return errors.New("webhook gone") }
+
+// D8: a failed Approve/Reject post is counted, not only logged.
+func TestApprovalButtons_FailureCounted(t *testing.T) {
+	h := newFindingHarness(t)
+	h.deps.Slack = &failingBlocks{}
+	before := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("approvals", "slack"))
+	postApprovalButtons(h.deps, &pendingApproval{id: "x", m: mutation{SuggestMsg: "s"}})
+	if got := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("approvals", "slack")) - before; got != 1 {
+		t.Fatalf("counted %v", got)
+	}
+	h.deps.Slack = &blockSlack{}
+	postApprovalButtons(h.deps, &pendingApproval{id: "y", m: mutation{SuggestMsg: "s"}})
+	if got := testutil.ToFloat64(obs.HandlerErrorsTotal.WithLabelValues("approvals", "slack")) - before; got != 1 {
+		t.Fatalf("a good post is not counted as a failure: %v", got)
+	}
+}
+
+// D8: the approver joins any detail, and stands alone without one.
+func TestApprovalNote(t *testing.T) {
+	cases := []struct{ by, detail, want string }{
+		{"", "rate limited", "rate limited"},
+		{"slack:U1", "", "approved by slack:U1"},
+		{"slack:U1", "rate limited", "rate limited; approved by slack:U1"},
+	}
+	for _, c := range cases {
+		if got := approvalNote(mutation{ApprovedBy: c.by}, c.detail); got != c.want {
+			t.Errorf("approvalNote(%q, %q) = %q, want %q", c.by, c.detail, got, c.want)
+		}
+	}
+}
+
+// D8: without a dedup store a refused fix does not page, and does not panic.
+func TestEscalateFailedFix_NeedsDedup(t *testing.T) {
+	s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 202, `{}`) })
+	defer s.Close()
+	h := newFindingHarness(t)
+	h.deps.Escalation = escalation.NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, s.Client(time.Second))
+	h.deps.Dedup = nil
+	escalateFailedFix(h.deps, mutation{Namespace: "default", Workload: "deployment/a", ActionType: "delete_pod"}, errors.New("x"))
+	h.deps.Escalation.Wait()
+	if n := len(s.Requests()); n != 0 {
+		t.Fatalf("paged %d times without a dedup store", n)
+	}
+}
+
+// D8: who may approve from Slack.
+func TestApprovals_IsApprover(t *testing.T) {
+	a := NewApprovals(time.Hour, []string{approver, ""})
+	if !a.IsApprover(approver) || a.IsApprover("slack:UOTHER") || a.IsApprover("") {
+		t.Fatal("only listed, non-empty identities approve")
+	}
+	var off *Approvals
+	if off.IsApprover(approver) || NewApprovals(time.Hour, nil).IsApprover(approver) {
+		t.Fatal("a queue that is off has no approvers")
+	}
+}
+
+// D8: a full queue is reported in the finding's message, not silently.
+func TestQueueApproval_FullQueueIsReported(t *testing.T) {
+	h, bs, _ := approvalHarness(t, []string{approver}, testHPA())
+	for i := 0; i < maxApprovals; i++ {
+		if _, _, err := h.deps.Approvals.propose(mutation{ActionType: "x", Namespace: "default", Workload: fmt.Sprintf("w%d", i)}, "", testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report(context.Background(), h.deps, hpaFinding(h.deps))
+	if msgs := bs.Messages(); len(msgs) != 1 || !strings.Contains(msgs[0], "could not queue this change: approval queue is full") {
+		t.Fatalf("message: %q", msgs)
+	}
+}
+
+// D8: a tripped circuit breaker blocks the action and tells Alertmanager.
+func TestGuardrails_TrippedBreakerAlerts(t *testing.T) {
+	s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 200, `{}`) })
+	defer s.Close()
+	h := newFindingHarness(t)
+	h.deps.Limiter = ratelimit.NewActionLimiter(10, time.Minute)
+	h.deps.Breaker = ratelimit.NewCircuitBreaker(1, time.Hour) // the first action trips it
+	h.deps.AlertManager = alertmanager.New("http://alertmanager.test", s.Client(time.Second))
+	m := mutation{Namespace: "default", Workload: "deployment/a", Reason: "r", ActionType: "delete_pod", Apply: func() error { return nil }}
+	out, msg := applyMutation(context.Background(), h.deps, m)
+	if out != gateBlocked || !strings.Contains(msg, "circuit breaker tripped") {
+		t.Fatalf("outcome %v %q", out, msg)
+	}
+	if len(s.Requests()) == 0 {
+		t.Fatal("Alertmanager was not told the breaker tripped")
+	}
+	h.deps.AlertManager = nil
+	if out, _ := applyMutation(context.Background(), h.deps, m); out != gateBlocked {
+		t.Fatal("without Alertmanager the breaker still blocks")
 	}
 }

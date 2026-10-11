@@ -2,13 +2,16 @@ package obs
 
 import "github.com/prometheus/client_golang/prometheus"
 
+// Counters carry bounded labels only: reason, type and namespace, never
+// workload or pod names, whose number grows with the cluster and with every
+// rollout (ISS-018). The workload is on every event and audit entry instead.
 var (
 	ActionsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "auto_agent_actions_total",
 			Help: "Count of remediation actions by type, namespace, and workload",
 		},
-		[]string{"type", "namespace", "workload"},
+		[]string{"type", "namespace"},
 	)
 
 	IncidentsTotal = prometheus.NewCounterVec(
@@ -16,7 +19,7 @@ var (
 			Name: "auto_agent_incidents_total",
 			Help: "Count of incidents detected by reason, namespace, and workload",
 		},
-		[]string{"reason", "namespace", "workload"},
+		[]string{"reason", "namespace"},
 	)
 
 	DedupSkippedTotal = prometheus.NewCounterVec(
@@ -81,7 +84,7 @@ var (
 			Name: "auto_agent_scaling_decisions_total",
 			Help: "Scaling decisions made",
 		},
-		[]string{"direction", "namespace", "deployment"},
+		[]string{"direction", "namespace"},
 	)
 
 	AnomaliesDetectedTotal = prometheus.NewCounterVec(
@@ -101,19 +104,13 @@ var (
 	)
 )
 
+// all lists every collector; init registers them and a test checks their labels.
+func all() []prometheus.Collector {
+	return []prometheus.Collector{ActionsTotal, IncidentsTotal, DedupSkippedTotal, RateLimitedTotal, LLMRequestsTotal,
+		HandlerErrorsTotal, EvictionsBlockedTotal, EventsDroppedTotal, APIErrorsTotal, ScalingDecisionsTotal,
+		AnomaliesDetectedTotal, InfoGauge}
+}
+
 func init() {
-	prometheus.MustRegister(
-		ActionsTotal,
-		IncidentsTotal,
-		DedupSkippedTotal,
-		RateLimitedTotal,
-		LLMRequestsTotal,
-		HandlerErrorsTotal,
-		EvictionsBlockedTotal,
-		EventsDroppedTotal,
-		APIErrorsTotal,
-		ScalingDecisionsTotal,
-		AnomaliesDetectedTotal,
-		InfoGauge,
-	)
+	prometheus.MustRegister(all()...)
 }

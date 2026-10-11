@@ -143,7 +143,7 @@ func RunRunbookForIncident(ctx context.Context, deps *Deps, runbookURL, ns, work
 		Message: fmt.Sprintf("Runbook %q %s (%d steps, %s)", rb.Name, status, len(result.Steps), result.Duration),
 		Action:  "runbook",
 	})
-	obs.ActionsTotal.WithLabelValues("runbook", ns, workload).Inc()
+	obs.ActionsTotal.WithLabelValues("runbook", ns).Inc()
 
 	// Format output for Slack
 	msg := fmt.Sprintf("\n_Runbook_ `%s` (%s):\n", rb.Name, result.Duration)
