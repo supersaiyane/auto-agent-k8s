@@ -358,10 +358,11 @@ fails on any console error, policy violation or injected markup.
 
 ### 6.3 The Terminal tab
 
-A read-only kubectl (PLAN-003). The panel beside it lists what it can run,
-what it never will and why; both come from the server's command table
+A read-only kubectl (PLAN-003), with the full width of the tab. The list of
+what it can run, what it never will and why is under Settings, "Terminal
+commands"; it and `help` come from the server's command table
 (`/api/kubectl/help`), the same table that decides what runs, so they cannot
-drift. Click a command in the panel to start typing it.
+drift. Click a command there to open it in the Terminal.
 
 **Reads**
 

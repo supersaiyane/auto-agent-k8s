@@ -78,3 +78,12 @@ can run, what it cannot, and why.
 | 4.2 | Coverage floor raised to the measured total; `make verify`, `make e2e` | Commit |
 
 Total: about 2 to 2.5 days (modelled).
+
+## Changed 2026-10-11 (owner)
+
+The command list moved from a side panel in the Terminal tab to the end of
+the Settings tab, as left-aligned tables; clicking a command opens the
+Terminal with it filled in. The side panel made the terminal a grid that
+split its height into equal rows, leaving a gap above the input, and
+wrapped the commands into a narrow centred column. The terminal is a single
+column again, and its welcome line is gone.

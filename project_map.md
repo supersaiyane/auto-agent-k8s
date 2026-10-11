@@ -1,6 +1,6 @@
 # Project map: auto-agent-k8s
 
-Last checked against the code: 2026-10-08, after PR #4 merged and PLAN-002 phase 16 part 1 (PR #5 open): adds internal/kube approvals.go, approval_fixes.go, policycheck.go (and learning.go scaleUpThreshold, gitops_content.go PatchWorkloadMemory), internal/logging json.go (klog as JSON), internal/tracing (opt-in OpenTelemetry spans, ISS-018), internal/webhook certReloader (served TLS cert reloaded on renewal) and mirror.go (images.mirror, mutating webhook), internal/kube/reload_rollouts.go (Argo Rollouts in config reload, dynamic client), scripts/mutation.sh (D8: `make mutation`, gremlins on redact, ratelimit and kube gate.go, guardrails.go, approvals.go, policycheck.go; fails on lived, timed out or uncovered mutants; its own CI job), internal/httpapi approvals.go, cmd/auto-agent approvals.go; the chart's helm test pod is admitted by the controller NetworkPolicy.
+Last checked against the code: 2026-10-11, after PR #8 merged (a7cfc8c): PLAN-002 complete. Since PR #4: internal/kube approvals.go, approval_fixes.go, policycheck.go, reload_rollouts.go; internal/tracing; internal/webhook mirror.go and the TLS certReloader; internal/logging json.go; internal/httpapi approvals.go; scripts/mutation.sh. No module added since. 2026-10-11: the terminal command list lives in the Settings tab (`internal/httpapi/ui/app.js` `terminalCommands`); the UI is served with Cache-Control no-cache (`internal/httpapi/http.go` `noCache`).
 
 Autonomous Kubernetes remediation agent (Go, client-go), deployed as a DaemonSet.
 

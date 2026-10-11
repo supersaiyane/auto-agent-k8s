@@ -69,3 +69,9 @@ outranks the kernel's "orchestrator never executes".
 **Correction:** Self-caught both times by checking the file afterwards; no owner correction.
 **Rule:** Before planting a break, read the whole file into `orig`; do the break and the check inside `try`; in `finally` write `orig` back and assert the file equals `orig` byte for byte. Never restore by replacing the planted text with something else.
 **Triggers:** falsification, planting a break, "make the checker fail once".
+
+## 2026-10-11: look at the page at real size before calling a UI done
+**Mistake:** The PLAN-003 terminal side panel squeezed the terminal into a grid that split its height into equal rows and wrapped the command list into a narrow centred column; it shipped because only the API and a headless check were tested, never the page as a person sees it.
+**Correction:** Owner: move the command list under Settings; the terminal formatting is disturbed; the welcome line is not needed.
+**Rule:** Before claiming a dashboard change done, open it in the browser pane at desktop and narrow width, take a screenshot of the changed tab, and check alignment, spacing and wrapping by eye. A second layout rule for an element (a later `display:` override) must be removed, not stacked.
+**Triggers:** UI change, app.css, index.html, a new panel or tab, "layout", "dashboard".
