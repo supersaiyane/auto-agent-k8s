@@ -42,9 +42,14 @@
 
 ## Next action
 
-1. If local `make e2e` passed: commit D8 and ISS-085, push plan-002
-   (f2a5200, d141d2a, 9a137a8 and the D8 commit), open PR #7, merge when
-   CI (verify, e2e, mutation) is green on the owner's go.
-2. Phase 17: Argo Rollouts, `gitops.mode: live` and `images.mirror` behind
-   flags with startup warnings (ISS-012), final coverage floor.
-3. Owner questions: ISS-025, ISS-077.
+Phase 16 is complete (2026-10-11): commits f2a5200, d141d2a, 9a137a8 and
+0e8ec4b are on PR #7, CI (verify, e2e, mutation) running.
+
+1. Merge PR #7 when CI is green, on the owner's go.
+2. Phase 17: Argo Rollouts; `gitops.mode: live` and `images.mirror`
+   implemented behind flags with startup warnings (ISS-012); final coverage
+   floor. Start with `internal/config/check.go` (`Reserved`) and the five
+   keys still listed as not read in docs/CONFIGURATION.md.
+3. Owner questions: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).
+4. The demo dashboard port-forward was stopped for the e2e; restart it to
+   reach the demo dashboard on localhost:18080 again.
