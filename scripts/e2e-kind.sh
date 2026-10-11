@@ -25,6 +25,15 @@ CTX="kind-$CLUSTER"
 log() { echo "e2e: $*"; }
 fail() { echo "e2e: FAIL: $*"; exit 1; }
 
+# Every check reaches the cluster through a port-forward to one of these
+# local ports. If something already listens on one, the forward fails
+# quietly and the checks talk to that instead (ISS-086), so stop first.
+for p in 18080 18081 18089 18090 18091 18099 18100 18110; do
+	if curl -s -m 1 -o /dev/null "http://127.0.0.1:$p/"; then
+		fail "local port $p is already in use; stop whatever listens there (a port-forward?) and rerun"
+	fi
+done
+
 cleanup() {
 	if [ "${KEEP:-0}" != "1" ]; then
 		kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true

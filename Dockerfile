@@ -1,6 +1,6 @@
 # Build stage. go1.26.6 carries the standard library fixes govulncheck
 # reported for go1.26.1 (ISS-016). Pinned by digest (ISS-010).
-FROM golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS build
+FROM golang:1.26.9@sha256:d7722066f0b60ceccb6c0643cbed1f5f9e15506ac237146c95333504d7805d89 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

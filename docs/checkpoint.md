@@ -36,18 +36,15 @@
 | 2026-10-08 | PR #4 opened; ISS-079 startup race fixed and pushed; PLAN-002 phase 16 in progress | ISS-079, ISS-080 (escalation), ISS-038 (fix verification) committed (17c0e51, 48dcab3); ISS-037, ISS-081, ISS-082 (CRD policy fields, dry-run policy refusals, counted Slack errors) and ISS-065 (helm test pod) verified with `make verify` exit 0, coverage 77.5% measured, not yet committed; kind e2e with the policy step running | Escalation wired after Slack, bounded; fix verification needs a finished rollout and a minute of health; every AutoRemediationPolicy field applied; helm test image pinned by digest | `internal/kube/policycheck.go:1`, `internal/kube/scaler.go` (`scaleLimitsFor`), `internal/kube/handlers.go` (`postIncident`, `createTicket`), `internal/kube/fixtracker.go:90`, `scripts/e2e-kind.sh` (policy step), `charts/auto-agent/templates/tests/test-connection.yaml` |
 | 2026-10-08 | PR #5 merged (2baea1d); PLAN-002 phase 16 part 2; PR #6 open | Learned thresholds (ISS-012), gitops valuesFile and author with a YAML-aware patch (ISS-032, ISS-083), D6 tests for storage, logging, obs, webhook (ISS-084, JSON logging fixed); `make verify` exit 0, coverage 79.9% measured, floor 79.9; local `make e2e` not run (Docker down), PR #6 CI e2e is the run | 06e77ba, 43e2ee1, 0645d0b | `internal/kube/learning.go` (`scaleUpThreshold`), `internal/kube/gitops_content.go` (`PatchWorkloadMemory`), `internal/kube/handlers.go` (`memoryBumpChange`), `internal/integrations/gitops.go` (`ReadFile`, `WithAuthor`), `internal/logging/json.go`, `internal/webhook/validator.go` (`pinnedImage`) |
 | 2026-10-08 | PR #6 merged (53bd7cb); phase 16 webhook certs and tracing committed locally; D8 mutation testing in progress | `f2a5200` webhook certificate (ISS-032), `d141d2a` tracing and bounded labels (ISS-018), both `make verify` exit 0, coverage 80.0% measured; not pushed. gremlins v0.6.0 in bin/tools: redact 1 of 1 killed, ratelimit 27 killed 5 lived (timeout coefficient 20) | `scripts/mutation.sh` untracked and wrong: gremlins does not fail on its threshold, coefficient 3 timed every mutant out | `scripts/mutation.sh:1`, `internal/ratelimit/circuit.go:47,86,101`, `internal/ratelimit/ratelimit.go:57,120` |
+| 2026-10-11 | D8 mutation testing nearly done; demo cluster upgraded to current code | redact 1/1 and ratelimit 30/30 mutants killed (gremlins v0.6.0, coefficient 20); kube safety files running in the background; `make mutation` and a CI job added; uncommitted | ratelimit window boundary tests, `max(r, 0)`, `cleanupInterval`; `scripts/mutation.sh` counts survivors and fails on a run that killed nothing | `scripts/mutation.sh:18`, `internal/ratelimit/clock_test.go` (boundary tests), `internal/ratelimit/ratelimit.go` (`cleanupInterval`, `Remaining`), `Makefile` (`mutation`), `.github/workflows/ci.yaml` (`mutation` job) |
+| 2026-10-11 | D8: kube exclusions fixed, nine target survivors tested, rerun in progress | First kube run mutated the whole package (exclusion regex missed): 1113 killed, 316 lived; 9 lived in the target files, now tested (approvals propose and proposable, button post failures counted, approvalNote, escalateFailedFix without dedup, zero cooldown, recordPolicyAction). Script now anchors exclusions on the file name and fails on NOT COVERED too | uncommitted | `scripts/mutation.sh:60` (exclusions), `internal/kube/approvals_test.go` (D8 tests), `internal/kube/scaler_integration_test.go` (`TestEffectiveCooldown_ZeroKeepsGlobal`, `TestRecordPolicyAction`), `internal/kube/approvals.go:292` (failure counted) |
+| 2026-10-11 | D8 done; ISS-085 fixed; phase 16 complete | `make mutation` PASS: redact 1, ratelimit 30, kube 104 mutants, all killed; `make verify` exit 0, govulncheck clean, coverage 80.1% measured; local `make e2e` running (webhook TLS step) | x/net v0.60.0, toolchain and builder go1.26.9; `policyRefusal` an if chain; 12 survivor and coverage gaps tested | `scripts/mutation.sh:18`, `internal/kube/policycheck.go:43`, `internal/kube/approvals_test.go` (D8 tests), `go.mod:5`, `Dockerfile:3` |
 
 ## Next action
 
-1. Close the ratelimit survivors: boundary test at exactly the window for
-   `circuit.go:47,86,101`; `cleanupInterval(ttl)` for `ratelimit.go:57`;
-   `max(r, 0)` for `ratelimit.go:120`. Rerun gremlins with
-   `--timeout-coefficient 20` until Lived is 0.
-2. Fix `scripts/mutation.sh`: count `LIVED` and `TIMED OUT` lines itself,
-   fail on any, fail when no mutant was killed (a run over zero mutants
-   proves nothing), coefficient 20. Run the kube safety files (gate.go,
-   guardrails.go, approvals.go, policycheck.go) in the background, close
-   survivors, add `make mutation`, `make tools` entry and a CI job.
-3. Push `f2a5200`, `d141d2a` and the D8 commit, open PR #7 so CI runs the
-   webhook e2e step (local Docker was down); merge on the owner's go.
-4. Owner questions open: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).
+1. If local `make e2e` passed: commit D8 and ISS-085, push plan-002
+   (f2a5200, d141d2a, 9a137a8 and the D8 commit), open PR #7, merge when
+   CI (verify, e2e, mutation) is green on the owner's go.
+2. Phase 17: Argo Rollouts, `gitops.mode: live` and `images.mirror` behind
+   flags with startup warnings (ISS-012), final coverage floor.
+3. Owner questions: ISS-025, ISS-077.

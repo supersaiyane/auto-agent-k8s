@@ -40,21 +40,27 @@ func effectiveCooldown(pol *crd.Policy, globalUp, globalDown string) (up, down t
 // actions.restartStuckPods: false for pod restarts, and
 // safety.maxActionsPerHour (ISS-037). The gate, dry-run and the terminal's
 // preview all ask this one function.
+//
+// It is an if chain, not a switch: Go's coverage has no block for a case
+// expression, so mutation testing could not reach a switch's conditions.
 func policyRefusal(deps *Deps, pol *crd.Policy, actionType string) string {
-	switch {
-	case pol == nil:
+	if pol == nil {
 		return ""
-	case pol.RequireApproval:
+	}
+	if pol.RequireApproval {
 		return "CRD policy requires manual approval"
-	case actionType == "delete_pod" && pol.RestartStuckPods != nil && !*pol.RestartStuckPods:
+	}
+	if actionType == "delete_pod" && pol.RestartStuckPods != nil && !*pol.RestartStuckPods {
 		return fmt.Sprintf("CRD policy %s turns off pod restarts (actions.restartStuckPods: false)", pol.Name)
-	case pol.MaxActionsPerHour > 0:
-		if deps.PolicyBudget == nil {
-			return fmt.Sprintf("CRD policy %s sets maxActionsPerHour but no budget tracker is configured", pol.Name)
-		}
-		if used := deps.PolicyBudget.Used(policyKey(pol), deps.clock()); used >= pol.MaxActionsPerHour {
-			return fmt.Sprintf("CRD policy %s allows %d actions per hour, %d used", pol.Name, pol.MaxActionsPerHour, used)
-		}
+	}
+	if pol.MaxActionsPerHour <= 0 {
+		return ""
+	}
+	if deps.PolicyBudget == nil {
+		return fmt.Sprintf("CRD policy %s sets maxActionsPerHour but no budget tracker is configured", pol.Name)
+	}
+	if used := deps.PolicyBudget.Used(policyKey(pol), deps.clock()); used >= pol.MaxActionsPerHour {
+		return fmt.Sprintf("CRD policy %s allows %d actions per hour, %d used", pol.Name, pol.MaxActionsPerHour, used)
 	}
 	return ""
 }

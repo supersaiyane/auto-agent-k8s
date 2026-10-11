@@ -53,8 +53,12 @@ func (d *Deduplicator) Stop() {
 	close(d.done)
 }
 
+// cleanupInterval is how often expired dedup keys are swept: twice per TTL,
+// so a key outlives its TTL by at most half of it.
+func cleanupInterval(ttl time.Duration) time.Duration { return ttl / 2 }
+
 func (d *Deduplicator) cleanup() {
-	ticker := time.NewTicker(d.ttl / 2)
+	ticker := time.NewTicker(cleanupInterval(d.ttl))
 	defer ticker.Stop()
 	for {
 		select {
@@ -116,11 +120,7 @@ func (l *ActionLimiter) Remaining() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune()
-	r := l.max - len(l.events)
-	if r < 0 {
-		return 0
-	}
-	return r
+	return max(l.max-len(l.events), 0)
 }
 
 func (l *ActionLimiter) prune() {
