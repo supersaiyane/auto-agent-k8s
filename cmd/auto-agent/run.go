@@ -213,7 +213,14 @@ func startEvents(ctx, fwdCtx context.Context, conf config.Config, cl Clients, rl
 // startWebhook starts the admission validator (optional, needs TLS certs;
 // controller only).
 func startWebhook(conf config.Config, rl roles) error {
-	if !rl.controller || !conf.Webhook.Enabled() {
+	if !rl.controller {
+		return nil
+	}
+	mirror, err := imageMirror(conf)
+	if err != nil {
+		return err
+	}
+	if !conf.Webhook.Enabled() {
 		return nil
 	}
 	// An unset list is empty, not [""]; an empty prefix would block every
@@ -223,12 +230,34 @@ func startWebhook(conf config.Config, rl roles) error {
 		RequireLimits:    conf.Webhook.RequireLimits,
 		RequireReadiness: conf.Webhook.RequireReadiness,
 		BlockedImages:    conf.Webhook.BlockedImages,
+		Mirror:           mirror,
 	})
 	if err := wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile); err != nil {
 		return err
 	}
 	klog.Infof("webhook: admission validator enabled on :8443")
 	return nil
+}
+
+// imageMirror checks images.mirror (ISS-012). Turned on, it needs a prefix,
+// an allowlist (it never rewrites everything) and the webhook's
+// certificate; anything less stops the start rather than silently doing
+// nothing. On, it warns: it changes pods as they are created.
+func imageMirror(conf config.Config) (webhook.Mirror, error) {
+	if !conf.ImageMirrorEnabled {
+		return webhook.Mirror{}, nil
+	}
+	m := webhook.Mirror{Prefix: conf.ImageMirrorPrefix, AllowList: conf.ImageMirrorAllowList}
+	switch {
+	case m.Prefix == "":
+		return m, fmt.Errorf("IMAGE_MIRROR_ENABLED needs IMAGE_MIRROR_PREFIX")
+	case len(m.AllowList) == 0:
+		return m, fmt.Errorf("IMAGE_MIRROR_ENABLED needs IMAGE_MIRROR_ALLOWLIST: the mirror only rewrites allowlisted images")
+	case !conf.Webhook.Enabled():
+		return m, fmt.Errorf("IMAGE_MIRROR_ENABLED needs the admission webhook (webhook.enabled) to rewrite images")
+	}
+	klog.Warningf("images: mirror ON: pods are changed as they are created; images under %v are rewritten to %s<image>", m.AllowList, m.Prefix)
+	return m, nil
 }
 
 // trackers are the stateful parts the server shows and shutdown closes.
@@ -286,14 +315,15 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 	crd.StartController(ctx, cl.Dynamic, crdStore)
 	t := a.extras
 	a.deps = &kube.Deps{
-		Client: cl.Kube, NodeName: conf.NodeName, ScalingGates: conf.ScalingGates, TLSCertCheck: conf.TLSCertCheck,
+		Client: cl.Kube, Dynamic: cl.Dynamic, Rollouts: a.rl.controller && cl.Dynamic != nil && kube.DetectRollouts(cl.Kube.Discovery()),
+		NodeName: conf.NodeName, ScalingGates: conf.ScalingGates, TLSCertCheck: conf.TLSCertCheck,
 		Endpoints: kube.SelfCheckEndpoints{PrometheusURL: conf.PrometheusURL, SlackWebhookURL: conf.SlackWebhookURL,
 			AlertmanagerURL: conf.AlertmanagerURL},
 		HTTPClient: cl.HTTP, Metrics: mp, Policies: a.hr, Slack: t.slack,
 		LLM:   llm.New(conf.LLMAPIURL, conf.LLMAPIKey, conf.LLMModel, pol.LLMEnabled, pol.LLMTimeoutSec, cl.HTTP),
 		Dedup: t.dedup, Limiter: ratelimit.NewActionLimiter(pol.MaxActionsPer10m, 10*time.Minute),
 		Sink: storage.NewSink(conf.Storage), CRDStore: crdStore,
-		GitOps: newGitOps(conf, cl.HTTP), GitOpsValuesFile: conf.GitOpsValuesFile, Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
+		GitOps: newGitOps(conf, cl.HTTP), GitOpsValuesFile: conf.GitOpsValuesFile, GitOpsLive: conf.GitOpsMode == "live", Ticketer: newTicketer(conf, cl.HTTP), TicketerFor: ticketerFor(conf, cl.HTTP), Recorder: a.ev.sink,
 		Breaker:      ratelimit.NewCircuitBreaker(conf.CircuitBreakerThreshold, time.Hour),
 		AlertManager: alertmanager.New(conf.AlertmanagerURL, cl.HTTP), AuditLog: t.audit,
 		BlastRadius: kube.NewBlastRadiusTracker(conf.BlastRadiusMaxNamespaces, time.Hour),
@@ -508,6 +538,9 @@ func newGitOps(conf config.Config, hc *http.Client) integrations.GitOps {
 		return nil
 	}
 	klog.Infof("gitops: configured (%s)", conf.GitOpsProvider)
+	if conf.GitOpsMode == "live" {
+		klog.Warningf("gitops: mode=live: OOM fixes are committed straight to %s with NO pull request and no review; each commit still passes the mutation gate", conf.GitOpsBranch)
+	}
 	author := integrations.WithAuthor(conf.GitOpsAuthorName, conf.GitOpsAuthorEmail)
 	if conf.GitOpsProvider == "gitlab" {
 		return integrations.NewGitLab(conf.GitToken, conf.GitOpsRepo, conf.GitOpsBranch, hc, author)

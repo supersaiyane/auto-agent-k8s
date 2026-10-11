@@ -67,6 +67,9 @@ var libraryPerms = []perm{
 	{"autoagent.io", "autoremediationpolicies", "get"}, // CRD controller (crd/controller.go)
 	{"autoagent.io", "autoremediationpolicies", "list"},
 	{"autoagent.io", "autoremediationpolicies", "watch"},
+	{"argoproj.io", "rollouts", "get"}, // Argo Rollouts reload (reload_rollouts.go, dynamic client)
+	{"argoproj.io", "rollouts", "list"},
+	{"argoproj.io", "rollouts", "patch"},
 	{"coordination.k8s.io", "leases", "get"}, // leader election (leader.go)
 	{"coordination.k8s.io", "leases", "create"},
 	{"coordination.k8s.io", "leases", "update"},

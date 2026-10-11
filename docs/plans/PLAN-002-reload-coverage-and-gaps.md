@@ -509,7 +509,24 @@ Phase 16 done 2026-10-11 (Part B remaining, D6, D8): as built,
   expression, which hid its conditions from mutation testing.
 - ISS-025 (housekeeping budget) stays an owner question.
 
-Next: phase 17.
+Phase 17 done 2026-10-11 (A4, ISS-012, final floor): as built,
+
+- `gitops.mode: live` commits the OOM memory bump straight to the branch;
+  the commit passes the mutation gate and is audited as `gitops_commit`;
+  startup warning; any other value falls back to `pr`.
+- `images.mirror`: a mutating webhook rewrites allowlisted image
+  references to the mirror prefix on pod creation; never denies; skips the
+  agent's and system namespaces; chart and agent refuse without
+  `webhook.enabled` and an allowlist; startup warning. `make e2e` proves it.
+- A4: config reload covers Argo Rollouts through the dynamic client when
+  the CRD is detected at startup; verified by `status.phase`.
+- `anomalies.pollInterval` removed: every chart key is now read.
+- ISS-087: webhook and mirror settings are read at start, so the chart
+  rolls the controllers when they change.
+- Floor raised to 83.0 percent (measured), after `internal/httpapi` went from 71.7 to 82.7 percent (ISS-089 found on the way). Part D's 95 percent target was
+  not reached; ISS-088 records the gap.
+
+PLAN-002 is complete.
 Estimates are modelled.
 
 **11.1 needs an owner decision first (ISS-058).** The dashboard is wrong

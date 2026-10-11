@@ -34,6 +34,9 @@ type GitOps interface {
 	// ReadFile returns a file from the base branch; ErrFileNotFound when it
 	// does not exist.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// Commit writes the change straight to the base branch, with no pull
+	// request (gitops.mode: live), and returns the commit URL.
+	Commit(ctx context.Context, ch GitOpsChange) (string, error)
 }
 
 // ErrFileNotFound is ReadFile's answer for a path the repository lacks.
@@ -141,7 +144,7 @@ func (g *githubClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	}
 
 	// 3. Create or update file on new branch
-	if err := g.createOrUpdateFile(ctx, apiBase, branch, ch.FilePath, ch.Content,
+	if _, err := g.createOrUpdateFile(ctx, apiBase, branch, ch.FilePath, ch.Content,
 		fmt.Sprintf("auto-agent: %s", ch.Title)); err != nil {
 		return "", fmt.Errorf("gitops/github: commit file: %w", err)
 	}
@@ -183,7 +186,29 @@ func (g *githubClient) createRef(ctx context.Context, apiBase, branch, sha strin
 	return err
 }
 
-func (g *githubClient) createOrUpdateFile(ctx context.Context, apiBase, branch, path string, content []byte, message string) error {
+// Commit writes the change to the base branch through the contents API.
+func (g *githubClient) Commit(ctx context.Context, ch GitOpsChange) (string, error) {
+	if g.token == "" {
+		return "", fmt.Errorf("gitops/github: GIT_TOKEN not configured")
+	}
+	title := redact.String(ch.Title)
+	body, err := g.createOrUpdateFile(ctx, "https://api.github.com", g.base, ch.FilePath, ch.Content, "auto-agent: "+title)
+	if err != nil {
+		return "", fmt.Errorf("gitops/github: commit to %s: %w", g.base, err)
+	}
+	var out struct {
+		Commit struct {
+			HTMLURL string `json:"html_url"`
+		} `json:"commit"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", fmt.Errorf("gitops/github: parse commit: %w", err)
+	}
+	klog.Infof("gitops/github: committed %s to %s: %s", ch.FilePath, g.base, out.Commit.HTMLURL)
+	return out.Commit.HTMLURL, nil
+}
+
+func (g *githubClient) createOrUpdateFile(ctx context.Context, apiBase, branch, path string, content []byte, message string) ([]byte, error) {
 	url := fmt.Sprintf("%s/repos/%s/contents/%s", apiBase, g.repo, path)
 
 	// Check if file exists to get its SHA (needed for update)
@@ -211,8 +236,7 @@ func (g *githubClient) createOrUpdateFile(ctx context.Context, apiBase, branch, 
 		payload["author"], payload["committer"] = who, who
 	}
 
-	_, err = g.doPut(ctx, url, payload)
-	return err
+	return g.doPut(ctx, url, payload)
 }
 
 func (g *githubClient) createPR(ctx context.Context, apiBase, branch, title, body string) (string, error) {
@@ -335,11 +359,11 @@ type gitlabClient struct {
 func NewGitLab(token, project, base string, hc *http.Client, opts ...GitOpsOption) GitOps {
 	return &gitlabClient{
 		gitopsSettings: settingsFrom(opts),
-		token:   token,
-		project: project,
-		base:    base,
-		baseURL: "https://gitlab.com",
-		client:  httpx.Client(hc, 30*time.Second),
+		token:          token,
+		project:        project,
+		base:           base,
+		baseURL:        "https://gitlab.com",
+		client:         httpx.Client(hc, 30*time.Second),
 	}
 }
 
@@ -367,6 +391,36 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	}
 
 	// 2. Commit file change
+	if _, err := g.commitFile(ctx, apiBase, branch, ch); err != nil {
+		return "", err
+	}
+
+	// 3. Create merge request
+	return g.openMR(ctx, apiBase, branch, ch)
+}
+
+// Commit writes the change straight to the base branch.
+func (g *gitlabClient) Commit(ctx context.Context, ch GitOpsChange) (string, error) {
+	ch.Title = redact.String(ch.Title)
+	if g.token == "" {
+		return "", fmt.Errorf("gitops/gitlab: GIT_TOKEN not configured")
+	}
+	body, err := g.commitFile(ctx, g.baseURL+"/api/v4", g.base, ch)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		WebURL string `json:"web_url"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", fmt.Errorf("gitops/gitlab: parse commit: %w", err)
+	}
+	klog.Infof("gitops/gitlab: committed %s to %s: %s", ch.FilePath, g.base, out.WebURL)
+	return out.WebURL, nil
+}
+
+// commitFile commits ch.Content to branch, creating or updating the file.
+func (g *gitlabClient) commitFile(ctx context.Context, apiBase, branch string, ch GitOpsChange) ([]byte, error) {
 	commitURL := fmt.Sprintf("%s/projects/%s/repository/commits", apiBase, g.project)
 	action := "update"
 	// Check if file exists
@@ -374,7 +428,7 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 		apiBase, g.project, urlEncodePath(ch.FilePath), branch)
 	req, err := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("gitlab: file check request: %w", err)
+		return nil, fmt.Errorf("gitlab: file check request: %w", err)
 	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
 	resp, err := g.client.Do(req)
@@ -399,12 +453,15 @@ func (g *gitlabClient) OpenPR(ctx context.Context, ch GitOpsChange) (string, err
 	if g.authorName != "" {
 		commitPayload["author_name"], commitPayload["author_email"] = g.authorName, g.authorEmail
 	}
-	_, err = g.doPost(ctx, commitURL, commitPayload)
+	body, err := g.doPost(ctx, commitURL, commitPayload)
 	if err != nil {
-		return "", fmt.Errorf("gitops/gitlab: commit: %w", err)
+		return nil, fmt.Errorf("gitops/gitlab: commit: %w", err)
 	}
+	return body, nil
+}
 
-	// 3. Create merge request
+// openMR opens a merge request from branch into the base branch.
+func (g *gitlabClient) openMR(ctx context.Context, apiBase, branch string, ch GitOpsChange) (string, error) {
 	mrURL := fmt.Sprintf("%s/projects/%s/merge_requests", apiBase, g.project)
 	mrBody, err := g.doPost(ctx, mrURL, map[string]string{
 		"source_branch": branch,

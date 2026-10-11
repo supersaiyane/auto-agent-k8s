@@ -110,41 +110,7 @@ func handleOOM(ctx context.Context, deps *Deps, pod *corev1.Pod, cname string) {
 	msg := fmt.Sprintf("*OOMKilled* on `%s/%s` (container: `%s`, current limit: `%s`)\nSaved: `%s`\n",
 		ns, name, cname, memLimit, url)
 
-	// GitOps PR for memory bump
-	if deps.GitOps != nil && deps.Policy().Mode == policy.Fix {
-		bumpPct := 20
-		crdPolicies := deps.CRDStore.Match(ns, pod.Labels)
-		for _, cp := range crdPolicies {
-			if cp.BumpMemoryPercent > 0 {
-				bumpPct = cp.BumpMemoryPercent
-				break
-			}
-		}
-		prTitle := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
-		filePath, content, changeDesc, note := memoryBumpChange(ctx, deps, ns, wl, cname, memLimit, bumpPct)
-		prBody := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nChange: %s\n\nIncident log: `%s`",
-			cname, memLimit, changeDesc, url)
-		if note != "" {
-			prBody += "\n\n" + note
-		}
-		prURL, err := deps.GitOps.OpenPR(ctx, integrations.GitOpsChange{
-			Title:    prTitle,
-			Body:     prBody,
-			Branch:   fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), deps.clock().Unix()),
-			FilePath: filePath,
-			Content:  content,
-		})
-		if err != nil {
-			klog.Warningf("handler: failed to open OOM PR: %v", err)
-			obs.HandlerErrorsTotal.WithLabelValues("oom", "gitops").Inc()
-			msg += fmt.Sprintf("_GitOps_: failed to open PR: %v\n", err)
-		} else {
-			msg += fmt.Sprintf("_GitOps_: opened PR to bump memory: %s\n", prURL)
-			auditAction(deps, "open_pr", ns, wl, name, "OOMKilled", "success", prURL)
-		}
-	} else {
-		msg += "_Recommend_: increase memory limit by 20-50%% via GitOps PR.\n"
-	}
+	msg += memoryBumpGitOps(ctx, deps, pod, ns, wl, cname, memLimit, url)
 
 	msg += deps.LLM.DiagnoseWithFallback(ctx, "Container OOMKilled", logs+"\n"+strings.Join(events, "\n"))
 	postIncident(deps, ns, pod.Labels, msg)
@@ -421,4 +387,53 @@ func memoryBumpChange(ctx context.Context, deps *Deps, ns, wl, cname, memLimit s
 	}
 	patch, desc := GenerateMemoryBumpContent(ns, wl, cname, memLimit, pct)
 	return fmt.Sprintf("patches/%s/%s-memory-bump.yaml", ns, name), []byte(patch), desc, note
+}
+
+// memoryBumpGitOps proposes the OOM memory bump through GitOps in fix mode:
+// a pull request, or with gitops.mode: live a commit straight to the
+// branch. A live commit skips review, so it goes through the mutation gate
+// like a cluster change: mode, fix scope, guardrails, rate limiter, audit
+// (ISS-012). It returns the line for the incident message.
+func memoryBumpGitOps(ctx context.Context, deps *Deps, pod *corev1.Pod, ns, wl, cname, memLimit, url string) string {
+	if deps.GitOps == nil || deps.Policy().Mode != policy.Fix {
+		return "_Recommend_: increase memory limit by 20-50% via GitOps PR.\n"
+	}
+	bumpPct := 20
+	if cp := effectivePolicy(deps, ns, pod.Labels); cp != nil && cp.BumpMemoryPercent > 0 {
+		bumpPct = cp.BumpMemoryPercent
+	}
+	title := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
+	filePath, content, changeDesc, note := memoryBumpChange(ctx, deps, ns, wl, cname, memLimit, bumpPct)
+	body := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nChange: %s\n\nIncident log: `%s`", cname, memLimit, changeDesc, url)
+	if note != "" {
+		body += "\n\n" + note
+	}
+	change := integrations.GitOpsChange{Title: title, Body: body, FilePath: filePath, Content: content,
+		Branch: fmt.Sprintf("auto-agent/oom-%s-%s-%d", ns, sanitizeBranch(wl), deps.clock().Unix())}
+
+	if deps.GitOpsLive {
+		var commitURL string
+		_, gmsg := applyMutation(ctx, deps, mutation{Namespace: ns, Workload: wl, Pod: pod.Name, Labels: pod.Labels,
+			Reason: "OOMKilled", ActionType: "gitops_commit",
+			SuccessMsg: "committed the memory bump to the GitOps branch (live mode, no review)",
+			SuggestMsg: "commit the memory bump to the GitOps branch",
+			Apply: func() error {
+				u, err := deps.GitOps.Commit(ctx, change)
+				commitURL = u
+				return err
+			}})
+		if commitURL != "" {
+			gmsg += fmt.Sprintf("_GitOps_: commit %s\n", commitURL)
+		}
+		return gmsg
+	}
+
+	prURL, err := deps.GitOps.OpenPR(ctx, change)
+	if err != nil {
+		klog.Warningf("handler: failed to open OOM PR: %v", err)
+		obs.HandlerErrorsTotal.WithLabelValues("oom", "gitops").Inc()
+		return fmt.Sprintf("_GitOps_: failed to open PR: %v\n", err)
+	}
+	auditAction(deps, "open_pr", ns, wl, pod.Name, "OOMKilled", "success", prURL)
+	return fmt.Sprintf("_GitOps_: opened PR to bump memory: %s\n", prURL)
 }

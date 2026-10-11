@@ -363,99 +363,50 @@ func (c CostConfig) calcCost(cpuCores, memMiB float64) float64 {
 	return (cpuCores*c.CPUPerHour + (memMiB/1024)*c.MemPerGiBHour) * c.HoursPerMonth
 }
 
-// --- Kubecost integration ---
+// --- Kubecost and OpenCost ---
 
+// fetchKubecostData reads 30 days of Kubecost allocation by namespace.
 func (c CostConfig) fetchKubecostData(ctx context.Context, client *http.Client) (*clusterCost, error) {
-	// Kubecost allocation API: /model/allocation?window=1d&aggregate=namespace
-	url := c.KubecostURL + "/model/allocation?window=30d&aggregate=namespace&accumulate=true"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("kubecost: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("kubecost: status %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-
-	var kcResp struct {
-		Code int `json:"code"`
-		Data []map[string]struct {
-			Name      string  `json:"name"`
-			CPUCost   float64 `json:"cpuCost"`
-			MemCost   float64 `json:"ramCost"`
-			PVCost    float64 `json:"pvCost"`
-			TotalCost float64 `json:"totalCost"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &kcResp); err != nil {
-		return nil, fmt.Errorf("kubecost: parse: %w", err)
-	}
-
-	result := &clusterCost{
-		Config: c,
-	}
-	result.Config.Source = "kubecost"
-
-	if len(kcResp.Data) > 0 {
-		for nsName, alloc := range kcResp.Data[0] {
-			result.Namespaces = append(result.Namespaces, namespaceCost{
-				Name:    nsName,
-				Monthly: round2(alloc.TotalCost),
-			})
-			result.WorkloadCost += alloc.TotalCost
-			result.TotalMonthly += alloc.TotalCost
-		}
-	}
-	return result, nil
+	return c.fetchAllocation(ctx, client, "kubecost", c.KubecostURL+"/model/allocation?window=30d&aggregate=namespace&accumulate=true")
 }
 
-// --- OpenCost integration ---
-
+// fetchOpenCostData reads 30 days of OpenCost allocation by namespace.
 func (c CostConfig) fetchOpenCostData(ctx context.Context, client *http.Client) (*clusterCost, error) {
-	// OpenCost allocation API
-	url := c.OpenCostURL + "/allocation/compute?window=30d&aggregate=namespace&accumulate=true"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	return c.fetchAllocation(ctx, client, "opencost", c.OpenCostURL+"/allocation/compute?window=30d&aggregate=namespace&accumulate=true")
+}
+
+// fetchAllocation reads an allocation API that Kubecost and OpenCost share:
+// data[0] maps namespace to its costs; only totalCost is used.
+func (c CostConfig) fetchAllocation(ctx context.Context, client *http.Client, source, url string) (*clusterCost, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("opencost: %w", err)
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("opencost: status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: status %d", source, resp.StatusCode)
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-
-	var ocResp struct {
-		Code int `json:"code"`
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("%s: read: %w", source, err)
+	}
+	var out struct {
 		Data []map[string]struct {
-			Name      string  `json:"name"`
 			TotalCost float64 `json:"totalCost"`
-			CPUCost   float64 `json:"cpuCost"`
-			RAMCost   float64 `json:"ramCost"`
-			PVCost    float64 `json:"pvCost"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &ocResp); err != nil {
-		return nil, fmt.Errorf("opencost: parse: %w", err)
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("%s: parse: %w", source, err)
 	}
-
 	result := &clusterCost{Config: c}
-	result.Config.Source = "opencost"
-
-	if len(ocResp.Data) > 0 {
-		for nsName, alloc := range ocResp.Data[0] {
-			result.Namespaces = append(result.Namespaces, namespaceCost{
-				Name:    nsName,
-				Monthly: round2(alloc.TotalCost),
-			})
+	result.Config.Source = source
+	if len(out.Data) > 0 {
+		for ns, alloc := range out.Data[0] {
+			result.Namespaces = append(result.Namespaces, namespaceCost{Name: ns, Monthly: round2(alloc.TotalCost)})
 			result.WorkloadCost += alloc.TotalCost
 			result.TotalMonthly += alloc.TotalCost
 		}

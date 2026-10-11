@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
@@ -36,6 +37,10 @@ type LLMDiagnoser interface {
 // Deps holds shared dependencies injected into all kube handlers.
 type Deps struct {
 	Client kubernetes.Interface
+	// Dynamic reads and patches Argo Rollouts; Rollouts is true when their
+	// CRD was found at startup (PLAN-002 A4). Nil or false: no Rollouts.
+	Dynamic  dynamic.Interface
+	Rollouts bool
 	// NodeName is the node this agent pod runs on (downward API NODE_NAME).
 	// Node actions are taken only for this node; empty means none (ISS-004).
 	NodeName string
@@ -73,19 +78,22 @@ type Deps struct {
 	// GitOpsValuesFile is the Helm values file an OOM pull request patches
 	// (gitops.valuesFile); empty proposes a standalone patch file.
 	GitOpsValuesFile string
-	Ticketer         integrations.Ticketer
-	Recorder         events.Sink
-	Breaker          *ratelimit.CircuitBreaker
-	AlertManager     *alertmanager.Client
-	AuditLog         *AuditLog
-	BlastRadius      *BlastRadiusTracker
-	QuietHours       *QuietHours
-	DryRunLog        *DryRunLog
-	FixTracker       *FixTracker
-	Escalation       *escalation.Chain
-	DeployTracker    *DeployTracker
-	LearningMode     *LearningMode
-	Approvals        *Approvals // R3 approval queue; nil or no approvers: off
+	// GitOpsLive commits OOM fixes straight to the branch instead of opening
+	// a pull request (gitops.mode: live); the commit goes through the gate.
+	GitOpsLive    bool
+	Ticketer      integrations.Ticketer
+	Recorder      events.Sink
+	Breaker       *ratelimit.CircuitBreaker
+	AlertManager  *alertmanager.Client
+	AuditLog      *AuditLog
+	BlastRadius   *BlastRadiusTracker
+	QuietHours    *QuietHours
+	DryRunLog     *DryRunLog
+	FixTracker    *FixTracker
+	Escalation    *escalation.Chain
+	DeployTracker *DeployTracker
+	LearningMode  *LearningMode
+	Approvals     *Approvals // R3 approval queue; nil or no approvers: off
 	// PolicyBudget counts actions for safety.maxActionsPerHour; nil refuses
 	// actions under a policy that sets it (fail closed, like the limiter).
 	PolicyBudget *PolicyBudget

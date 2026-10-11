@@ -336,4 +336,22 @@ done
 echo "$DENIED" | grep -q "no resource limits" || fail "the webhook did not deny a Deployment without limits: $DENIED"
 log "webhook served over TLS and denied: $(echo "$DENIED" | grep -o '\[auto-agent\][^"]*' | head -1)"
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete, admission webhook over TLS"
+log "turning on the image mirror: the webhook rewrites allowlisted images (ISS-012)"
+helm upgrade auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" --reuse-values \
+	--set images.mirror.enabled=true --set images.mirror.prefix=mirror.e2e.test/ \
+	--set 'images.mirror.allowList={docker.io/library/}' --wait --timeout 180s >/dev/null
+kubectl --context "$CTX" -n "$NS_AGENT" rollout status deployment/auto-agent-controller --timeout 120s >/dev/null
+MIRRORED=""
+for _ in 1 2 3 4 5 6; do
+	MIRRORED=$(kubectl --context "$CTX" -n "$NS_TEST" run mirrored --image=busybox:1.36 --restart=Never \
+		--dry-run=server -o jsonpath='{.spec.containers[0].image}' 2>&1 || true)
+	[ "$MIRRORED" = "mirror.e2e.test/docker.io/library/busybox:1.36" ] && break
+	sleep 5
+done
+[ "$MIRRORED" = "mirror.e2e.test/docker.io/library/busybox:1.36" ] || fail "the mirror did not rewrite busybox:1.36: got $MIRRORED"
+OTHER=$(kubectl --context "$CTX" -n "$NS_TEST" run unmirrored --image=registry.k8s.io/pause:3.9 --restart=Never \
+	--dry-run=server -o jsonpath='{.spec.containers[0].image}' 2>&1 || true)
+[ "$OTHER" = "registry.k8s.io/pause:3.9" ] || fail "the mirror rewrote an image outside its allowlist: $OTHER"
+log "mirror rewrote busybox:1.36 to $MIRRORED and left registry.k8s.io alone"
+
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete, admission webhook over TLS, image mirror"

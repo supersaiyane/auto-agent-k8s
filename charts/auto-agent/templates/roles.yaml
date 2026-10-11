@@ -30,6 +30,9 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["patch"]   # raise maxReplicas
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["patch"]   # config reload restarts a Rollout (PLAN-002 A4)
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["patch"]   # expand a claim whose StorageClass allows it
@@ -113,6 +116,9 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["patch"]   # raise maxReplicas
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["patch"]   # config reload restarts a Rollout (PLAN-002 A4)
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["patch"]   # expand a claim whose StorageClass allows it

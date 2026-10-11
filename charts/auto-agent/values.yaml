@@ -66,10 +66,11 @@ metricsProvider:
   prometheusUrl: "http://prometheus-server.monitoring.svc.cluster.local:9090"
 
 gitops:
-  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17); the agent always
-  # opens a pull request. "live" will commit straight to the branch, skipping
-  # code review, and will stay off unless you set it.
-  mode: pr                         # pr | live (not implemented)
+  # WARNING: "live" commits OOM fixes straight to `branch` with NO pull
+  # request and no code review. Each commit still passes the mutation gate
+  # (fix mode, fix scope, guardrails, rate limiter) and is audited, and the
+  # agent logs a warning at startup. Leave it at pr unless you mean it.
+  mode: pr                         # pr | live
   provider: github                 # github|gitlab
   repo: "yourorg/helm-env"
   branch: "main"
@@ -86,9 +87,6 @@ tickets:
   jira:
     baseUrl: ""
     projectKey: ""
-
-anomalies:
-  pollInterval: 30s
 
 logs:
   store: efs                       # s3|efs|none
@@ -230,13 +228,17 @@ learning:
   periodDays: 14
 
 images:
-  # WARNING: not implemented yet (ISS-012, PLAN-002 phase 17). When built, the
-  # admission webhook will rewrite matching image references as pods are
-  # created. Off by default.
+  # WARNING: when enabled, the admission webhook CHANGES PODS AS THEY ARE
+  # CREATED: an image whose normalized reference starts with an allowList
+  # entry is rewritten to prefix + that reference, e.g. nginx:1.25 (that is
+  # docker.io/library/nginx:1.25) becomes
+  # registry.internal/docker.io/library/nginx:1.25. Needs webhook.enabled and
+  # a non-empty allowList; the agent's own and the system namespaces are left
+  # alone, and the agent warns at startup. Off by default (ISS-012).
   mirror:
     enabled: false
     prefix: "registry.internal/"
-    allowList: []
+    allowList: []                  # e.g. ["docker.io/library/", "quay.io/prometheus/"]
 
 # Controller (ADR-001): leader-elected cluster loops, event log, dashboard
 # and API. Node agents run as the DaemonSet and use tolerations/resources.

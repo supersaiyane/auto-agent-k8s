@@ -195,3 +195,11 @@ ESCALATION_EMAIL_TO: "oncall@yourorg.com"
 | --- | --- | --- | --- |
 | OpenTelemetry spans for every finding and gate decision, OTLP/HTTP, names only | Working; off until `tracing.enabled` and `tracing.endpoint` (ISS-018) | `internal/tracing/tracing.go`, `internal/kube/findings.go`, `gate.go` | `TestSpan_Exported`, `TestTracing_FindingAndGateSpans` |
 | Counters labelled by reason, type and namespace only; workload names stay on events and the audit log | Working (ISS-018) | `internal/obs/metrics.go` | `TestMetricLabelsAreBounded` |
+
+## Added in PLAN-002 phase 17 (2026-10-11)
+
+| Feature | Status | Code | Test |
+| --- | --- | --- | --- |
+| `gitops.mode: live`: the OOM memory bump is committed straight to the branch, no pull request; the commit passes the mutation gate and is audited as `gitops_commit`; startup warning | Working; off by default (`pr`) (ISS-012) | `internal/kube/handlers.go` (`memoryBumpGitOps`), `internal/integrations/gitops.go` (`Commit`) | `TestMemoryBumpGitOps`, `TestCommitToBaseBranch`, `TestLoad_GitOpsMode` |
+| `images.mirror`: the admission webhook rewrites allowlisted image references to the mirror prefix as pods are created; never denies, skips the agent's and system namespaces; chart and agent refuse without `webhook.enabled` and an allowlist; startup warning | Working; off by default (ISS-012) | `internal/webhook/mirror.go`, `charts/auto-agent/templates/webhook.yaml`, `cmd/auto-agent/run.go` (`imageMirror`) | `TestMirror_Rewrite`, `TestServeMutate`, `TestImageMirror`; `make e2e` rewrites a pod's image |
+| Argo Rollouts in config reload: listed through the dynamic client when the CRD is detected at startup, restarted through the gate, verified by `status.phase` (Paused for promotion is handed to Argo); `workloadRef` Rollouts restart through their Deployment | Working (PLAN-002 A4) | `internal/kube/reload_rollouts.go`, `reload.go` | `TestReload_ArgoRollouts`, `TestVerifyRollout_Phases`, `TestDetectRollouts` |

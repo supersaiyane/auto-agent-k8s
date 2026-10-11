@@ -277,6 +277,9 @@ func (r *Reloader) reloadWorkloads(ctx context.Context, ns string) []reloadable 
 			add("CronJob", l.Items[i].ObjectMeta, &l.Items[i].Spec.JobTemplate.Spec.Template)
 		}
 	}
+	for _, ro := range r.rollouts(ctx, ns) {
+		add("Rollout", ro.meta, ro.template)
+	}
 	return out
 }
 
@@ -368,6 +371,8 @@ func (r *Reloader) restartForReload(ctx context.Context, w *wave, wl workloadRef
 				_, err = r.deps.Client.AppsV1().StatefulSets(ns).Patch(ctx, wl.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 			case "DaemonSet":
 				_, err = r.deps.Client.AppsV1().DaemonSets(ns).Patch(ctx, wl.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+			case "Rollout": // Argo Rollouts runs the restart as a rollout, canary steps included
+				_, err = r.deps.Dynamic.Resource(rolloutGVR).Namespace(ns).Patch(ctx, wl.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 			default: // CronJob
 				_, err = r.deps.Client.BatchV1().CronJobs(ns).Patch(ctx, wl.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 			}
@@ -439,6 +444,8 @@ func (r *Reloader) verifyReload(ctx context.Context, w *wave) (done, ok bool, de
 			return rolloutDone(false, timedOut, "could not read the StatefulSet")
 		}
 		return rolloutDone(statefulSetHealthy(s), timedOut, fmt.Sprintf("%d/%d updated and ready", s.Status.ReadyReplicas, valueOr(s.Spec.Replicas, 1)))
+	case "Rollout":
+		return r.verifyRollout(ctx, ns, wl.Name, timedOut)
 	default: // DaemonSet
 		d, err := r.deps.Client.AppsV1().DaemonSets(ns).Get(ctx, wl.Name, metav1.GetOptions{})
 		if err != nil {

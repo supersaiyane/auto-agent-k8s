@@ -39,17 +39,15 @@
 | 2026-10-11 | D8 mutation testing nearly done; demo cluster upgraded to current code | redact 1/1 and ratelimit 30/30 mutants killed (gremlins v0.6.0, coefficient 20); kube safety files running in the background; `make mutation` and a CI job added; uncommitted | ratelimit window boundary tests, `max(r, 0)`, `cleanupInterval`; `scripts/mutation.sh` counts survivors and fails on a run that killed nothing | `scripts/mutation.sh:18`, `internal/ratelimit/clock_test.go` (boundary tests), `internal/ratelimit/ratelimit.go` (`cleanupInterval`, `Remaining`), `Makefile` (`mutation`), `.github/workflows/ci.yaml` (`mutation` job) |
 | 2026-10-11 | D8: kube exclusions fixed, nine target survivors tested, rerun in progress | First kube run mutated the whole package (exclusion regex missed): 1113 killed, 316 lived; 9 lived in the target files, now tested (approvals propose and proposable, button post failures counted, approvalNote, escalateFailedFix without dedup, zero cooldown, recordPolicyAction). Script now anchors exclusions on the file name and fails on NOT COVERED too | uncommitted | `scripts/mutation.sh:60` (exclusions), `internal/kube/approvals_test.go` (D8 tests), `internal/kube/scaler_integration_test.go` (`TestEffectiveCooldown_ZeroKeepsGlobal`, `TestRecordPolicyAction`), `internal/kube/approvals.go:292` (failure counted) |
 | 2026-10-11 | D8 done; ISS-085 fixed; phase 16 complete | `make mutation` PASS: redact 1, ratelimit 30, kube 104 mutants, all killed; `make verify` exit 0, govulncheck clean, coverage 80.1% measured; local `make e2e` running (webhook TLS step) | x/net v0.60.0, toolchain and builder go1.26.9; `policyRefusal` an if chain; 12 survivor and coverage gaps tested | `scripts/mutation.sh:18`, `internal/kube/policycheck.go:43`, `internal/kube/approvals_test.go` (D8 tests), `go.mod:5`, `Dockerfile:3` |
+| 2026-10-11 | PR #7 merged (dda4c46); phase 17 in progress | `f2b8877` gitops.mode live (committed, verify exit 0, coverage 80.4%); images.mirror staged, verify exit 0, kind e2e with a mirror step running; Argo Rollouts reload written and tested, unstaged | live commits through the gate; mutating webhook rewrites allowlisted images; Rollouts via dynamic client when the CRD is detected | `internal/kube/handlers.go` (`memoryBumpGitOps`), `internal/webhook/mirror.go:1`, `cmd/auto-agent/run.go` (`imageMirror`), `charts/auto-agent/templates/webhook.yaml` (MutatingWebhookConfiguration), `internal/kube/reload_rollouts.go:1`, `scripts/e2e-kind.sh` (mirror step) |
 
 ## Next action
 
-Phase 16 is complete (2026-10-11): commits f2a5200, d141d2a, 9a137a8 and
-0e8ec4b are on PR #7, CI (verify, e2e, mutation) running.
-
-1. Merge PR #7 when CI is green, on the owner's go.
-2. Phase 17: Argo Rollouts; `gitops.mode: live` and `images.mirror`
-   implemented behind flags with startup warnings (ISS-012); final coverage
-   floor. Start with `internal/config/check.go` (`Reserved`) and the five
-   keys still listed as not read in docs/CONFIGURATION.md.
-3. Owner questions: ISS-025 (housekeeping budget), ISS-077 (quota ceiling).
-4. The demo dashboard port-forward was stopped for the e2e; restart it to
-   reach the demo dashboard on localhost:18080 again.
+1. Read the kind e2e (mirror step: busybox rewritten to
+   mirror.e2e.test/docker.io/library/busybox:1.36). If it passed, commit the
+   staged images.mirror change.
+2. Stage the Argo Rollouts work (reload_rollouts.go, reload.go, deps.go,
+   run.go, chart RBAC, rbac tests, docs), `make verify`, commit.
+3. Final coverage floor, phase 17 as built in PLAN-002, STATUS; push,
+   open PR #8, merge on the owner's go.
+4. Owner questions: ISS-025, ISS-077.

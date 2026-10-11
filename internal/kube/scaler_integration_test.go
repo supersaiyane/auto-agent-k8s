@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -636,13 +637,23 @@ api:
 
 // fakeGitOps serves one file and records the pull requests asked of it.
 type fakeGitOps struct {
-	files map[string]string
-	prs   []integrations.GitOpsChange
+	files     map[string]string
+	prs       []integrations.GitOpsChange
+	commits   []integrations.GitOpsChange
+	commitErr error
 }
 
 func (f *fakeGitOps) OpenPR(_ context.Context, ch integrations.GitOpsChange) (string, error) {
 	f.prs = append(f.prs, ch)
 	return "https://git/pr/1", nil
+}
+
+func (f *fakeGitOps) Commit(_ context.Context, ch integrations.GitOpsChange) (string, error) {
+	f.commits = append(f.commits, ch)
+	if f.commitErr != nil {
+		return "", f.commitErr
+	}
+	return "https://git/commit/abc", nil
 }
 
 func (f *fakeGitOps) ReadFile(_ context.Context, path string) ([]byte, error) {
@@ -709,4 +720,42 @@ func TestRecordPolicyAction(t *testing.T) {
 	}
 	deps.PolicyBudget = nil
 	recordPolicyAction(deps, mutation{Namespace: "default", Labels: api}) // must not panic
+}
+
+func oomPod(ns string) *corev1.Pod {
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: ns, Labels: map[string]string{"app": "api"}}}
+}
+
+// ISS-012: gitops.mode live commits through the gate, never outside the fix
+// scope; PR mode opens a pull request; outside fix mode it only recommends.
+func TestMemoryBumpGitOps(t *testing.T) {
+	ctx := context.Background()
+	deps, _ := newTestDeps(t)
+	g := &fakeGitOps{}
+	deps.GitOps = g
+
+	if msg := memoryBumpGitOps(ctx, deps, oomPod("default"), "default", "deployment/api", "app", "512Mi", "log"); !strings.Contains(msg, "opened PR") || len(g.prs) != 1 {
+		t.Fatalf("pr mode: %q, %d PRs", msg, len(g.prs))
+	}
+
+	deps.GitOpsLive = true
+	msg := memoryBumpGitOps(ctx, deps, oomPod("default"), "default", "deployment/api", "app", "512Mi", "log")
+	if len(g.commits) != 1 || !strings.Contains(msg, "no review") || !strings.Contains(msg, "https://git/commit/abc") {
+		t.Fatalf("live mode: %q, %d commits", msg, len(g.commits))
+	}
+	msg = memoryBumpGitOps(ctx, deps, oomPod("payments"), "payments", "deployment/api", "app", "512Mi", "log")
+	if len(g.commits) != 1 || !strings.Contains(msg, "outside the fix scope") {
+		t.Fatalf("outside the fix scope live mode only suggests: %q, %d commits", msg, len(g.commits))
+	}
+	g.commitErr = errors.New("protected branch")
+	if msg := memoryBumpGitOps(ctx, deps, oomPod("default"), "default", "deployment/api", "app", "512Mi", "log"); !strings.Contains(msg, "gitops_commit failed: protected branch") {
+		t.Fatalf("a refused commit fails at the gate: %q", msg)
+	}
+
+	pol := testPolicy()
+	pol.Mode = policy.DryRun
+	deps.Policies = policy.Static(pol)
+	if msg := memoryBumpGitOps(ctx, deps, oomPod("default"), "default", "deployment/api", "app", "512Mi", "log"); msg != "_Recommend_: increase memory limit by 20-50% via GitOps PR.\n" {
+		t.Fatalf("outside fix mode: %q", msg)
+	}
 }
