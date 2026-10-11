@@ -91,11 +91,7 @@ for (const tab of TABS) {
   await evaluate(`document.querySelector('[role=tab][data-tab="${tab}"]').click()`);
   if (tab === 'terminal') {
     if (!(await waitFor(`!document.getElementById('terminal').hidden`))) fail('terminal did not open');
-    // PLAN-003 1.3: the panel lists exactly what the help API says.
-    const want = await evaluate(`fetch('/api/kubectl/help', { headers: { Authorization: 'Bearer ' + sessionStorage.getItem('autoAgentToken') } }).then((r) => r.json()).then((h) => h.commands.length + '/' + h.refused.length)`);
-    if (!(await waitFor(`document.querySelectorAll('#term-help .term-cmds li').length + '/' + (document.querySelectorAll('#term-help ul')[1] || { children: [] }).children.length === ${JSON.stringify(want)}`))) {
-      fail('terminal panel does not match /api/kubectl/help (' + want + ')');
-    }
+    if (!(await evaluate(`!!document.getElementById('term-input')`))) fail('terminal has no input');
     continue;
   }
   if (!(await waitFor(`window.__autoAgent.renders > ${before}`))) { fail(`${tab}: never rendered`); continue; }
@@ -103,6 +99,12 @@ for (const tab of TABS) {
   if (/Could not load/.test(text)) fail(`${tab}: ${text.slice(0, 200)}`);
   const selected = await evaluate(`document.querySelector('[role=tab][aria-selected=true]').dataset.tab`);
   if (selected !== tab) fail(`${tab}: tab not marked selected (${selected})`);
+  if (tab === 'settings') {
+    // PLAN-003 1.3: the command list under Settings matches the help API.
+    const want = await evaluate(`fetch('/api/kubectl/help', { headers: { Authorization: 'Bearer ' + sessionStorage.getItem('autoAgentToken') } }).then((r) => r.json()).then((h) => h.commands.length + '/' + h.refused.length)`);
+    const got = `document.querySelectorAll('#view button[data-action="term-fill"]').length + '/' + ((document.querySelectorAll('#view .cmd-table')[1] || { rows: [0] }).rows.length - 1)`;
+    if (!(await waitFor(`${got} === ${JSON.stringify(want)}`))) fail('settings command list does not match /api/kubectl/help (' + want + ', got ' + (await evaluate(got)) + ')');
+  }
 }
 
 // A deep link selects its tab.
