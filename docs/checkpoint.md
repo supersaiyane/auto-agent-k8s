@@ -40,14 +40,14 @@
 | 2026-10-11 | D8: kube exclusions fixed, nine target survivors tested, rerun in progress | First kube run mutated the whole package (exclusion regex missed): 1113 killed, 316 lived; 9 lived in the target files, now tested (approvals propose and proposable, button post failures counted, approvalNote, escalateFailedFix without dedup, zero cooldown, recordPolicyAction). Script now anchors exclusions on the file name and fails on NOT COVERED too | uncommitted | `scripts/mutation.sh:60` (exclusions), `internal/kube/approvals_test.go` (D8 tests), `internal/kube/scaler_integration_test.go` (`TestEffectiveCooldown_ZeroKeepsGlobal`, `TestRecordPolicyAction`), `internal/kube/approvals.go:292` (failure counted) |
 | 2026-10-11 | D8 done; ISS-085 fixed; phase 16 complete | `make mutation` PASS: redact 1, ratelimit 30, kube 104 mutants, all killed; `make verify` exit 0, govulncheck clean, coverage 80.1% measured; local `make e2e` running (webhook TLS step) | x/net v0.60.0, toolchain and builder go1.26.9; `policyRefusal` an if chain; 12 survivor and coverage gaps tested | `scripts/mutation.sh:18`, `internal/kube/policycheck.go:43`, `internal/kube/approvals_test.go` (D8 tests), `go.mod:5`, `Dockerfile:3` |
 | 2026-10-11 | PR #7 merged (dda4c46); phase 17 in progress | `f2b8877` gitops.mode live (committed, verify exit 0, coverage 80.4%); images.mirror staged, verify exit 0, kind e2e with a mirror step running; Argo Rollouts reload written and tested, unstaged | live commits through the gate; mutating webhook rewrites allowlisted images; Rollouts via dynamic client when the CRD is detected | `internal/kube/handlers.go` (`memoryBumpGitOps`), `internal/webhook/mirror.go:1`, `cmd/auto-agent/run.go` (`imageMirror`), `charts/auto-agent/templates/webhook.yaml` (MutatingWebhookConfiguration), `internal/kube/reload_rollouts.go:1`, `scripts/e2e-kind.sh` (mirror step) |
+| 2026-10-11 | PR #8 merged (a7cfc8c); PLAN-002 complete | CI verify, e2e and mutation green; local make e2e and e2e-raw PASS; coverage 83.0% measured, floor 83.0 | gitops live, image mirror, Argo Rollouts reload, ISS-087, ISS-089; ISS-088 (95% target) open | `docs/plans/PLAN-002-reload-coverage-and-gaps.md` (phase 17 as built), `tasks/ISSUES.md` (ISS-025, ISS-077, ISS-088 open) |
 
 ## Next action
 
-1. Read the kind e2e (mirror step: busybox rewritten to
-   mirror.e2e.test/docker.io/library/busybox:1.36). If it passed, commit the
-   staged images.mirror change.
-2. Stage the Argo Rollouts work (reload_rollouts.go, reload.go, deps.go,
-   run.go, chart RBAC, rbac tests, docs), `make verify`, commit.
-3. Final coverage floor, phase 17 as built in PLAN-002, STATUS; push,
-   open PR #8, merge on the owner's go.
-4. Owner questions: ISS-025, ISS-077.
+PLAN-002 is complete and merged (PR #8, a7cfc8c, 2026-10-11).
+
+1. Owner decisions waiting: ISS-025 (housekeeping budget), ISS-077 (quota
+   ceiling for R3), ISS-088 (whether to plan the climb from 83.0 to 95
+   percent coverage).
+2. The demo cluster runs the phase 16 build; rebuild and redeploy it to show
+   phase 17, and restart its port-forward for the dashboard.
