@@ -154,7 +154,7 @@ func NewServer(addr string, recorder *events.Recorder, meta *AgentMeta, kc kuber
 	if err != nil {
 		klog.Fatalf("httpapi: failed to sub embed FS: %v", err)
 	}
-	mux.Handle("/", http.FileServer(http.FS(uiSub)))
+	mux.Handle("/", noCache(http.FileServer(http.FS(uiSub))))
 
 	s.srv = &http.Server{
 		Addr:         addr,
@@ -833,4 +833,15 @@ func apiRoutes() []string {
 		paths = append(paths, rt.path)
 	}
 	return paths
+}
+
+// noCache makes browsers revalidate the dashboard files on every load.
+// Embedded files carry no modification time, so the file server sends no
+// Last-Modified or ETag, and without this a browser kept serving the old UI
+// after an upgrade (ISS-090). The files are small; refetching is cheap.
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
 }

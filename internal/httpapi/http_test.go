@@ -349,3 +349,16 @@ func TestServerLifecycle(t *testing.T) {
 		t.Fatal("callbacks")
 	}
 }
+
+// ISS-090: the dashboard files are revalidated on every load, so an upgrade
+// is seen at once.
+func TestUIFilesAreNotCached(t *testing.T) {
+	s := scopedServer(t)
+	for _, path := range []string{"/", "/app.js", "/app.css"} {
+		rec := httptest.NewRecorder()
+		s.srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("%s: %d, Cache-Control %q", path, rec.Code, rec.Header().Get("Cache-Control"))
+		}
+	}
+}
