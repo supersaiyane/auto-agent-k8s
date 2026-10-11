@@ -1,7 +1,9 @@
 # PLAN-002: Config reload, weak features, fix ladder, coverage
 
 Created: 2026-10-07
-Status: proposed, not started
+Status: done 2026-10-11, merged in PRs #2 to #9. Not met: the 95 percent
+coverage target (83.0 measured, ISS-088) and the durable approval queue
+(ISS-078); both move to PLAN-004. ISS-025 and ISS-077 wait for the owner.
 Builds on: PLAN-001 (done; PR #1)
 Rules: `CLAUDE.md` (definition of done, constraints 1 to 11)
 New issues: ISS-033 to ISS-040 in `tasks/ISSUES.md`
