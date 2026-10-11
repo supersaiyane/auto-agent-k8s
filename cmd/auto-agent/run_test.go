@@ -421,3 +421,30 @@ func TestTicketerFor(t *testing.T) {
 		t.Fatal("jira with credentials builds; github without a token does not")
 	}
 }
+
+// ISS-012: images.mirror on needs a prefix, an allowlist and the webhook;
+// anything less stops the start.
+func TestImageMirror(t *testing.T) {
+	if m, err := imageMirror(config.Config{}); err != nil || m.Enabled() {
+		t.Fatal("off by default")
+	}
+	withWebhook := config.Webhook{CertFile: "/c", KeyFile: "/k"}
+	cases := []struct {
+		name string
+		conf config.Config
+		want string
+	}{
+		{"no prefix", config.Config{ImageMirrorEnabled: true, ImageMirrorAllowList: []string{"docker.io/"}, Webhook: withWebhook}, "PREFIX"},
+		{"no allowlist", config.Config{ImageMirrorEnabled: true, ImageMirrorPrefix: "m/", Webhook: withWebhook}, "ALLOWLIST"},
+		{"no webhook", config.Config{ImageMirrorEnabled: true, ImageMirrorPrefix: "m/", ImageMirrorAllowList: []string{"docker.io/"}}, "webhook"},
+	}
+	for _, c := range cases {
+		if _, err := imageMirror(c.conf); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+	m, err := imageMirror(config.Config{ImageMirrorEnabled: true, ImageMirrorPrefix: "m/", ImageMirrorAllowList: []string{"docker.io/"}, Webhook: withWebhook})
+	if err != nil || !m.Enabled() {
+		t.Fatalf("complete settings: %+v %v", m, err)
+	}
+}

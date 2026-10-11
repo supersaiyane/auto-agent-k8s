@@ -61,6 +61,7 @@ func TestNoEnvReadsOutsideConfig(t *testing.T) {
 var allowedGlobals = map[string]string{
 	"cmd/auto-agent/main.go:version":                     "set once at build time by -ldflags",
 	"internal/crd/controller.go:gvr":                     "constant GroupVersionResource",
+	"internal/kube/reload_rollouts.go:rolloutGVR":        "constant GroupVersionResource",
 	"internal/httpapi/cost.go:awsPricing":                "read-only price table",
 	"internal/httpapi/http.go:uiFS":                      "embedded static files",
 	"internal/httpapi/http.go:apiRouteTable":             "read-only route table, walked by the auth tests",

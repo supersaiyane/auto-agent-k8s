@@ -17,6 +17,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/klog/v2"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	dynfake "k8s.io/client-go/dynamic/fake"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
@@ -39,7 +44,10 @@ func newReloadHarness(t *testing.T, cfg config.Reload, objs ...runtime.Object) *
 	return h
 }
 
-func (h *reloadHarness) advance(d time.Duration) { h.now = h.now.Add(d); h.r.reloadTick(context.Background()) }
+func (h *reloadHarness) advance(d time.Duration) {
+	h.now = h.now.Add(d)
+	h.r.reloadTick(context.Background())
+}
 
 func deployUsing(name string, spec corev1.PodSpec, mut func(*appsv1.Deployment)) *appsv1.Deployment {
 	one := int32(1)
@@ -328,5 +336,112 @@ func TestReload_StartWatches(t *testing.T) {
 	}
 	if p := h.patches(); len(p) != 1 || p[0] != "deployments/api" {
 		t.Fatalf("an update through the API server reloads the workload: %v", p)
+	}
+}
+
+func rollout(name string, spec map[string]any, phase string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "argoproj.io/v1alpha1", "kind": "Rollout",
+		"metadata": map[string]any{"name": name, "namespace": "default"},
+		"spec":     spec,
+	}}
+	if phase != "" {
+		u.Object["status"] = map[string]any{"phase": phase, "message": "analysis failed"}
+	}
+	return u
+}
+
+func rolloutSpecUsing(cm, key string) map[string]any {
+	return map[string]any{"template": map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{"app": "canary"}},
+		"spec": map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{map[string]any{
+			"name": "X", "valueFrom": map[string]any{"configMapKeyRef": map[string]any{"name": cm, "key": key}}}}}}},
+	}}
+}
+
+// withWorkloadRef adds a workloadRef; the template stays, so only the
+// workloadRef check can be what skips it.
+func withWorkloadRef(spec map[string]any) map[string]any {
+	spec["workloadRef"] = map[string]any{"kind": "Deployment", "name": "web"}
+	return spec
+}
+
+func rolloutClient(objs ...runtime.Object) *dynfake.FakeDynamicClient {
+	return dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{rolloutGVR: "RolloutList"}, objs...)
+}
+
+// PLAN-002 A4: with Argo Rollouts installed, a Rollout that uses the changed
+// key is restarted through the gate and verified by its phase; one that
+// points at a Deployment (workloadRef) is left to that Deployment.
+func TestReload_ArgoRollouts(t *testing.T) {
+	h := newReloadHarness(t, reloadCfg)
+	dyn := rolloutClient(rollout("canary", rolloutSpecUsing("app", "level"), "Healthy"),
+		rollout("byref", withWorkloadRef(rolloutSpecUsing("app", "level")), "Healthy"))
+	h.deps.Dynamic, h.deps.Rollouts = dyn, true
+	h.r.configMapChanged(cmap(map[string]string{"level": "1"}), cmap(map[string]string{"level": "2"}))
+	for i := 0; i < 4; i++ {
+		h.advance(11 * time.Second)
+	}
+	if got := h.results(t); got != "rollout/canary=restarted rollout/canary=healthy" {
+		t.Fatalf("results: %s", got)
+	}
+	u, err := dyn.Resource(rolloutGVR).Namespace("default").Get(context.Background(), "canary", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ann, _, _ := unstructured.NestedStringMap(u.Object, "spec", "template", "metadata", "annotations")
+	if ann[reloadAnnotation(objRef{refConfigMap, "app"})] == "" {
+		t.Fatalf("the Rollout's pod template was not patched: %v", ann)
+	}
+
+	off := newReloadHarness(t, reloadCfg)
+	off.deps.Dynamic = dyn // CRD not detected: Rollouts are not touched
+	if got := off.r.rollouts(context.Background(), "default"); len(got) != 0 {
+		t.Fatalf("Rollouts listed although the CRD was not detected: %d", len(got))
+	}
+}
+
+func TestVerifyRollout_Phases(t *testing.T) {
+	h := newReloadHarness(t, reloadCfg)
+	h.deps.Dynamic = rolloutClient(rollout("degraded", rolloutSpecUsing("app", "k"), "Degraded"),
+		rollout("paused", rolloutSpecUsing("app", "k"), "Paused"), rollout("progressing", rolloutSpecUsing("app", "k"), "Progressing"),
+		rollout("new", rolloutSpecUsing("app", "k"), ""))
+	h.deps.Rollouts = true
+	ctx := context.Background()
+	cases := []struct {
+		name     string
+		timedOut bool
+		done, ok bool
+		want     string
+	}{
+		{"degraded", false, true, false, "analysis failed"},
+		{"paused", false, true, true, "paused for promotion"},
+		{"progressing", false, false, false, "is Progressing"},
+		{"progressing", true, true, false, "not healthy after"},
+		{"new", false, false, false, "has no status yet"},
+		{"missing", true, true, false, "could not read the Rollout"},
+	}
+	for _, c := range cases {
+		done, ok, detail := h.r.verifyRollout(ctx, "default", c.name, c.timedOut)
+		if done != c.done || ok != c.ok || !strings.Contains(detail, c.want) {
+			t.Errorf("%s (timed out %v): %v %v %q", c.name, c.timedOut, done, ok, detail)
+		}
+	}
+}
+
+func TestDetectRollouts(t *testing.T) {
+	kc := fake.NewSimpleClientset()
+	disc := kc.Discovery().(*fakediscovery.FakeDiscovery)
+	if DetectRollouts(disc) {
+		t.Fatal("no argoproj.io group: no Rollouts")
+	}
+	disc.Resources = []*metav1.APIResourceList{{GroupVersion: "argoproj.io/v1alpha1", APIResources: []metav1.APIResource{{Name: "analysisruns"}}}}
+	if DetectRollouts(disc) {
+		t.Fatal("the group without rollouts: no Rollouts")
+	}
+	disc.Resources[0].APIResources = append(disc.Resources[0].APIResources, metav1.APIResource{Name: "rollouts"})
+	if !DetectRollouts(disc) {
+		t.Fatal("rollouts served: detected")
 	}
 }

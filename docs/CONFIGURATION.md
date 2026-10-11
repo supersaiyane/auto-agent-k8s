@@ -218,7 +218,9 @@ each failed channel is counted under its own name.
 When a ConfigMap changes, the controller restarts the workloads that use the
 changed keys, one at a time, through the mutation gate; see GUIDE section
 "Config reload". It follows the mode (dry-run only records) and acts only in
-the fix scope.
+the fix scope. Argo Rollouts are covered when their CRD is installed: the
+controller checks at startup, and the chart grants `get`, `list` and
+`patch` on `argoproj.io/rollouts` (PLAN-002 A4).
 
 | Variable | Helm value | Allowed values | Default | Effect | Read in |
 | --- | --- | --- | --- | --- | --- |
@@ -293,22 +295,27 @@ The chart sets these from the pod itself. Do not override them.
 
 ---
 
-## Set by the chart but not read
+## Image mirror (rewrites pods)
 
-The chart writes these into the ConfigMap, but no code reads them, so
-**changing them does nothing** (ISS-012, ISS-032).
+> **Warning: with `images.mirror.enabled` the admission webhook changes
+> pods as they are created.** An image whose normalized reference starts
+> with an allowlist entry is rewritten to the prefix plus that reference:
+> `nginx:1.25`, which is `docker.io/library/nginx:1.25`, becomes
+> `registry.internal/docker.io/library/nginx:1.25`. It needs
+> `webhook.enabled` and a non-empty allowlist (the chart and the agent both
+> refuse otherwise), never rewrites an image already under the prefix,
+> leaves the agent's own and the system namespaces alone, never denies a
+> pod (`failurePolicy: Ignore`), and the agent warns at startup (ISS-012).
 
-> **Warning: `images.mirror.*` is not implemented yet.** By owner decision
-> (2026-10-07) it stays a flag, **off by default**, built in PLAN-002 phase
-> 17: it will make the admission webhook **rewrite images as pods are
-> created**, and log a warning at startup when turned on.
+| Variable | Helm value | Allowed values | Default | Effect | Read in |
+| --- | --- | --- | --- | --- | --- |
+| `IMAGE_MIRROR_ENABLED` | `images.mirror.enabled` | `true`, `false` | `false` | Turn the rewrite on | `cmd/auto-agent/run.go` (`imageMirror`) |
+| `IMAGE_MIRROR_PREFIX` | `images.mirror.prefix` | registry path ending in `/` | chart: `registry.internal/` | Prepended to the normalized reference | `internal/webhook/mirror.go` |
+| `IMAGE_MIRROR_ALLOWLIST` | `images.mirror.allowList` | comma separated prefixes of normalized references | empty | Only these images are rewritten, e.g. `docker.io/library/,quay.io/prometheus/` | `internal/webhook/mirror.go` |
 
-| Variable | Helm value |
-| --- | --- |
-| `ANOMALIES_POLL_INTERVAL` | `anomalies.pollInterval` |
-| `IMAGE_MIRROR_ENABLED` | `images.mirror.enabled` |
-| `IMAGE_MIRROR_PREFIX` | `images.mirror.prefix` |
-| `IMAGE_MIRROR_ALLOWLIST` | `images.mirror.allowList` |
+Every key the chart sets is read by the agent; `TestConfigReference_MatchesCodeAndChart`
+keeps it that way (`anomalies.pollInterval` was removed in phase 17: the
+scale loop drives anomaly checks).
 
 ## Chart values that shape the deployment
 

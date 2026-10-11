@@ -241,19 +241,21 @@ func classifyPod(cpuReq, cpuLim, memReq, memLim float64) string {
 	if cpuReq == 0 && memReq == 0 {
 		return "overuse"
 	}
+	// Very small requests (< 10m CPU or < 16Mi memory) on a container that
+	// has larger limits. Checked before the ratio: such a request always has
+	// a ratio above 5, so after it this rule could never fire (ISS-089).
+	if cpuReq > 0 && cpuReq < 0.01 && cpuLim > 0.1 {
+		return "underuse"
+	}
+	if memReq > 0 && memReq < 16 && memLim > 128 {
+		return "underuse"
+	}
 	// Limit >> request (more than 5x), overprovisioned, wasting reservation
 	if cpuReq > 0 && cpuLim/cpuReq > 5 {
 		return "overuse"
 	}
 	if memReq > 0 && memLim/memReq > 5 {
 		return "overuse"
-	}
-	// Very small requests (< 10m CPU or < 16Mi memory) on a container that has limits
-	if cpuReq > 0 && cpuReq < 0.01 && cpuLim > 0.1 {
-		return "underuse"
-	}
-	if memReq > 0 && memReq < 16 && memLim > 128 {
-		return "underuse"
 	}
 	return "right-sized"
 }

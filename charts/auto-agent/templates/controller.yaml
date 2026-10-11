@@ -21,6 +21,11 @@ spec:
         app: auto-agent-controller
         {{- include "auto-agent.labels" . | nindent 8 }}
         app.kubernetes.io/component: controller
+      annotations:
+        # The webhook and image mirror settings are read once, at start; a
+        # change rolls the controllers so it takes effect. Other settings are
+        # hot reloaded and must not restart pods.
+        auto-agent.io/start-config: {{ dict "webhook" .Values.webhook "mirror" .Values.images.mirror | toJson | sha256sum | trunc 16 | quote }}
     spec:
       serviceAccountName: auto-agent
       terminationGracePeriodSeconds: 30

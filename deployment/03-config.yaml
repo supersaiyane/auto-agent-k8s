@@ -63,7 +63,6 @@ data:
   GITHUB_REPO: "yourorg/api-service"
   JIRA_BASE_URL: ""
   JIRA_PROJECT_KEY: ""
-  ANOMALIES_POLL_INTERVAL: "30s"
   LOG_STORE: "efs"
   LOG_S3_BUCKET: "your-bucket-name"
   LOG_S3_PREFIX: "auto-agent/logs"

@@ -47,6 +47,11 @@ type Config struct {
 	// R3 approvals (PLAN-002 phase 15).
 	Approvals Approvals
 
+	// Image mirror rewrite by the admission webhook (ISS-012).
+	ImageMirrorEnabled   bool     // IMAGE_MIRROR_ENABLED
+	ImageMirrorPrefix    string   // IMAGE_MIRROR_PREFIX: prepended to the normalized reference
+	ImageMirrorAllowList []string // IMAGE_MIRROR_ALLOWLIST: prefixes of normalized references to rewrite
+
 	// OpenTelemetry spans (ISS-018).
 	TracingEnabled  bool   // TRACING_ENABLED: export spans for findings and gate decisions
 	TracingEndpoint string // TRACING_ENDPOINT: OTLP/HTTP base URL
@@ -214,6 +219,10 @@ func Load(get Getenv) Config {
 			Services:      r.boolean("SERVICE_PROBE_ENABLED", false),
 			EgressTarget:  r.str("EGRESS_PROBE_TARGET", ""),
 		},
+
+		ImageMirrorEnabled:   r.boolean("IMAGE_MIRROR_ENABLED", false),
+		ImageMirrorPrefix:    r.str("IMAGE_MIRROR_PREFIX", ""),
+		ImageMirrorAllowList: r.list("IMAGE_MIRROR_ALLOWLIST"),
 
 		TracingEnabled:  r.boolean("TRACING_ENABLED", false),
 		TracingEndpoint: r.str("TRACING_ENDPOINT", ""),

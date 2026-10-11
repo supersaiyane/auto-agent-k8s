@@ -198,6 +198,8 @@ var (
 		{"autoagent.io", "autoremediationpolicies", "watch"},
 		{"coordination.k8s.io", "leases", "get"}, {"coordination.k8s.io", "leases", "create"},
 		{"coordination.k8s.io", "leases", "update"},
+		// Argo Rollouts reload through the dynamic client (reload_rollouts.go).
+		{"argoproj.io", "rollouts", "get"}, {"argoproj.io", "rollouts", "list"}, {"argoproj.io", "rollouts", "patch"},
 	}
 )
 

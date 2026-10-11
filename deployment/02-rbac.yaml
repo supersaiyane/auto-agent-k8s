@@ -100,6 +100,11 @@ rules:
 - apiGroups: ["autoagent.io"]
   resources: ["autoremediationpolicies"]
   verbs: ["get", "list", "watch"]
+# Argo Rollouts (PLAN-002 A4): config reload lists Rollouts and reads their
+# status, only when the CRD is installed (detected at startup).
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["get", "list"]
 ---
 # Source: auto-agent/templates/clusterrole.yaml
 # Node agents: the pods and Node object of their own node (the informers
@@ -188,6 +193,9 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["patch"]   # raise maxReplicas
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["patch"]   # config reload restarts a Rollout (PLAN-002 A4)
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["patch"]   # expand a claim whose StorageClass allows it
@@ -233,6 +241,9 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["patch"]   # raise maxReplicas
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["patch"]   # config reload restarts a Rollout (PLAN-002 A4)
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["patch"]   # expand a claim whose StorageClass allows it
@@ -278,6 +289,9 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["patch"]   # raise maxReplicas
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts"]
+  verbs: ["patch"]   # config reload restarts a Rollout (PLAN-002 A4)
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["patch"]   # expand a claim whose StorageClass allows it

@@ -60,7 +60,6 @@ data:
   GITHUB_REPO: "{{ .Values.tickets.github.repo }}"
   JIRA_BASE_URL: "{{ .Values.tickets.jira.baseUrl }}"
   JIRA_PROJECT_KEY: "{{ .Values.tickets.jira.projectKey }}"
-  ANOMALIES_POLL_INTERVAL: "{{ .Values.anomalies.pollInterval }}"
   LOG_STORE: "{{ .Values.logs.store }}"
   LOG_S3_BUCKET: "{{ .Values.logs.s3.bucket }}"
   LOG_S3_PREFIX: "{{ .Values.logs.s3.prefix }}"

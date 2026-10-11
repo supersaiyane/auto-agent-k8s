@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
@@ -36,6 +37,10 @@ type LLMDiagnoser interface {
 // Deps holds shared dependencies injected into all kube handlers.
 type Deps struct {
 	Client kubernetes.Interface
+	// Dynamic reads and patches Argo Rollouts; Rollouts is true when their
+	// CRD was found at startup (PLAN-002 A4). Nil or false: no Rollouts.
+	Dynamic  dynamic.Interface
+	Rollouts bool
 	// NodeName is the node this agent pod runs on (downward API NODE_NAME).
 	// Node actions are taken only for this node; empty means none (ISS-004).
 	NodeName string

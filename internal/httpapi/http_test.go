@@ -2,18 +2,23 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpx/httpxtest"
 )
 
 func newTestServer(t *testing.T, token string) *Server {
@@ -171,4 +176,176 @@ func TestServer_StartBindsBeforeReturning(t *testing.T) {
 		t.Fatalf("healthz right after Start: %v %v", resp, err)
 	}
 	resp.Body.Close()
+}
+
+func TestResourceHelpers(t *testing.T) {
+	cases := []struct {
+		cpuReq, cpuLim, memReq, memLim float64
+		want                           string
+	}{
+		{0, 0, 0, 0, "no-limits"},
+		{0, 1, 0, 256, "overuse"},
+		{0.1, 1, 64, 128, "overuse"},
+		{0.5, 1, 32, 256, "overuse"},
+		{0.005, 0.5, 64, 128, "underuse"},
+		{0.5, 1, 8, 256, "underuse"},
+		{0.5, 1, 256, 512, "right-sized"},
+	}
+	for _, c := range cases {
+		if got := classifyPod(c.cpuReq, c.cpuLim, c.memReq, c.memLim); got != c.want {
+			t.Errorf("classifyPod(%v) = %q, want %q", c, got, c.want)
+		}
+	}
+	if classifyContainer("-", "-", "-", "-") != "no-limits" || classifyContainer("-", "1", "-", "1Gi") != "no-requests" || classifyContainer("1", "1", "1Gi", "1Gi") != "ok" {
+		t.Fatal("classifyContainer")
+	}
+	for eff, color := range map[string]string{"overuse": "red", "underuse": "yellow", "no-limits": "red", "right-sized": "green"} {
+		if effToColor(eff) != color {
+			t.Errorf("effToColor(%q)", eff)
+		}
+	}
+	if !strings.Contains(effAdvice("no-limits", 0, 0, 0, 0), "limits") || !strings.Contains(effAdvice("overuse", 0, 1, 0, 1), "requests") ||
+		!strings.Contains(effAdvice("overuse", 0.1, 1, 1, 1), "10x") || !strings.Contains(effAdvice("overuse", 0.5, 1, 1, 1), "too high") ||
+		!strings.Contains(effAdvice("underuse", 0, 0, 0, 0), "throttled") || effAdvice("right-sized", 0, 0, 0, 0) != "" {
+		t.Fatal("effAdvice")
+	}
+	if fmtCPU(0) != "-" || fmtCPU(0.25) != "250m" || fmtCPU(2) != "2.0" || fmtMem(0) != "-" || fmtMem(512) != "512Mi" || fmtMem(2048) != "2.0Gi" {
+		t.Fatal("formatting")
+	}
+	pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("256Mi")}}}}}}
+	if cr, cl, mr, ml := podFullResources(pod); cr != 0.25 || cl != 1 || mr != 128 || ml != 256 {
+		t.Fatalf("podFullResources: %v %v %v %v", cr, cl, mr, ml)
+	}
+	if ns, wl := parseNsWorkload("default/api"); ns != "default" || wl != "api" {
+		t.Fatal("parseNsWorkload")
+	}
+	if ns, wl := parseNsWorkload("lonely"); ns != "lonely" || wl != "" {
+		t.Fatal("parseNsWorkload without a slash")
+	}
+}
+
+func scopedServer(t *testing.T, objs ...runtime.Object) *Server {
+	t.Helper()
+	return NewServer(":0", events.NewRecorder(10), &AgentMeta{Version: "test"}, fake.NewSimpleClientset(objs...),
+		Options{DashboardToken: "tok", AllowNamespace: func(ns string) bool { return ns == "default" }})
+}
+
+func call(s *Server, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNamespaceAndResourcesViews(t *testing.T) {
+	limited := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "default", Labels: map[string]string{"app": "api"}},
+		Spec: corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "app", Image: "api:1", Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+			Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")}}}}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "app", Ready: true, RestartCount: 2}}}}
+	bare := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bare", Namespace: "default"},
+		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "b:1"}}},
+		Status: corev1.PodStatus{Phase: corev1.PodPending}}
+	one := int32(1)
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"}, Spec: appsv1.DeploymentSpec{Replicas: &one}}
+	s := scopedServer(t, limited, bare, dep)
+
+	rec := call(s, http.MethodGet, "/api/namespace/default", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "api-1") || !strings.Contains(rec.Body.String(), "bare") {
+		t.Fatalf("namespace view: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(s, http.MethodGet, "/api/namespace/payments", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("outside the watch scope: %d", rec.Code)
+	}
+	if rec := call(s, http.MethodGet, "/api/namespace/", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no namespace: %d", rec.Code)
+	}
+
+	rec = call(s, http.MethodGet, "/api/resources/default", "")
+	var detail map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("resources view: %d %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "no-limits") || !strings.Contains(body, "250m") {
+		t.Fatalf("the bare pod is flagged and requests are shown: %s", body)
+	}
+	if rec := call(s, http.MethodGet, "/api/resources/payments", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("resources outside the watch scope: %d", rec.Code)
+	}
+	if rec := call(s, http.MethodGet, "/api/resources/", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("resources without a namespace: %d", rec.Code)
+	}
+}
+
+func TestKubectlEndpoint(t *testing.T) {
+	s := scopedServer(t, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "default"}})
+	cases := []struct{ method, body, want string }{
+		{http.MethodGet, "", "POST required"},
+		{http.MethodPost, "not json", "invalid request"},
+		{http.MethodPost, `{"command":"get pods -n default"}`, "api-1"},
+		{http.MethodPost, `{"command":"delete pod api-1"}`, "is not available"},
+	}
+	for _, c := range cases {
+		if rec := call(s, c.method, "/api/kubectl", c.body); !strings.Contains(strings.ToLower(rec.Body.String()), strings.ToLower(c.want)) {
+			t.Errorf("%s %q: %s", c.method, c.body, rec.Body.String())
+		}
+	}
+}
+
+// Kubecost and OpenCost share an allocation API; each source is named and
+// a failure is returned, never a silent empty bill.
+func TestFetchAllocation(t *testing.T) {
+	srv := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/model/allocation"), strings.HasPrefix(r.URL.Path, "/allocation/compute"):
+			httpxtest.JSON(w, 200, `{"code":200,"data":[{"default":{"totalCost":12.345},"payments":{"totalCost":7.5}}]}`)
+		default:
+			httpxtest.JSON(w, 500, `{}`)
+		}
+	})
+	defer srv.Close()
+	c := CostConfig{KubecostURL: "http://kubecost.test", OpenCostURL: "http://opencost.test"}
+	ctx := context.Background()
+	for name, fetch := range map[string]func() (*clusterCost, error){
+		"kubecost": func() (*clusterCost, error) { return c.fetchKubecostData(ctx, srv.Client(time.Second)) },
+		"opencost": func() (*clusterCost, error) { return c.fetchOpenCostData(ctx, srv.Client(time.Second)) },
+	} {
+		got, err := fetch()
+		if err != nil || got.Config.Source != name || len(got.Namespaces) != 2 || got.TotalMonthly < 19.8 || got.TotalMonthly > 19.9 {
+			t.Fatalf("%s: %+v %v", name, got, err)
+		}
+	}
+	if _, err := c.fetchAllocation(ctx, srv.Client(time.Second), "kubecost", "http://kubecost.test/other"); err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("an error status is returned: %v", err)
+	}
+	bad := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 200, `not json`) })
+	defer bad.Close()
+	if _, err := c.fetchAllocation(ctx, bad.Client(time.Second), "opencost", "http://opencost.test/x"); err == nil || !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("a body that does not parse is an error: %v", err)
+	}
+}
+
+func TestServerLifecycle(t *testing.T) {
+	s := scopedServer(t)
+	s.SetLeaderFunc(func() bool { return true })
+	if !s.meta.IsLeaderFn() {
+		t.Fatal("leader func")
+	}
+	s.SetReady()
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ready after SetReady: %d", rec.Code)
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h := NewSlackActionHandler("secret")
+	h.SetCallbacks(func(string) string { return "a" }, func(string) string { return "r" }, func(string, time.Duration) string { return "s" })
+	if h.onApprove == nil || h.onRollback == nil || h.onSilence == nil {
+		t.Fatal("callbacks")
+	}
 }

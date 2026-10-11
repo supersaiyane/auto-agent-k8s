@@ -279,11 +279,12 @@ The full list of detectors, with their rung and test, is in
 Tokens for GitHub, GitLab, Jira and the LLM go in the Secret
 (`GIT_TOKEN`, `GITHUB_TOKEN`, `JIRA_TOKEN`, `JIRA_EMAIL`, `LLM_API_KEY`).
 
-**Configurable but not wired yet** (setting them changes nothing,
-ISS-012): `gitops.mode` and `images.mirror.*`. Learning-mode thresholds
-are applied since 2026-10-08 (ISS-012). `escalation.*` (PagerDuty, OpsGenie, email) is wired since
-2026-10-08 (ISS-080): critical findings and refused fixes are sent after
-Slack.
+Every setting the chart writes is read (ISS-012, closed 2026-10-11).
+Two of them change behaviour sharply and are off by default, with a
+startup warning: `gitops.mode: live` commits OOM fixes to the branch with
+no pull request (through the mutation gate), and `images.mirror` makes the
+admission webhook rewrite allowlisted images as pods are created. See
+docs/CONFIGURATION.md for both.
 
 ### 5.5 Security and RBAC
 
@@ -569,9 +570,12 @@ Settings tab later) and `helm upgrade`. The upgrade creates its write Role.
 ### 8.7 Config reload
 
 When a ConfigMap changes, the controller finds the Deployments,
-StatefulSets, DaemonSets and CronJobs in that namespace that use a changed
-key, and restarts them one at a time through the mutation gate, so the mode,
-the fix scope and every guardrail apply. With the default `dry-run` it only
+StatefulSets, DaemonSets, CronJobs and, where Argo Rollouts is installed,
+Rollouts in that namespace that use a changed key, and restarts them one at
+a time through the mutation gate, so the mode, the fix scope and every
+guardrail apply. A Rollout restarts as a rollout of its own, canary steps
+included; one paused for promotion counts as handed to Argo, and one that
+points at a Deployment (`workloadRef`) restarts through that Deployment. With the default `dry-run` it only
 records what it would restart (Reloads tab, Dry run tab).
 
 - **Key level.** A workload that reads one key through an env var `valueFrom` restarts

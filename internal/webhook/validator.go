@@ -45,6 +45,7 @@ type Config struct {
 	RequireLimits    bool     // reject if no resource limits
 	RequireReadiness bool     // reject if no readiness probe
 	BlockedImages    []string // image prefixes to block
+	Mirror           Mirror   // images.mirror: rewrite allowlisted images on pod creation
 }
 
 func NewValidator(cfg Config) *Validator {
@@ -55,6 +56,11 @@ func NewValidator(cfg Config) *Validator {
 	mux.HandleFunc("/validate", func(w http.ResponseWriter, r *http.Request) {
 		handleValidate(w, r, cfg)
 	})
+	if cfg.Mirror.Enabled() {
+		mux.HandleFunc("/mutate", func(w http.ResponseWriter, r *http.Request) {
+			handleMutate(w, r, cfg.Mirror)
+		})
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte("ok")); err != nil {
 			klog.V(4).Infof("webhook: healthz write: %v", err)
