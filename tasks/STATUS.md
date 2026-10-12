@@ -57,8 +57,11 @@ Phase 4 done
 2026-10-12: event history, audit log and baselines tested, their failures
 counted (ISS-097), a baselines race fixed (ISS-096), unused correlation and
 learning code removed with its doc claims (ISS-095); coverage 89.4 percent
-counted. Next: phase 5 (B4, the HTTP API), then phase 6 to 95 percent
-(ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
+counted. Phase 5 done
+2026-10-12: the HTTP API at 95.3 percent, hidden API failures counted
+(ISS-098), unwired Slack buttons removed and the wiki corrected (ISS-100);
+coverage 92.3 percent counted. Owner question added: ISS-099. Next: phase 6
+(B5 and B6, the remaining packages and the floor to 95). Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 

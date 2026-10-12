@@ -218,12 +218,6 @@ func TestResourceHelpers(t *testing.T) {
 	if cr, cl, mr, ml := podFullResources(pod); cr != 0.25 || cl != 1 || mr != 128 || ml != 256 {
 		t.Fatalf("podFullResources: %v %v %v %v", cr, cl, mr, ml)
 	}
-	if ns, wl := parseNsWorkload("default/api"); ns != "default" || wl != "api" {
-		t.Fatal("parseNsWorkload")
-	}
-	if ns, wl := parseNsWorkload("lonely"); ns != "lonely" || wl != "" {
-		t.Fatal("parseNsWorkload without a slash")
-	}
 }
 
 func scopedServer(t *testing.T, objs ...runtime.Object) *Server {
@@ -342,11 +336,6 @@ func TestServerLifecycle(t *testing.T) {
 	}
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	h := NewSlackActionHandler("secret")
-	h.SetCallbacks(func(string) string { return "a" }, func(string) string { return "r" }, func(string, time.Duration) string { return "s" })
-	if h.onApprove == nil || h.onRollback == nil || h.onSilence == nil {
-		t.Fatal("callbacks")
 	}
 }
 

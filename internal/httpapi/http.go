@@ -795,7 +795,11 @@ func formatMemory(bytes int64) string {
 func writeJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		// The client went away or the value cannot be encoded (ISS-098).
+		klog.V(2).Infof("http: writing a JSON response: %v", err)
+		obs.HandlerErrorsTotal.WithLabelValues("http", "encode").Inc()
+	}
 }
 
 // apiRouteTable is every dashboard API route. Registration and the auth test

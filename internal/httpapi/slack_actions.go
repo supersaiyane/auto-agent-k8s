@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -28,24 +27,11 @@ type SlackAction struct {
 // Register this at /api/slack/actions in the mux.
 type SlackActionHandler struct {
 	signingSecret string
-	onApprove     func(incidentID string) string
-	onRollback    func(incidentID string) string
-	onSilence     func(nsWorkload string, duration time.Duration) string
-	approvals     Approvals // R3 approval queue; nil: Approve is not available
+	approvals     Approvals // R3 approval queue; nil: Approve and Reject are not available
 }
 
 func NewSlackActionHandler(signingSecret string) *SlackActionHandler {
 	return &SlackActionHandler{signingSecret: signingSecret}
-}
-
-func (h *SlackActionHandler) SetCallbacks(
-	onApprove func(string) string,
-	onRollback func(string) string,
-	onSilence func(string, time.Duration) string,
-) {
-	h.onApprove = onApprove
-	h.onRollback = onRollback
-	h.onSilence = onSilence
 }
 
 func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,28 +97,14 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "approve_fix":
 			if h.approvals != nil {
 				responseText = slackApprove(r.Context(), h.approvals, action.Value, "slack:"+payload.User.ID)
-			} else if h.onApprove != nil {
-				responseText = h.onApprove(action.Value)
 			} else {
-				responseText = fmt.Sprintf("Approve is not available yet, no action was taken (requested by %s)", payload.User.Username)
+				responseText = fmt.Sprintf("Approve is not available: no approvers are set, no action was taken (requested by %s)", payload.User.Username)
 			}
 		case "reject_fix":
 			if h.approvals != nil {
 				responseText = slackReject(h.approvals, action.Value, "slack:"+payload.User.ID)
 			} else {
 				responseText = "Reject is not available, no action was taken"
-			}
-		case "rollback":
-			if h.onRollback != nil {
-				responseText = h.onRollback(action.Value)
-			} else {
-				responseText = fmt.Sprintf("Rollback is not available yet, no action was taken (requested by %s)", payload.User.Username)
-			}
-		case "silence_1h":
-			if h.onSilence != nil {
-				responseText = h.onSilence(action.Value, 1*time.Hour)
-			} else {
-				responseText = fmt.Sprintf("Silence is not available yet, no action was taken (requested by %s)", payload.User.Username)
 			}
 		default:
 			responseText = fmt.Sprintf("Unknown action: %s", action.ActionID)
@@ -155,15 +127,6 @@ func (h *SlackActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // RegisterSlackActions adds the /api/slack/actions endpoint to the server.
 func RegisterSlackActions(mux *http.ServeMux, handler *SlackActionHandler) {
 	mux.Handle(slackActionsPath, handler)
-}
-
-// parseNsWorkload splits "namespace/workload" from silence button value.
-func parseNsWorkload(s string) (string, string) {
-	parts := strings.SplitN(s, "/", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
-	}
-	return s, ""
 }
 
 // slackActionsPath is where Slack posts interactive callbacks. It is

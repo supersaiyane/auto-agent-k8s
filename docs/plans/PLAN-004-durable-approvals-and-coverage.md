@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phases 1 to 4 done 2026-10-12 (ISS-078 fixed, ADR-003; B1 to B3). Phase 5 (B4) next.
+Status: phases 1 to 5 done 2026-10-12 (ISS-078 fixed, ADR-003; B1 to B4). Phase 6 (B5, B6) next.
 
 ## Goal
 
@@ -206,3 +206,28 @@ the replay refused. ISS-091 (a doubled refusal message) found on the way.
 - Measured 2026-10-12: recorder.go 90.6, auditlog.go 92.2, learning.go 90.4,
   fixtracker.go 96.6, correlation.go 96.4 percent; total 89.4 counted (89.1
   over every package). Floor 87.8 to 89.4.
+
+## Done 2026-10-12: phase 5 (B4)
+
+- Dashboard API views tested by what they return: events (limit, type),
+  stats, nodes (roles, pressure, status, memory), cluster events (scope,
+  refused namespace), cluster and namespace overviews, resources (every
+  efficiency class), cost (computed, Kubecost, OpenCost, fallback), the
+  extended views with real trackers, every Slack refusal, and every view
+  with no cluster client.
+- Terminal: every `get` kind with `-A -o wide`, a label and a field
+  selector; every command with a failing API; rollout status and history
+  at every stage; logs and events targets; describe when events cannot be
+  read.
+- Fixed (ISS-098): `writeJSON` counts a failed encode; an unanswered cost
+  source is counted and the fallback is labelled `computed`, not with the
+  source's name.
+- Removed (ISS-100): the unwired Rollback and Silence buttons, their
+  callbacks and helper; the wiki now describes Approve and Reject only and
+  names `slack.channelWebhooks` correctly.
+- Left for the owner (ISS-099): node pod counts and cost utilisation read
+  pods in every namespace.
+- Falsified once: the fallback label and the encode counter each fail
+  their test. Redaction of nested Block Kit lists keeps its direct test.
+- Measured 2026-10-12: `internal/httpapi` 82.7 to 95.3 percent; total
+  92.3 counted (92.0 over every package). Floor 89.4 to 92.3.

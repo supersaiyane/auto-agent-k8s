@@ -127,51 +127,6 @@ func (c *Client) postBlocksTo(hook string, blocks []map[string]interface{}) erro
 	return nil
 }
 
-// BuildIncidentBlocks creates a Block Kit message with action buttons.
-func BuildIncidentBlocks(title, detail, ns, workload, incidentID string) []map[string]interface{} {
-	return []map[string]interface{}{
-		{
-			"type": "header",
-			"text": map[string]string{"type": "plain_text", "text": title},
-		},
-		{
-			"type": "section",
-			"text": map[string]string{"type": "mrkdwn", "text": detail},
-		},
-		{
-			"type": "context",
-			"elements": []map[string]string{
-				{"type": "mrkdwn", "text": fmt.Sprintf("Namespace: `%s` | Workload: `%s`", ns, workload)},
-			},
-		},
-		{
-			"type": "actions",
-			"elements": []map[string]interface{}{
-				{
-					"type":      "button",
-					"text":      map[string]string{"type": "plain_text", "text": "Approve Fix"},
-					"style":     "primary",
-					"action_id": "approve_fix",
-					"value":     incidentID,
-				},
-				{
-					"type":      "button",
-					"text":      map[string]string{"type": "plain_text", "text": "Rollback"},
-					"style":     "danger",
-					"action_id": "rollback",
-					"value":     incidentID,
-				},
-				{
-					"type":      "button",
-					"text":      map[string]string{"type": "plain_text", "text": "Silence 1h"},
-					"action_id": "silence_1h",
-					"value":     ns + "/" + workload,
-				},
-			},
-		},
-	}
-}
-
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

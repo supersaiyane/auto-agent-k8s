@@ -45,8 +45,8 @@ func TestChannelRoutingAndBlocks(t *testing.T) {
 		c.Postf("n=%d", 3),
 		c.PostToChannel("ops", "to ops"),
 		c.PostToChannel("unknown", "falls back to the default hook"),
-		c.PostBlocks(BuildIncidentBlocks("T", "detail", "ns", "wl", "inc-1")),
-		c.PostBlocksToChannel("ops", BuildIncidentBlocks("T", "d", "ns", "wl", "i")),
+		c.PostBlocks(testBlocks),
+		c.PostBlocksToChannel("ops", testBlocks),
 	}
 	for i, err := range steps {
 		if err != nil {
@@ -60,8 +60,8 @@ func TestChannelRoutingAndBlocks(t *testing.T) {
 	if got := strings.Join(paths, ","); got != "/default,/ops,/default,/default,/ops" {
 		t.Fatalf("routing: %s", got)
 	}
-	if !strings.Contains(s.Requests()[3].Body, "approve_fix") {
-		t.Fatal("incident blocks carry the action buttons")
+	if !strings.Contains(s.Requests()[3].Body, `"blocks"`) || !strings.Contains(s.Requests()[3].Body, "detail") {
+		t.Fatal("PostBlocks sends the blocks it is given")
 	}
 }
 
@@ -74,3 +74,6 @@ func TestNoWebhookSendsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// testBlocks is a minimal Block Kit message for the posting tests.
+var testBlocks = []map[string]interface{}{{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": "detail"}}}

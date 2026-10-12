@@ -73,6 +73,17 @@ func TestAnnotationsAndNestedValues(t *testing.T) {
 	}
 }
 
+// Block Kit messages (the approval buttons) nest lists of maps; every
+// string inside is redacted, whatever the list's element type.
+func TestValue_ListsOfMaps(t *testing.T) {
+	secret := "token ghp_0123456789abcdefghijABCDEFGHIJ012345"
+	blocks := Value([]map[string]any{{"type": "section", "elements": []map[string]string{{"text": secret}}}}).([]map[string]any)
+	inner := blocks[0]["elements"].([]map[string]string)
+	if strings.Contains(inner[0]["text"], "ghp_") || blocks[0]["type"] != "section" {
+		t.Fatalf("nested lists of maps: %v", blocks)
+	}
+}
+
 func TestMapNil(t *testing.T) {
 	if Map(nil) != nil {
 		t.Fatal("nil in, nil out")
