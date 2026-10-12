@@ -24,6 +24,26 @@ var groupVersion = regexp.MustCompile(`^[A-Z][A-Za-z]*V[0-9]+((alpha|beta)[0-9]+
 // gateEntryPoints are the functions whose closure arguments may mutate.
 var gateEntryPoints = map[string]bool{"applyMutation": true, "tryFixAction": true, "writeAgentSetting": true}
 
+// agentSettingNames are the only constants writeAgentSetting may be called
+// with (ADR-002, ADR-003): a write to any other object is remediation and
+// must go through applyMutation.
+var agentSettingNames = map[string]bool{"ScopeConfigMap": true, "ApprovalsConfigMap": true}
+
+// namesAgentSetting reports whether a writeAgentSetting call names one of
+// the agent's own ConfigMaps by its constant.
+func namesAgentSetting(call *ast.CallExpr) bool {
+	if len(call.Args) == 0 {
+		return false
+	}
+	switch a := call.Args[0].(type) {
+	case *ast.Ident:
+		return agentSettingNames[a.Name]
+	case *ast.SelectorExpr:
+		return agentSettingNames[a.Sel.Name]
+	}
+	return false
+}
+
 // isClientMutation reports whether call is <...>.XxxV1().<Resource>(...).<Verb>(...).
 func isClientMutation(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -64,7 +84,7 @@ func insideGate(stack []ast.Node) bool {
 		switch parent := stack[i-1].(type) {
 		case *ast.CallExpr:
 			if id, ok := parent.Fun.(*ast.Ident); ok && gateEntryPoints[id.Name] {
-				return true
+				return id.Name != "writeAgentSetting" || namesAgentSetting(parent)
 			}
 			if isRetryOnConflict(parent) {
 				continue // a retry closure inside the gate is still inside the gate

@@ -21,8 +21,8 @@ import (
 // through the signed Slack callback, someone rejects it, or it expires.
 // Approving sends it through applyMutation once, so mode, fix scope,
 // guardrails and the rate limiter are checked again at that moment. The
-// queue lives in memory on the leader; a callback that reaches another
-// replica, or arrives after a restart, finds no such approval (ISS-078).
+// queue is stored in the agent's own ConfigMap (approval_store.go, ADR-003),
+// so it survives a restart and a change of leader (ISS-078).
 
 const (
 	approvalPending  = "pending"
@@ -49,6 +49,7 @@ type pendingApproval struct {
 	created, expires time.Time
 	state, by        string
 	result           string // gate outcome once approved
+	broken           error  // a stored change that could not be rebuilt; never applied
 }
 
 // ApprovalView is what the dashboard and the API show for one approval.
@@ -74,6 +75,7 @@ type Approvals struct {
 	ttl       time.Duration
 	approvers map[string]bool
 	items     map[string]*pendingApproval
+	store     *approvalStore // nil: memory only
 }
 
 // NewApprovals builds a queue whose items expire after ttl. Approvers are
@@ -134,25 +136,54 @@ func (a *Approvals) pruneLocked() bool {
 
 // propose queues m, or returns the pending item already queued for the
 // same change on the same workload.
-func (a *Approvals) propose(m mutation, summary string, now time.Time) (*pendingApproval, bool, error) {
+func (a *Approvals) propose(deps *Deps, m mutation, summary string, now time.Time) (*pendingApproval, bool, error) {
+	if a.store != nil && m.Fix == nil {
+		return nil, false, fmt.Errorf("%w: %s cannot be stored", errApprovalStore, m.ActionType)
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.expireLocked(now)
-	for _, p := range a.items {
-		if p.state == approvalPending && p.m.ActionType == m.ActionType && p.m.Namespace == m.Namespace && p.m.Workload == m.Workload && p.m.SuggestMsg == m.SuggestMsg {
-			return p, false, nil
+	var (
+		p     *pendingApproval
+		isNew bool
+	)
+	err := a.updateQueue(deps, func() (bool, error) {
+		p, isNew = nil, false
+		a.expireLocked(now)
+		for _, q := range a.items {
+			if q.state == approvalPending && sameChange(q.m, m) {
+				p = q
+				return false, nil
+			}
 		}
-	}
-	if !a.pruneLocked() {
-		return nil, false, errApprovalQueueFull
-	}
-	id, err := newApprovalID()
+		if !a.pruneLocked() {
+			return false, errApprovalQueueFull
+		}
+		id, err := newApprovalID()
+		if err != nil {
+			return false, err
+		}
+		p = &pendingApproval{id: id, m: m, summary: summary, created: now, expires: now.Add(a.ttl), state: approvalPending}
+		a.items[id] = p
+		isNew = true
+		return true, nil
+	})
 	if err != nil {
 		return nil, false, err
 	}
-	p := &pendingApproval{id: id, m: m, summary: summary, created: now, expires: now.Add(a.ttl), state: approvalPending}
-	a.items[id] = p
-	return p, true, nil
+	return p, isNew, nil
+}
+
+// sameChange reports whether two proposals are the same change on the same
+// workload. A run-now Job carries the time it was proposed in its name, so
+// two proposals for one CronJob are the same change whatever the name.
+func sameChange(a, b mutation) bool {
+	if a.ActionType != b.ActionType || a.Namespace != b.Namespace || a.Workload != b.Workload {
+		return false
+	}
+	if a.ActionType == "run_cronjob_now" {
+		return true
+	}
+	return a.SuggestMsg == b.SuggestMsg
 }
 
 // proposable reports whether an approval could ever apply m: the mode is
@@ -172,7 +203,7 @@ func queueApproval(deps *Deps, f finding) (*pendingApproval, bool, string) {
 	case !proposable(deps.Policy(), *f.Proposal):
 		return nil, false, "approve to fix needs fix mode and this namespace inside the fix scope"
 	}
-	p, isNew, err := a.propose(*f.Proposal, f.Summary, deps.clock())
+	p, isNew, err := a.propose(deps, *f.Proposal, f.Summary, deps.clock())
 	if err != nil {
 		klog.Warningf("approvals: cannot queue %s %s/%s: %v", f.Proposal.ActionType, f.Namespace, f.Workload, err)
 		return nil, false, "approve to fix could not queue this change: " + err.Error()
@@ -189,33 +220,62 @@ func ApproveFix(ctx context.Context, deps *Deps, id, user string) (string, error
 		return "", ErrApprovalsOff
 	}
 	a.mu.Lock()
-	p := a.items[id]
-	if p == nil {
-		a.mu.Unlock()
-		return "", ErrApprovalUnknown
-	}
-	m := p.m
-	if !a.approvers[user] {
-		a.mu.Unlock()
+	var m mutation
+	// Write ahead: the approval is stored as approved before the change is
+	// applied. A crash after this point leaves an approved item with no
+	// result, which is never applied again; a failed write applies nothing.
+	err := a.updateQueue(deps, func() (bool, error) {
+		p := a.items[id]
+		if p == nil {
+			return false, ErrApprovalUnknown
+		}
+		m = p.m
+		if !a.approvers[user] {
+			return false, ErrNotApprover
+		}
+		a.expireLocked(deps.clock())
+		if p.state != approvalPending {
+			return false, fmt.Errorf("%w: %s", ErrApprovalDecided, p.state)
+		}
+		if p.broken != nil {
+			return false, fmt.Errorf("%w: %w", errApprovalStore, p.broken)
+		}
+		p.state, p.by = approvalApproved, user
+		return true, nil
+	})
+	a.mu.Unlock()
+	if errors.Is(err, ErrNotApprover) {
 		klog.Warningf("approvals: %s is not an approver, refused %s", user, id)
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", "approval refused: "+user+" is not an approver")
-		return "", ErrNotApprover
 	}
-	a.expireLocked(deps.clock())
-	if p.state != approvalPending {
-		state := p.state
-		a.mu.Unlock()
-		return "", fmt.Errorf("%w: %s", ErrApprovalDecided, state)
+	if err != nil {
+		return "", err
 	}
-	p.state, p.by = approvalApproved, user
-	a.mu.Unlock()
 
 	m.ApprovedBy = user
 	out, msg := applyMutation(ctx, deps, m)
-	a.mu.Lock()
-	p.result = outcomeNames[out]
-	a.mu.Unlock()
+	a.recordResult(deps, id, outcomeNames[out])
 	return msg, nil
+}
+
+// recordResult stores what the gate did with an approved change. A failed
+// write is logged and counted: the change has already been through the
+// gate, and the audit log holds its outcome.
+func (a *Approvals) recordResult(deps *Deps, id, result string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	err := a.updateQueue(deps, func() (bool, error) {
+		p := a.items[id]
+		if p == nil {
+			return false, ErrApprovalUnknown
+		}
+		p.result = result
+		return true, nil
+	})
+	if err != nil {
+		klog.Warningf("approvals: storing the result of %s: %v", id, err)
+		obs.HandlerErrorsTotal.WithLabelValues("approvals", "store").Inc()
+	}
 }
 
 // RejectFix drops a pending change; by names who rejected it.
@@ -225,20 +285,24 @@ func RejectFix(deps *Deps, id, by string) error {
 		return ErrApprovalsOff
 	}
 	a.mu.Lock()
-	p := a.items[id]
-	if p == nil {
-		a.mu.Unlock()
-		return ErrApprovalUnknown
-	}
-	a.expireLocked(deps.clock())
-	if p.state != approvalPending {
-		state := p.state
-		a.mu.Unlock()
-		return fmt.Errorf("%w: %s", ErrApprovalDecided, state)
-	}
-	p.state, p.by = approvalRejected, by
-	m := p.m
+	var m mutation
+	err := a.updateQueue(deps, func() (bool, error) {
+		p := a.items[id]
+		if p == nil {
+			return false, ErrApprovalUnknown
+		}
+		a.expireLocked(deps.clock())
+		if p.state != approvalPending {
+			return false, fmt.Errorf("%w: %s", ErrApprovalDecided, p.state)
+		}
+		p.state, p.by = approvalRejected, by
+		m = p.m
+		return true, nil
+	})
 	a.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "rejected", "rejected by "+by)
 	return nil
 }
@@ -251,6 +315,14 @@ func ListApprovals(deps *Deps) []ApprovalView {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+		if _, err := a.reloadLocked(ctx, deps); err != nil {
+			klog.Warningf("approvals: reading the stored queue, showing the last copy read: %v", err)
+			obs.HandlerErrorsTotal.WithLabelValues("approvals", "store").Inc()
+		}
+		cancel()
+	}
 	a.expireLocked(deps.clock())
 	out := make([]ApprovalView, 0, len(a.items))
 	for _, p := range a.items {

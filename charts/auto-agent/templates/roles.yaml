@@ -240,6 +240,35 @@ subjects:
   name: auto-agent
   namespace: {{ include "auto-agent.namespace" . }}
 ---
+# The approval queue (ADR-003, ISS-078): the controller stores pending
+# approvals in the auto-agent-approvals ConfigMap so they survive a restart
+# and a change of leader. get and patch are pinned to it; create comes from
+# the auto-agent-scope Role above.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-approvals
+  namespace: {{ include "auto-agent.namespace" . }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["auto-agent-approvals"]
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-approvals
+  namespace: {{ include "auto-agent.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-approvals
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: {{ include "auto-agent.namespace" . }}
+---
 # Policy hot reload reads the agent's ConfigMap in its own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

@@ -241,6 +241,18 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | `guardrails.circuitBreakerThreshold` | `5` | Max actions per workload per hour before the breaker trips |
 | `guardrails.quietHours` | empty | UTC windows with no actions, e.g. `02:00-06:00,22:00-23:00` |
 
+**Approve to fix (R3).** Set `approvals.groups` (for example
+`["slack:U123ABC"]`) and `slack.signingSecret`, and a finding with an R3 fix
+queues the exact change with Approve and Reject buttons in Slack. It is
+applied once, through the same gate, only in fix mode and inside the fix
+scope; an unapproved change expires after `approvals.ttl` (`30m`). The queue
+is stored in the `auto-agent-approvals` ConfigMap in the agent's namespace
+(ADR-003), so a restart, an upgrade or a change of leader keeps every pending
+approval; `kubectl get configmap auto-agent-approvals -n <agent namespace>
+-o jsonpath='{.data.queue\.json}'` shows it. If the agent cannot store a
+change, it does not queue it, and the finding says so; an approval is stored
+as approved before it is applied, so it is never applied twice.
+
 ### 5.3 Scaling
 
 | Value | Default | What it does |

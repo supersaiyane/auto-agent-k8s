@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,18 +23,81 @@ import (
 // check pass that built it ended, so each Apply uses its own bounded
 // context instead of the pass's.
 
-const approvalApplyTimeout = 30 * time.Second
+const (
+	approvalApplyTimeout = 30 * time.Second
+	storeTimeout         = 10 * time.Second // one read and write of the stored queue (approval_store.go)
+)
 
 func approvalCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), approvalApplyTimeout)
 }
 
+// fixSpec is an R3 change as data, so the approval queue can store it
+// (PLAN-004, ISS-078). buildFix turns it back into the change; every
+// propose function goes through buildFix, so a stored approval applies
+// exactly what a fresh one would.
+type fixSpec struct {
+	Action    string   `json:"action"`
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`             // the object changed
+	Kind      string   `json:"kind,omitempty"`   // raise_cpu_limit: Deployment, StatefulSet or DaemonSet
+	Target    string   `json:"target,omitempty"` // raise_hpa_max: the workload the autoscaler scales
+	From      int32    `json:"from,omitempty"`
+	To        int32    `json:"to,omitempty"`
+	Size      string   `json:"size,omitempty"` // expand_pvc, e.g. "20Gi"
+	Pods      []string `json:"pods,omitempty"`
+	Container string   `json:"container,omitempty"`
+	CPU       string   `json:"cpu,omitempty"`
+	Job       string   `json:"job,omitempty"` // run_cronjob_now: the Job to create
+}
+
+var errUnknownFix = errors.New("unknown fix")
+
+// buildFix builds the mutation for s.
+func buildFix(deps *Deps, s fixSpec) (*mutation, error) {
+	var m *mutation
+	switch s.Action {
+	case "raise_hpa_max":
+		m = hpaMaxFix(deps, s)
+	case "resume_deployment":
+		m = resumeFix(deps, s)
+	case "expand_pvc":
+		m = expandPVCFix(deps, s)
+	case "delete_stuck_pods":
+		m = deleteStuckFix(deps, s)
+	case "run_cronjob_now":
+		m = runNowFix(deps, s)
+	case "raise_cpu_limit":
+		var err error
+		if m, err = cpuLimitFix(deps, s); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("%w %q", errUnknownFix, s.Action)
+	}
+	m.Fix = &s
+	return m, nil
+}
+
 // proposeHPAMax raises an autoscaler's maxReplicas.
 func proposeHPAMax(deps *Deps, hpa *autoscalingv2.HorizontalPodAutoscaler, target string, to int32) *mutation {
-	ns, name := hpa.Namespace, hpa.Name
-	return &mutation{Namespace: ns, Workload: target, Reason: "HPAMaxedOut", ActionType: "raise_hpa_max",
+	return mustFix(deps, fixSpec{Action: "raise_hpa_max", Namespace: hpa.Namespace, Name: hpa.Name, Target: target, From: hpa.Spec.MaxReplicas, To: to})
+}
+
+// mustFix builds a spec whose action is one of the cases above.
+func mustFix(deps *Deps, s fixSpec) *mutation {
+	m, err := buildFix(deps, s)
+	if err != nil {
+		panic(err) // a propose function named an action buildFix does not know
+	}
+	return m
+}
+
+func hpaMaxFix(deps *Deps, s fixSpec) *mutation {
+	ns, name, to := s.Namespace, s.Name, s.To
+	return &mutation{Namespace: ns, Workload: s.Target, Reason: "HPAMaxedOut", ActionType: s.Action,
 		SuccessMsg: fmt.Sprintf("raised maxReplicas of autoscaler %s to %d", name, to),
-		SuggestMsg: fmt.Sprintf("raise maxReplicas of autoscaler %s from %d to %d", name, hpa.Spec.MaxReplicas, to),
+		SuggestMsg: fmt.Sprintf("raise maxReplicas of autoscaler %s from %d to %d", name, s.From, to),
 		Apply: func() error {
 			ctx, cancel := approvalCtx()
 			defer cancel()
@@ -45,8 +109,12 @@ func proposeHPAMax(deps *Deps, hpa *autoscalingv2.HorizontalPodAutoscaler, targe
 
 // proposeResume resumes a paused Deployment.
 func proposeResume(deps *Deps, d *appsv1.Deployment) *mutation {
-	ns, name := d.Namespace, d.Name
-	return &mutation{Namespace: ns, Workload: "deployment/" + name, Reason: "DeploymentPaused", ActionType: "resume_deployment",
+	return mustFix(deps, fixSpec{Action: "resume_deployment", Namespace: d.Namespace, Name: d.Name})
+}
+
+func resumeFix(deps *Deps, s fixSpec) *mutation {
+	ns, name := s.Namespace, s.Name
+	return &mutation{Namespace: ns, Workload: "deployment/" + name, Reason: "DeploymentPaused", ActionType: s.Action,
 		SuccessMsg: "resumed deployment " + name, SuggestMsg: "resume deployment " + name,
 		Apply: func() error {
 			ctx, cancel := approvalCtx()
@@ -59,8 +127,12 @@ func proposeResume(deps *Deps, d *appsv1.Deployment) *mutation {
 
 // proposeExpandPVC grows a claim whose StorageClass allows expansion.
 func proposeExpandPVC(deps *Deps, ns, claim string, gi int64) *mutation {
-	size := fmt.Sprintf("%dGi", gi)
-	return &mutation{Namespace: ns, Workload: "pvc/" + claim, Reason: "VolumeAlmostFull", ActionType: "expand_pvc",
+	return mustFix(deps, fixSpec{Action: "expand_pvc", Namespace: ns, Name: claim, Size: fmt.Sprintf("%dGi", gi)})
+}
+
+func expandPVCFix(deps *Deps, s fixSpec) *mutation {
+	ns, claim, size := s.Namespace, s.Name, s.Size
+	return &mutation{Namespace: ns, Workload: "pvc/" + claim, Reason: "VolumeAlmostFull", ActionType: s.Action,
 		SuccessMsg: fmt.Sprintf("asked to expand claim %s to %s", claim, size),
 		SuggestMsg: fmt.Sprintf("expand claim %s to %s", claim, size),
 		Apply: func() error {
@@ -76,8 +148,12 @@ func proposeExpandPVC(deps *Deps, ns, claim string, gi int64) *mutation {
 // proposeDeleteStuck deletes DaemonSet pods that stay not ready; the
 // DaemonSet recreates each on its node.
 func proposeDeleteStuck(deps *Deps, ds *appsv1.DaemonSet, pods []string) *mutation {
-	ns := ds.Namespace
-	return &mutation{Namespace: ns, Workload: "daemonset/" + ds.Name, Reason: "DaemonSetMissing", ActionType: "delete_stuck_pods",
+	return mustFix(deps, fixSpec{Action: "delete_stuck_pods", Namespace: ds.Namespace, Name: ds.Name, Pods: append([]string(nil), pods...)})
+}
+
+func deleteStuckFix(deps *Deps, s fixSpec) *mutation {
+	ns, pods := s.Namespace, s.Pods
+	return &mutation{Namespace: ns, Workload: "daemonset/" + s.Name, Reason: "DaemonSetMissing", ActionType: s.Action,
 		SuccessMsg: fmt.Sprintf("deleted stuck pods %s", strings.Join(pods, ", ")),
 		SuggestMsg: fmt.Sprintf("delete stuck pods %s so the DaemonSet recreates them", strings.Join(pods, ", ")),
 		Apply: func() error {
@@ -105,25 +181,39 @@ func manualJobName(cron string, now time.Time) string {
 // proposeRunNow starts one Job from a CronJob's template, as
 // `kubectl create job --from=cronjob/<name>` does.
 func proposeRunNow(deps *Deps, cj *batchv1.CronJob, now time.Time) *mutation {
-	ns := cj.Namespace
+	return mustFix(deps, fixSpec{Action: "run_cronjob_now", Namespace: cj.Namespace, Name: cj.Name, Job: manualJobName(cj.Name, now)})
+}
+
+// runNowFix reads the CronJob when the change is applied, so the Job runs
+// the template as it is at approval time, as kubectl would.
+func runNowFix(deps *Deps, s fixSpec) *mutation {
+	ns, cron, jobName := s.Namespace, s.Name, s.Job
+	return &mutation{Namespace: ns, Workload: "cronjob/" + cron, Reason: "CronJobMissed", ActionType: s.Action,
+		SuccessMsg: "started job " + jobName, SuggestMsg: fmt.Sprintf("start job %s from cronjob %s now", jobName, cron),
+		Apply: func() error {
+			ctx, cancel := approvalCtx()
+			defer cancel()
+			cj, err := deps.Client.BatchV1().CronJobs(ns).Get(ctx, cron, metav1.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("read cronjob %s: %w", cron, err)
+			}
+			_, err = deps.Client.BatchV1().Jobs(ns).Create(ctx, jobFromCronJob(cj, jobName), metav1.CreateOptions{})
+			return err
+		}}
+}
+
+// jobFromCronJob is the Job `kubectl create job --from` would create.
+func jobFromCronJob(cj *batchv1.CronJob, name string) *batchv1.Job {
 	annotations := map[string]string{"cronjob.kubernetes.io/instantiate": "manual"}
 	for k, v := range cj.Spec.JobTemplate.Annotations {
 		annotations[k] = v
 	}
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: manualJobName(cj.Name, now), Namespace: ns, Labels: cj.Spec.JobTemplate.Labels,
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cj.Namespace, Labels: cj.Spec.JobTemplate.Labels,
 			Annotations:     annotations,
 			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(cj, batchv1.SchemeGroupVersion.WithKind("CronJob"))}},
 		Spec: *cj.Spec.JobTemplate.Spec.DeepCopy(),
 	}
-	return &mutation{Namespace: ns, Workload: "cronjob/" + cj.Name, Reason: "CronJobMissed", ActionType: "run_cronjob_now",
-		SuccessMsg: "started job " + job.Name, SuggestMsg: fmt.Sprintf("start job %s from cronjob %s now", job.Name, cj.Name),
-		Apply: func() error {
-			ctx, cancel := approvalCtx()
-			defer cancel()
-			_, err := deps.Client.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{})
-			return err
-		}}
 }
 
 // templateOwner is the workload whose pod template a pod comes from:
@@ -162,14 +252,22 @@ func proposeCPULimit(deps *Deps, p *corev1.Pod, container string, to *resource.Q
 	if !ok {
 		return nil, nil
 	}
-	body, err := cpuLimitPatch(container, to.String())
+	return buildFix(deps, fixSpec{Action: "raise_cpu_limit", Namespace: p.Namespace, Name: name, Kind: kind, Container: container, CPU: to.String()})
+}
+
+func cpuLimitFix(deps *Deps, s fixSpec) (*mutation, error) {
+	body, err := cpuLimitPatch(s.Container, s.CPU)
 	if err != nil {
 		return nil, fmt.Errorf("cpu limit patch: %w", err)
 	}
-	ns, workload := p.Namespace, strings.ToLower(kind)+"/"+name
-	return &mutation{Namespace: ns, Workload: workload, Reason: "CPUThrottled", ActionType: "raise_cpu_limit",
-		SuccessMsg: fmt.Sprintf("raised the CPU limit of %s in %s to %s", container, workload, to.String()),
-		SuggestMsg: fmt.Sprintf("raise the CPU limit of container %s in %s to %s (rolls the pods)", container, workload, to.String()),
+	ns, name, kind := s.Namespace, s.Name, s.Kind
+	if kind != "Deployment" && kind != "StatefulSet" && kind != "DaemonSet" {
+		return nil, fmt.Errorf("%w: raise_cpu_limit on kind %q", errUnknownFix, kind)
+	}
+	workload := strings.ToLower(kind) + "/" + name
+	return &mutation{Namespace: ns, Workload: workload, Reason: "CPUThrottled", ActionType: s.Action,
+		SuccessMsg: fmt.Sprintf("raised the CPU limit of %s in %s to %s", s.Container, workload, s.CPU),
+		SuggestMsg: fmt.Sprintf("raise the CPU limit of container %s in %s to %s (rolls the pods)", s.Container, workload, s.CPU),
 		Apply: func() error {
 			ctx, cancel := approvalCtx()
 			defer cancel()

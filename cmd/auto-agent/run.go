@@ -330,7 +330,7 @@ func (a *agent) buildDeps(ctx context.Context, cl Clients) error {
 		QuietHours:  kube.NewQuietHours(conf.QuietHours), DryRunLog: t.dryRun,
 		Escalation: escalation.NewChain(conf.Escalation, cl.HTTP), DeployTracker: t.deploys,
 		LearningMode: t.learning, FixTracker: t.fixes,
-		Approvals: kube.NewApprovals(conf.Approvals.TTL, conf.Approvals.Approvers), PolicyBudget: kube.NewPolicyBudget(),
+		Approvals: newApprovalQueue(a, cl.Kube), PolicyBudget: kube.NewPolicyBudget(),
 	}
 	return nil
 }
