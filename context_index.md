@@ -16,8 +16,7 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `PolicySource` | `internal/kube/deps.go` | Interface with `Get() *policy.Policy` |
 | `EvaluateAndScale`, `CleanupEvictedPods`, `CheckFailedJobs`, `CheckStuckRollouts` | `internal/kube/scaler.go`, `workloads.go`, `jobs.go` | Leader-only loops called from `cmd/auto-agent/run.go` |
 | `StartWatchers` | `internal/kube/watcher.go` | Pod and node informers; bounds concurrent handlers with `Deps` slots (no package semaphore, PLAN-002 9.4) |
-| `Deps.HTTPClient` | `internal/kube/deps.go` | Injected client for runbook fetches, runbook HTTP steps and self-check probes; nil means a default client (PLAN-002 9.1) |
-| `FetchRunbook(ctx, hc, url)` | `internal/kube/runbook.go` | Fetches a runbook with the injected client |
+| `Deps.HTTPClient` | `internal/kube/deps.go` | Injected client for self-check probes; nil means a default client (PLAN-002 9.1) |
 | `CheckPodStates` | `internal/kube/podstate.go` | Leader pass over every allowlisted pod: stuck terminating, volume failures, probes, unschedulable, preemption, readiness gates (PLAN-002 10.1 to 10.12); replaced `CheckVolumeAttachments` |
 | `CheckStuckFinalizers`, `CheckDisruptionBudgets` | `internal/kube/lifecycle.go` | Leader checks: namespaces and claims held by finalizers (10.2), budgets blocking evictions (10.6) |
 | `CheckResourcePressure`, `CheckControlPlane` | `internal/kube/promchecks.go` | Prometheus checks: CPU throttling, claims almost full (10.9, 10.10), etcd health, deprecated API use (10.13, 10.14); silent when `metrics.ErrNoPromQL` |

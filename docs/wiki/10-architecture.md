@@ -43,7 +43,6 @@ internal/
   kube/compliance.go             MTTR, remediation rate, compliance reports
   kube/learning.go               Baseline collection, threshold auto-tuning
   kube/dryrun.go                 Dry-run simulation logging
-  kube/runbook.go                Runbook fetch + execution
   kube/gitops_content.go         Memory bump patch generation
   kube/policycheck.go            CRD per-policy enforcement
   kube/selfcheck.go              Agent self-monitoring
