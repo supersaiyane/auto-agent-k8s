@@ -60,6 +60,7 @@
 | 2026-10-12 | PR #17 merged (5a15340); demo redeployed from master; ISS-107 fixed on `deploy-restart` | deploy.sh restarts the agent after loading a local image; checked on kind-auto-agent-demo (pods 11:30 to 11:49); dashboard on localhost:18080 | port-forward running | `deployment/deploy.sh:123` |
 | 2026-10-12 | Owner: finish every open issue. ISS-107 in PR #18 (CI running); ISS-025, ISS-099 fixed and ISS-077, ISS-030 closed on `housekeeping-budget`, not committed | make verify passes, coverage 95.04 exact; mutation run in progress (bash task boe5ic3so); ISS-020 needs the owner (history rewrite) | demo port-forward bhidlj2r6 on 18080 | `internal/kube/gate.go` (Housekeeping, limiter choice), `internal/kube/guardrails.go:19,29`, `internal/httpapi/http.go` (`watchedPodsByNode`), `internal/kube/housekeeping_test.go` |
 | 2026-10-12 | PR #18 (371e19e) and PR #19 (518bfe4) merged; ISS-020 accepted by the owner; demo redeployed | every issue closed; deploy.sh now restarts the agent itself | port-forward on 18080 | `tasks/ISSUES.md` (ISS-020), `deployment/deploy.sh:123` |
+| 2026-10-12 | PR #20 open (ISS-020 accepted, docs only), CI running; project map header updated | demo on image 5d1194ac, pods restarted by deploy.sh itself; dashboard 200 on localhost:18080 | port-forward bscbwnc5p | `project_map.md:3`, `tasks/ISSUES.md` (ISS-020), `tasks/STATUS.md` |
 ## Next action
 
 No open issue and no active plan. The demo runs master on kind-auto-agent-demo
