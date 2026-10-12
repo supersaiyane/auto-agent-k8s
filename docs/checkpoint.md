@@ -49,10 +49,12 @@
 | 2026-10-12 | PLAN-004 phase 1 done: ISS-078 fixed; PR #10 merged (2f415e0) | `make e2e` PASS including the new step (approval queued, leader deleted, approved on the new leader, one Job, replay refused); `make verify` passes; ISS-091 recorded | mutation run pending before commit | `internal/kube/approval_store.go`, `scripts/e2e-kind.sh` (approval step), `tasks/ISSUES.md` ISS-078 and ISS-091 |
 
 | 2026-10-12 | PLAN-004 phase 1 PR #11 open (CI running); phase 2 done on branch `plan-004-phase2`, not committed | runbook.go deleted (ISS-092), retention.go fixed and tested (ISS-093), ISS-091 fixed, httpxtest excluded by name; coverage 85.0 counted, floor 85.0 | none | `internal/kube/retention.go:22`, `cmd/auto-agent/approvals.go:60` (`approvalErr`), `scripts/coverage-check.sh` (EXCLUDE), `docs/wiki/07-integrations.md` (Runbook link) |
+| 2026-10-12 | PR #11 merged (b8d79c5, PLAN-004 phase 1); PR #12 open (phase 2), CI running | phase 2 commit 74c5e50 plus master merge 5271d9f pushed on `plan-004-phase2`; project map header updated | CI poll b0i6l4hv1 | `project_map.md:3`, `internal/kube/retention.go:22`, `internal/kube/approval_store.go` |
 ## Next action
 
-1. Merge PR #11 when its CI is green; then rebase or merge master into
-   `plan-004-phase2`, run `make verify`, commit, PR, merge on green.
-2. PLAN-004 phase 3 (B2): `watcher.go`, `handlers.go`, `handlers_extended.go`,
-   `pod_extended.go` through fake informers, each to 90 percent.
+1. Merge PR #12 when its CI (verify, e2e, mutation) is green (owner said go
+   2026-10-12); commit this map and checkpoint update with it or after.
+2. PLAN-004 phase 3 (B2): `internal/kube/watcher.go`, `handlers.go`,
+   `handlers_extended.go`, `pod_extended.go` through fake informers, each to
+   90 percent.
 3. Owner questions: ISS-020, ISS-025, ISS-077.
