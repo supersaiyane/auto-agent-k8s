@@ -507,3 +507,38 @@ func TestCostView_PerNamespaceFailuresAndTopTwenty(t *testing.T) {
 		}
 	}
 }
+
+// ISS-099: node figures come from watched namespaces only; kube-system and
+// other unwatched namespaces are never read, not even to count.
+func TestNodeFigures_ReadOnlyWatchedNamespaces(t *testing.T) {
+	onNode := func(name, ns string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Spec: corev1.PodSpec{NodeName: "n1",
+			Containers: []corev1.Container{{Name: "c", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}}}}
+	}
+	kc := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}},
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Status: corev1.NodeStatus{Capacity: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}},
+		onNode("api-1", "default"), onNode("etcd", "kube-system"))
+	s := viewServer(t, kc, Options{}, nil)
+	if nodes := decode[[]nodeInfo](t, call(s, "GET", "/api/nodes", "")); len(nodes) != 1 || nodes[0].Pods != 1 {
+		t.Fatalf("the node counts its watched pods only: %+v", nodes)
+	}
+	if c := decode[clusterCost](t, call(s, "GET", "/api/cost", "")); len(c.Nodes) != 1 || c.Nodes[0].Pods != 1 || c.Nodes[0].CPUUsedPct != 25 {
+		t.Fatalf("node cost uses watched pods only: %+v", c.Nodes)
+	}
+	for _, a := range kc.Actions() {
+		if a.GetVerb() == "list" && a.GetResource().Resource == "pods" && (a.GetNamespace() == "kube-system" || a.GetNamespace() == "") {
+			t.Fatalf("pods read outside the watch scope: list in %q", a.GetNamespace())
+		}
+	}
+
+	refused := fake.NewSimpleClientset(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}})
+	refused.PrependReactor("list", "namespaces", deny("namespaces"))
+	before := testutil.ToFloat64(obs.APIErrorsTotal.WithLabelValues("namespaces", "forbidden"))
+	if nodes := decode[[]nodeInfo](t, call(viewServer(t, refused, Options{}, nil), "GET", "/api/nodes", "")); nodes[0].Pods != 0 {
+		t.Fatalf("without the namespace list no pods are counted: %+v", nodes)
+	}
+	if testutil.ToFloat64(obs.APIErrorsTotal.WithLabelValues("namespaces", "forbidden")) != before+1 {
+		t.Fatal("a refused namespace list is counted")
+	}
+}

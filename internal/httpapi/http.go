@@ -583,6 +583,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	byNode := s.watchedPodsByNode(ctx)
 	result := make([]nodeInfo, 0, len(nodes.Items))
 	for _, n := range nodes.Items {
 		ni := nodeInfo{
@@ -619,22 +620,42 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 				ni.DiskPressure = true
 			}
 		}
-		// Pod count on this node
-		pods, err := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + n.Name,
-		})
-		if err != nil {
-			obs.CountAPIError(err, "pods", "")
-		}
-		if pods != nil {
-			ni.Pods = len(pods.Items)
-		}
+		ni.Pods = len(byNode[n.Name]) // watched namespaces only (ISS-099)
 		result = append(result, ni)
 	}
 	writeJSON(w, result)
 }
 
 // --- Helpers ---
+
+// watchedPodsByNode lists the pods of every watched namespace, grouped by
+// node. Reads follow the watch scope (constraint 4, ISS-099), so node
+// figures cover watched workloads only, never kube-system and the like. A
+// namespace whose pods cannot be listed is counted and left out.
+func (s *Server) watchedPodsByNode(ctx context.Context) map[string][]corev1.Pod {
+	out := map[string][]corev1.Pod{}
+	nsList, err := s.kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		obs.CountAPIError(err, "namespaces", "")
+		return out
+	}
+	for _, ns := range nsList.Items {
+		if !s.nsAllowed(ns.Name) {
+			continue
+		}
+		pods, err := s.kc.CoreV1().Pods(ns.Name).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			obs.CountAPIError(err, "pods", ns.Name)
+			continue
+		}
+		for _, p := range pods.Items {
+			if p.Spec.NodeName != "" {
+				out[p.Spec.NodeName] = append(out[p.Spec.NodeName], p)
+			}
+		}
+	}
+	return out
+}
 
 type k8sEvent struct {
 	Timestamp string `json:"timestamp"`
