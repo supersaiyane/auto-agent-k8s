@@ -56,7 +56,7 @@ Think of it as an **always-on SRE** that watches your cluster 24/7, catches prob
 | **Actions** | 7 | Pod delete, node cordon/uncordon, rollback, eviction cleanup, job cleanup, scaling |
 | **Safety** | 8 layers | Dry-run, rate limiter, dedup, circuit breaker, blast radius, quiet hours, CRD approval, HPA awareness |
 | **Integrations** | 9 | Slack, LLM, GitHub/GitLab PRs, GitHub Issues/Jira, Alertmanager, PagerDuty, OpsGenie, Email |
-| **Intelligence** | 4 | Learning mode, incident correlation, cost estimation, compliance reporting |
+| **Intelligence** | 3 | Learning mode, cost estimation, compliance reporting |
 | **Dashboard** | 16 tabs (counted 2026-10-08) | Events, Audit, Dry run, Fixes, Compliance, Deploys, Baselines, K8s events, Charts, Report, Cluster, Nodes, Cost, Resources, Terminal, Settings |
 | **APIs** | 17 | Full REST API for all data |
 

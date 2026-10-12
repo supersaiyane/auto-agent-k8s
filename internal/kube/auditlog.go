@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // AuditEntry represents a single remediation action taken by the agent.
@@ -41,12 +43,12 @@ func NewAuditLog(path string) *AuditLog {
 		path = "/var/log/auto-agent/audit.jsonl"
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		klog.Warningf("audit: failed to create dir for %s: %v", path, err)
+		auditFailed("open", path, err)
 		return &AuditLog{path: path} // will retry on first write
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		klog.Warningf("audit: failed to open %s: %v", path, err)
+		auditFailed("open", path, err)
 		return &AuditLog{path: path}
 	}
 	return &AuditLog{
@@ -68,7 +70,7 @@ func (a *AuditLog) Record(entry AuditEntry) {
 	if a.logFile == nil {
 		f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
-			klog.V(2).Infof("audit: cannot write: %v", err)
+			auditFailed("open", a.path, err)
 			return
 		}
 		a.logFile = f
@@ -76,21 +78,34 @@ func (a *AuditLog) Record(entry AuditEntry) {
 	}
 
 	if err := a.encoder.Encode(entry); err != nil {
-		klog.V(2).Infof("audit: encode failed: %v", err)
-		// Close and retry next time
-		a.logFile.Close()
-		a.logFile = nil
+		auditFailed("write", a.path, err)
+		a.closeLocked() // reopen on the next write
 	}
+}
+
+// closeLocked closes the file; callers hold a.mu.
+func (a *AuditLog) closeLocked() {
+	if a.logFile == nil {
+		return
+	}
+	if err := a.logFile.Close(); err != nil {
+		auditFailed("write", a.path, err)
+	}
+	a.logFile = nil
+}
+
+// auditFailed logs and counts a failure to open or write the audit log
+// (ISS-097): a missing audit record must be visible, not a debug line.
+func auditFailed(op, path string, err error) {
+	klog.Warningf("audit: cannot %s %s: %v", op, path, err)
+	obs.HandlerErrorsTotal.WithLabelValues("audit", op).Inc()
 }
 
 // Close closes the audit log file.
 func (a *AuditLog) Close() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.logFile != nil {
-		a.logFile.Close()
-		a.logFile = nil
-	}
+	a.closeLocked()
 }
 
 // RecordAction is a convenience method for recording a remediation action.

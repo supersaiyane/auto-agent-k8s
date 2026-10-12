@@ -53,8 +53,12 @@ PLAN-001 (PR #1) and PLAN-003 are complete too. Active plan:
 tested (ISS-093), ISS-091 fixed, coverage 85.0 percent counted. Phase 3 done
 2026-10-12: the pod and node informer paths are tested (watcher.go 98.6
 percent), dead helpers removed (ISS-094), coverage 87.8 percent counted.
-Next: phase 4 (B3: events recorder, audit log, learning, fix tracker,
-correlation), then phases 5 and 6 to 95 percent (ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
+Phase 4 done
+2026-10-12: event history, audit log and baselines tested, their failures
+counted (ISS-097), a baselines race fixed (ISS-096), unused correlation and
+learning code removed with its doc claims (ISS-095); coverage 89.4 percent
+counted. Next: phase 5 (B4, the HTTP API), then phase 6 to 95 percent
+(ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 
