@@ -121,6 +121,10 @@ esac
 step 5/6 "Node agents and controller (ADR-001)"
 if [ "$IMAGE" = "auto-agent:latest" ]; then
 	k apply -f "$SCRIPT_DIR/04-agent.yaml"
+	# The tag is the same on every build, so the pod template does not
+	# change and running pods would keep the old image: restart them so they
+	# take the image just loaded (ISS-107).
+	k rollout restart daemonset/auto-agent deployment/auto-agent-controller -n "$NS"
 else
 	sed "s#image: \"auto-agent:latest\"#image: \"$IMAGE\"#" "$SCRIPT_DIR/04-agent.yaml" | k apply -f -
 fi
