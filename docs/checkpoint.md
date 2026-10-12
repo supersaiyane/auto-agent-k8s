@@ -63,8 +63,12 @@
 | 2026-10-12 | PR #20 open (ISS-020 accepted, docs only), CI running; project map header updated | demo on image 5d1194ac, pods restarted by deploy.sh itself; dashboard 200 on localhost:18080 | port-forward bscbwnc5p | `project_map.md:3`, `tasks/ISSUES.md` (ISS-020), `tasks/STATUS.md` |
 | 2026-10-12 | PR #20 merged (b3d2ee8); merged branches deleted (12 local, 12 remote); ISS-108 on `incident-deployment-name` | incidents name the Deployment; deploymentName keeps real names; falsified once | port-forward on 18080 | `internal/kube/helpers.go:26` (`ownerName`), `internal/kube/gitops_content.go` (`deploymentName`) |
 | 2026-10-12 | PR #21 open (ISS-108), CI running; project map header updated | branches cleaned; incidents name the Deployment | port-forward on 18080 | `project_map.md:3`, `internal/kube/helpers.go:26` |
+| 2026-10-12 | Release prep on docs-release: ISS-109 (Trivy pin `.github/workflows/ci.yaml:145`), stale docs tidied, README rewritten with Upcoming features, changelog names v1.0.0 | In progress | README.md, docs/GUIDE.md, docs/wiki/08, 15, 19, 23, context_index.md, chart values comment, scripts/changelog.sh, .gitignore, tasks/ISSUES.md | `README.md` (Upcoming features), `scripts/changelog.sh:21`, `.github/workflows/ci.yaml:145` |
 ## Next action
 
-1. Merge PR #21 on the owner's go once CI is green, then redeploy the demo
-   (`deployment/deploy.sh --context kind-auto-agent-demo --no-port-forward`).
-2. No open issue and no active plan after that.
+1. PR from docs-release, merge on green, then check the image job passes on
+   the master push (it failed on every push since 2026-10-07, ISS-109).
+2. Tag `v1.0.0` on that master commit and push the tag; check the tag's CI run,
+   including the image job.
+3. Upcoming features (README): incident correlation, OIDC dashboard sign-in,
+   ResourceQuota raises behind a ceiling. Each needs a plan first.

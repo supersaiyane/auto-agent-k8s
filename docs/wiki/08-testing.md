@@ -31,7 +31,7 @@ bash deployment/test-apps/chaos-test.sh
 ```
 
 Runs its checks with PASS/FAIL/SKIP reporting:
-- Auto-adds `chaos` to namespace allowlist
+- Checks that `chaos` is in the fix scope of the generated manifests
 - Deploys all chaos workloads
 - Waits for agent detection (with timeout per check)
 - Verifies dashboard APIs have data

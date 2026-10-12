@@ -98,7 +98,7 @@ logs:
   retentionDays: 7
 
 rbac:
-  # Lets the certificate expiry check list TLS secrets in allowlisted
+  # Lets the certificate expiry check list TLS secrets in the fixCeiling
   # namespaces. Off by default: reading secrets is a large grant.
   readTLSSecrets: false
   # One write ClusterRole instead of a Role per fixCeiling namespace, so the

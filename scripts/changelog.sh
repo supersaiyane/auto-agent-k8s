@@ -17,8 +17,8 @@ section() { # title range note
 	fi
 }
 {
-	printf '# Changelog\n\nGenerated from git history on %s by %smake changelog%s. Counts are\nmeasured with %sgit rev-list --count --no-merges%s; nothing here is written by\nhand. The project has no release tags yet.\n\n' "$(date +%Y-%m-%d)" "$bt" "$bt" "$bt" "$bt"
-	section "Unreleased (branch plan-002 after PR #2)" "581c215..HEAD" "PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings tab, shutdown order, check-config, docs."
+	printf '# Changelog\n\nGenerated from git history on %s by %smake changelog%s. Counts are\nmeasured with %sgit rev-list --count --no-merges%s; nothing here is written by\nhand. Releases are the git tags %sv*%s.\n\n' "$(date +%Y-%m-%d)" "$bt" "$bt" "$bt" "$bt" "$bt" "$bt"
+	section "v1.0.0 (2026-10-12)" "581c215..HEAD" "Everything after PR #2: watch scope and fix scope (ADR-002), the Settings tab, the read-only terminal (PLAN-003), network checks, config reload, escalation, live GitOps, the image mirror, durable approvals (ADR-003), 95 percent coverage with mutation testing (PLAN-004), and every issue closed."
 	section "PR #2: PLAN-002 phases 8 to 11 (merged 2026-10-08)" "b72e21b..581c215" "Config in one place, coverage gates, native detectors with the fix ladder, node and controller roles (ADR-001), dashboard rebuilt, safe deployment scripts."
 	section "PR #1: PLAN-001 safety hardening (merged 2026-10-07)" "5828dbc..b72e21b" "One mutation gate, dry-run by default, RBAC matching the code, redaction, authenticated endpoints."
 	section "Original history" "5828dbc" "The agent as first written, before the plans. Claims made in that period (detector counts, a \"production release\") were not measured and are not repeated here." count
