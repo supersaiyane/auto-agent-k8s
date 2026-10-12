@@ -107,6 +107,7 @@ func handleStuckRollout(ctx context.Context, deps *Deps, d *appsv1.Deployment) {
 func rollbackDeployment(ctx context.Context, deps *Deps, ns, name string, labels map[string]string) string {
 	rsList, err := deps.Client.AppsV1().ReplicaSets(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
+		countAPIError(err, "replicasets", ns) // ISS-106: was only in the message
 		return fmt.Sprintf("_Action_: rollback failed (cannot list ReplicaSets): %v\n", err)
 	}
 

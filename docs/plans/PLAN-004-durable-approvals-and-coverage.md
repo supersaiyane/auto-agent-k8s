@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phases 1 to 5 done 2026-10-12; phase 6 part 1 done 2026-10-12 (B5, every package at 90, total 94.3). Part 2: the last 0.7 percent and the floor to 95.
+Status: done 2026-10-12. ISS-078 fixed (ADR-003); coverage 95.0 percent counted with every package at 90 or more, both enforced by `make coverage-check` (ISS-088).
 
 ## Goal
 
@@ -248,3 +248,26 @@ the replay refused. ISS-091 (a doubled refusal message) found on the way.
   "512M" as 0 and proposed a 0Mi limit).
 - Measured 2026-10-12 with `make verify`: total 94.3 percent counted (94.0
   over every package). Floor 92.3 to 94.3.
+
+## Done 2026-10-12: phase 6 part 2 (B5, B6)
+
+- Tests for the rollback paths, stuck rollout dedup, the NetworkPolicy and
+  Ingress TLS helpers, the terminal's optional columns and edge cases, the
+  cost view's per-namespace failures, background escalation, startup probes
+  and a non-probe Unhealthy event.
+- ISS-106: a refused ReplicaSet list during a rollback is now counted.
+- B6: `scripts/coverage-check.sh` fails any package below 90 percent as
+  well as a total below `.coverage-floor`; falsified with a 99 percent
+  package floor, which named the packages below it.
+- Measured 2026-10-12 with `make test`: 7364 of 7750 statements covered,
+  95.02 percent counted (`internal/httpx/httpxtest` excluded by name).
+  Floor 94.3 to 95.0.
+
+## Result
+
+PLAN-004 is complete: approvals survive a restart and a leader change, and
+coverage is 95 percent with every package at 90. Along the way it fixed
+16 issues, counted from tasks/ISSUES.md on 2026-10-12 (ISS-078, ISS-091 to
+ISS-098, ISS-100 to ISS-106; ISS-099 waits for the owner), most of them
+failures that were invisible or code that the docs described but nothing
+ran.

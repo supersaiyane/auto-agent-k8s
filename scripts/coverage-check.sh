@@ -24,7 +24,23 @@ TOTAL=$(go tool cover -func="$COUNTED" | awk '/^total:/ { gsub("%", "", $3); pri
 STRICT='internal/redact/|internal/ratelimit/|internal/kube/gate\.go|internal/httpapi/http\.go:[0-9]+:[[:space:]]+authorize[[:space:]]'
 BELOW=$(go tool cover -func="$PROFILE" | grep -E "$STRICT" | awk '$3 != "100.0%" { print "  " $1 " " $2 " " $3 }' || true)
 
+# Every package must also reach PACKAGE_FLOOR (PLAN-004 B6), so a well
+# tested package cannot hide an untested one in the total.
+PACKAGE_FLOOR=90
+LOW_PACKAGES=$(awk -v floor="$PACKAGE_FLOOR" 'NR > 1 {
+	split($1, a, ":"); f = a[1]; sub(/\/[^\/]*$/, "", f)
+	key = $1; n[key] = $2; if ($3 > 0) hit[key] = 1; pkg[key] = f
+} END {
+	for (k in n) { t[pkg[k]] += n[k]; if (hit[k]) c[pkg[k]] += n[k] }
+	for (p in t) if (100 * c[p] / t[p] < floor) printf "  %s %.1f%%\n", p, 100 * c[p] / t[p]
+}' "$COUNTED")
+
 status=0
+if [ -n "$LOW_PACKAGES" ]; then
+	echo "coverage-check: FAIL, packages below ${PACKAGE_FLOOR}%:"
+	echo "$LOW_PACKAGES"
+	status=1
+fi
 if awk -v t="$TOTAL" -v f="$FLOOR" 'BEGIN { exit !(t + 0 < f + 0) }'; then
 	echo "coverage-check: FAIL, total ${TOTAL}% is below the floor ${FLOOR}% (.coverage-floor)"
 	status=1
@@ -35,6 +51,6 @@ if [ -n "$BELOW" ]; then
 	status=1
 fi
 if [ "$status" -eq 0 ]; then
-	echo "coverage-check: total ${TOTAL}% (floor ${FLOOR}%), strict set at 100%"
+	echo "coverage-check: total ${TOTAL}% (floor ${FLOOR}%), every package at ${PACKAGE_FLOOR}% or more, strict set at 100%"
 fi
 exit "$status"
