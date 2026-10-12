@@ -48,9 +48,11 @@ NetworkPolicy analysis; conntrack and CoreDNS; Ingress TLS secrets. Phase 15 don
 PLAN-001 (PR #1) and PLAN-003 are complete too. Active plan:
 `docs/plans/PLAN-004-durable-approvals-and-coverage.md`. Phase 1 done
 2026-10-12: ISS-078 fixed, the approval queue is stored in a ConfigMap
-(ADR-003) and survives a leader change in the kind e2e. Next: phase 2 (B1,
-dead or wired: `runbook.go`, `retention.go`), then phases 3 to 6 for
-coverage to 95 percent (ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
+(ADR-003) and survives a leader change in the kind e2e. Phase 2 done
+2026-10-12: dead runbook code removed (ISS-092), log retention fixed and
+tested (ISS-093), ISS-091 fixed, coverage 85.0 percent counted. Next: phase
+3 (B2, the informer entry points), then phases 4 to 6 to 95 percent
+(ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 

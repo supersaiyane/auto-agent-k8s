@@ -41,7 +41,7 @@ Matches pods/deployments with these labels. Use `matchLabels` for exact match. O
 | Field | Type | Description |
 |-------|------|-------------|
 | `slackChannel` | string | Channel name for routing (e.g., `#prod-alerts`) |
-| `runbookURL` | string | URL to runbook JSON for automated execution |
+| `runbookURL` | string | Link added to anomaly alerts for this workload (`internal/kube/anomalies.go`); the agent does not fetch or run it |
 | `ticketing.provider` | string | `github`, `jira`, or `none` |
 | `ticketing.projectOrRepo` | string | GitHub `owner/repo` or Jira project key |
 | `ticketing.assignees` | []string | Auto-assign tickets |

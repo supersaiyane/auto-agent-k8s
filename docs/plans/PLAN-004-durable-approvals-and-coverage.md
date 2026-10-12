@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phase 1 done 2026-10-12 (ISS-078 fixed, ADR-003; owner chose the ConfigMap store). Phase 2 next.
+Status: phases 1 and 2 done 2026-10-12 (ISS-078 fixed, ADR-003; B1). Phase 3 (B2) next.
 
 ## Goal
 
@@ -151,3 +151,17 @@ the start of a leader term is needed. Run now reads the CronJob at approval
 time. Kind e2e: approval `8ade4f33759a5027` queued on one leader, the leader
 deleted, approved by a signed Slack press on the new leader, one Job created,
 the replay refused. ISS-091 (a doubled refusal message) found on the way.
+
+## Done 2026-10-12: phase 2 (B1)
+
+- `runbook.go` (88 statements, 0 percent) had no caller: deleted, and three
+  wiki pages that described runbook automation corrected (ISS-092). The
+  CRD field `runbookURL` stays: it is a link in anomaly alerts.
+- `retention.go` (37 statements, 0 percent) is called by node agents: it now
+  cleans once at start and counts every read and remove failure (ISS-093),
+  with tests.
+- `internal/httpx/httpxtest` is excluded from the total by name in
+  `scripts/coverage-check.sh`, as the guide now says.
+- ISS-091 (doubled refusal text) fixed.
+- Measured with `make test` and `make coverage-check` on 2026-10-12: 84.8
+  percent over every package, 85.0 percent counted. Floor 83.4 to 85.0.

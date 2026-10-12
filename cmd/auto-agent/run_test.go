@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/httpapi"
+	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
@@ -446,5 +449,26 @@ func TestImageMirror(t *testing.T) {
 	m, err := imageMirror(config.Config{ImageMirrorEnabled: true, ImageMirrorPrefix: "m/", ImageMirrorAllowList: []string{"docker.io/"}, Webhook: withWebhook})
 	if err != nil || !m.Enabled() {
 		t.Fatalf("complete settings: %+v %v", m, err)
+	}
+}
+
+// ISS-091: a refused approval names its reason once, and still maps to the
+// server's sentinel so it gets the right status code.
+func TestApprovalErr_KeepsTheReasonOnceAndTheStatus(t *testing.T) {
+	decided := fmt.Errorf("%w: %s", kube.ErrApprovalDecided, "approved")
+	got := approvalErr(decided)
+	if got.Error() != "approval already decided: approved" {
+		t.Fatalf("message %q repeats or loses the reason", got.Error())
+	}
+	if !errors.Is(got, httpapi.ErrApprovalConflict) || !errors.Is(got, kube.ErrApprovalDecided) {
+		t.Fatal("a decided approval must match both the server and the queue sentinel")
+	}
+	unknown := approvalErr(kube.ErrApprovalUnknown)
+	if !errors.Is(unknown, httpapi.ErrApprovalNotFound) || unknown.Error() != kube.ErrApprovalUnknown.Error() {
+		t.Fatalf("unknown approval: %v", unknown)
+	}
+	other := errors.New("boom")
+	if approvalErr(other) != other || approvalErr(nil) != nil {
+		t.Fatal("other errors and nil pass through")
 	}
 }

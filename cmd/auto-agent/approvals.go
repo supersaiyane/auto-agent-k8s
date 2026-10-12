@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -58,15 +57,22 @@ func (x approvalsAPI) Reject(id, by string) error {
 func (x approvalsAPI) IsApprover(user string) bool { return x.a.deps.Approvals.IsApprover(user) }
 
 // approvalErr maps queue errors to the ones the server turns into status
-// codes, keeping the message.
+// codes. The message stays the queue's own: the server's sentinel says the
+// same thing, and prefixing it repeated the reason (ISS-091).
 func approvalErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, kube.ErrApprovalUnknown):
-		return fmt.Errorf("%w: %v", httpapi.ErrApprovalNotFound, err)
+		return mappedErr{err: err, kind: httpapi.ErrApprovalNotFound}
 	case errors.Is(err, kube.ErrApprovalDecided):
-		return fmt.Errorf("%w: %v", httpapi.ErrApprovalConflict, err)
+		return mappedErr{err: err, kind: httpapi.ErrApprovalConflict}
 	}
 	return err
 }
+
+// mappedErr is err, also matching kind with errors.Is.
+type mappedErr struct{ err, kind error }
+
+func (m mappedErr) Error() string   { return m.err.Error() }
+func (m mappedErr) Unwrap() []error { return []error{m.kind, m.err} }

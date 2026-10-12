@@ -36,28 +36,13 @@ When the agent sends an incident alert, it includes interactive buttons built vi
 
 Button clicks are received at `POST /api/slack/actions` and processed by `SlackActionHandler`.
 
-**Runbook automation**:
+**Runbook link**:
 
-If a CRD policy has `runbookURL` set, the agent fetches the runbook (JSON format) and executes its steps:
-```yaml
-spec:
-  escalation:
-    runbookURL: "https://wiki.internal/runbooks/api.json"
-```
-
-Runbook JSON format:
-```json
-{
-  "name": "API troubleshooting",
-  "steps": [
-    {"name": "Check pods", "type": "check", "command": "get pods -n prod -l app=api"},
-    {"name": "Check logs", "type": "check", "command": "logs -n prod -l app=api --tail 20"},
-    {"name": "Check endpoints", "type": "check", "command": "get endpoints api -n prod", "expect": "10."}
-  ]
-}
-```
-
-Only read-only kubectl commands are allowed (get, describe, logs). Results are formatted in the Slack message with pass/fail per step.
+If a CRD policy sets `escalation.runbookURL`, anomaly alerts for its
+workloads end with "follow the runbook: <url>" (`internal/kube/anomalies.go`).
+The agent does not fetch or run the runbook: the automation that once sat in
+`internal/kube/runbook.go` was never called and was removed on 2026-10-12
+(ISS-092).
 
 ## LLM Diagnosis
 

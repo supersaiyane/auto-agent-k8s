@@ -48,10 +48,11 @@
 | 2026-10-12 | PLAN-004 phase 1 (ISS-078) code done on branch `plan-004`, e2e running | Approval queue stored in ConfigMap `auto-agent-approvals` (ADR-003): `fixSpec` + `buildFix` replace closures, every step read-modify-write with a resourceVersion patch, write ahead before the gate, `writeAgentSetting` takes a name (two allowed, guard checks it), Role `auto-agent-approvals`, CronJob get; 17 new tests, two falsified; `make verify` passes (coverage 83.4, check-manifests after staging); docs PR #10 open; e2e approval failover step added, result pending; not committed | Docker Desktop started for e2e; e2e log in scratchpad `e2e.log` | `internal/kube/approval_store.go`, `internal/kube/approvals.go:139` (`propose`), `internal/kube/approvals.go:218` (`ApproveFix`), `internal/kube/approval_fixes.go:33` (`fixSpec`), `scripts/e2e-kind.sh` (step after "fix mode: three quick edits"), `docs/adr/ADR-003-durable-approval-queue.md` |
 | 2026-10-12 | PLAN-004 phase 1 done: ISS-078 fixed; PR #10 merged (2f415e0) | `make e2e` PASS including the new step (approval queued, leader deleted, approved on the new leader, one Job, replay refused); `make verify` passes; ISS-091 recorded | mutation run pending before commit | `internal/kube/approval_store.go`, `scripts/e2e-kind.sh` (approval step), `tasks/ISSUES.md` ISS-078 and ISS-091 |
 
+| 2026-10-12 | PLAN-004 phase 1 PR #11 open (CI running); phase 2 done on branch `plan-004-phase2`, not committed | runbook.go deleted (ISS-092), retention.go fixed and tested (ISS-093), ISS-091 fixed, httpxtest excluded by name; coverage 85.0 counted, floor 85.0 | none | `internal/kube/retention.go:22`, `cmd/auto-agent/approvals.go:60` (`approvalErr`), `scripts/coverage-check.sh` (EXCLUDE), `docs/wiki/07-integrations.md` (Runbook link) |
 ## Next action
 
-1. Commit phase 1 on `plan-004` once `make mutation` passes; push, PR, merge
-   on green (owner said go 2026-10-12).
-2. PLAN-004 phase 2: are `internal/kube/runbook.go` and `retention.go` (both
-   0 percent) called? Delete if not, test if so. ISS-091 on the way.
+1. Merge PR #11 when its CI is green; then rebase or merge master into
+   `plan-004-phase2`, run `make verify`, commit, PR, merge on green.
+2. PLAN-004 phase 3 (B2): `watcher.go`, `handlers.go`, `handlers_extended.go`,
+   `pod_extended.go` through fake informers, each to 90 percent.
 3. Owner questions: ISS-020, ISS-025, ISS-077.

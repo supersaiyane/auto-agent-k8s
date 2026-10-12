@@ -13,7 +13,13 @@ if [ ! -f "$PROFILE" ]; then
 fi
 
 FLOOR=$(grep -v '^#' .coverage-floor | head -1 | tr -d ' ')
-TOTAL=$(go tool cover -func="$PROFILE" | awk '/^total:/ { gsub("%", "", $3); print $3 }')
+# Test helpers ship no code and are left out of the total, by name only
+# (PLAN-004 B.2): internal/httpx/httpxtest is imported only by tests.
+EXCLUDE='/internal/httpx/httpxtest/'
+COUNTED=$(mktemp)
+trap 'rm -f "$COUNTED"' EXIT
+grep -v "$EXCLUDE" "$PROFILE" > "$COUNTED"
+TOTAL=$(go tool cover -func="$COUNTED" | awk '/^total:/ { gsub("%", "", $3); print $3 }')
 
 STRICT='internal/redact/|internal/ratelimit/|internal/kube/gate\.go|internal/httpapi/http\.go:[0-9]+:[[:space:]]+authorize[[:space:]]'
 BELOW=$(go tool cover -func="$PROFILE" | grep -E "$STRICT" | awk '$3 != "100.0%" { print "  " $1 " " $2 " " $3 }' || true)
