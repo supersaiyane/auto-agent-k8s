@@ -58,9 +58,11 @@
 | 2026-10-12 | PR #16 merged (b4c95f4); PLAN-004 complete on `plan-004-phase6b` | coverage 95.02 counted (7364/7750), per-package floor 90 enforced and falsified; ISS-106 fixed; ISS-088 closed; make verify run before commit | none | `scripts/coverage-check.sh` (PACKAGE_FLOOR), `.coverage-floor`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (Result) |
 | 2026-10-12 | PR #17 open (PLAN-004 complete), CI running; project map header updated | map notes realMain, IsDryRun removed, per-package coverage floor | none | `project_map.md:3`, `cmd/auto-agent/main.go` (`realMain`), `scripts/coverage-check.sh` (PACKAGE_FLOOR) |
 | 2026-10-12 | PR #17 merged (5a15340); demo redeployed from master; ISS-107 fixed on `deploy-restart` | deploy.sh restarts the agent after loading a local image; checked on kind-auto-agent-demo (pods 11:30 to 11:49); dashboard on localhost:18080 | port-forward running | `deployment/deploy.sh:123` |
+| 2026-10-12 | Owner: finish every open issue. ISS-107 in PR #18 (CI running); ISS-025, ISS-099 fixed and ISS-077, ISS-030 closed on `housekeeping-budget`, not committed | make verify passes, coverage 95.04 exact; mutation run in progress (bash task boe5ic3so); ISS-020 needs the owner (history rewrite) | demo port-forward bhidlj2r6 on 18080 | `internal/kube/gate.go` (Housekeeping, limiter choice), `internal/kube/guardrails.go:19,29`, `internal/httpapi/http.go` (`watchedPodsByNode`), `internal/kube/housekeeping_test.go` |
 ## Next action
 
-1. Merge the PLAN-004 final PR on the owner's go once CI is green.
-2. No plan is active. Owner questions: ISS-020 (Jira URL in history),
-   ISS-025 (housekeeping budget), ISS-077 (quota ceiling), ISS-099 (node
-   aggregates read pods in every namespace).
+1. Merge PR #18 when CI is green.
+2. When `make mutation` passes, commit `housekeeping-budget` (ISS-025, then
+   ISS-099 with the ISS-077 and ISS-030 records), open its PR, merge on green.
+3. ISS-020 (rewrite git history to drop a Jira URL) waits for the owner's
+   explicit yes: it force-pushes and cannot be undone.

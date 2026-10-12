@@ -170,6 +170,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	byNode := s.watchedPodsByNode(ctx) // watched namespaces only (ISS-099)
 	var totalCPU, totalMem, allocCPU, allocMem float64
 	for _, n := range nodes.Items {
 		cpuCores := n.Status.Capacity.Cpu().AsApproximateFloat64()
@@ -183,22 +184,13 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 		}
 		hourly, priceSource := s.cost.nodeHourlyRate(instanceType, cpuCores, memGiB)
 
-		// Count pods and resource usage
-		pods, err := s.kc.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			FieldSelector: "spec.nodeName=" + n.Name,
-		})
-		if err != nil {
-			obs.CountAPIError(err, "pods", "")
-		}
-		podCount := 0
+		// Requests of the watched pods on this node (ISS-099).
+		podCount := len(byNode[n.Name])
 		var nodeCPUReq, nodeMemReq float64
-		if pods != nil {
-			podCount = len(pods.Items)
-			for _, p := range pods.Items {
-				cpu, mem := podResourceRequests(&p)
-				nodeCPUReq += cpu
-				nodeMemReq += mem
-			}
+		for _, p := range byNode[n.Name] {
+			cpu, mem := podResourceRequests(&p)
+			nodeCPUReq += cpu
+			nodeMemReq += mem
 		}
 
 		monthly := hourly * s.cost.HoursPerMonth

@@ -72,9 +72,11 @@ type Deps struct {
 	LLM      LLMDiagnoser
 	Dedup    *ratelimit.Deduplicator
 	Limiter  *ratelimit.ActionLimiter
-	Sink     storage.Sink
-	CRDStore *crd.Store
-	GitOps   integrations.GitOps
+	// HousekeepingLimiter is cleanup's own budget (ISS-025); nil fails closed.
+	HousekeepingLimiter *ratelimit.ActionLimiter
+	Sink                storage.Sink
+	CRDStore            *crd.Store
+	GitOps              integrations.GitOps
 	// GitOpsValuesFile is the Helm values file an OOM pull request patches
 	// (gitops.valuesFile); empty proposes a standalone patch file.
 	GitOpsValuesFile string

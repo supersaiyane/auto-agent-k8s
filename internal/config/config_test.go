@@ -15,6 +15,7 @@ func TestLoad_Defaults(t *testing.T) {
 	}{
 		{"mode", string(c.Policy.Mode), "dry-run"},
 		{"blast radius", c.BlastRadiusMaxNamespaces, 5},
+		{"housekeeping budget", c.HousekeepingMaxPer10m, 10},
 		{"breaker", c.CircuitBreakerThreshold, 5},
 		{"lease namespace", c.LeaderLeaseNamespace, "kube-system"},
 		{"scale interval", c.ScaleInterval, 30 * time.Second},

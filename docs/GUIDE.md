@@ -238,6 +238,7 @@ scaling settings) and the `auto-agent-secrets` Secret.
 | Value | Default | What it does |
 | --- | --- | --- |
 | `guardrails.blastRadiusMaxNamespaces` | `5` | Max distinct namespaces acted on per hour |
+| `guardrails.housekeepingMaxPer10m` | `10` | Cleanup actions (evicted pods, old failed jobs) per 10 minutes; their own budget, so cleanup never uses up the blast radius or rate limit that fixes need |
 | `guardrails.circuitBreakerThreshold` | `5` | Max actions per workload per hour before the breaker trips |
 | `guardrails.quietHours` | empty | UTC windows with no actions, e.g. `02:00-06:00,22:00-23:00` |
 
@@ -349,8 +350,8 @@ prints the command to read the generated token.
 | **Charts** | Events by type, remediation, pod sizing, top reasons, cost by namespace |
 | **Report** | Incidents by service and by reason; rows open the matching events |
 | **Cluster** | Watched namespaces: pods, deployments, services, jobs; rows open a namespace |
-| **Nodes** | Nodes, conditions, pod counts |
-| **Cost** | Estimated cost per node and workload (watched namespaces) |
+| **Nodes** | Nodes, conditions, and pod counts from watched namespaces (system pods are not read) |
+| **Cost** | Estimated cost per node and workload; node utilisation counts watched pods only |
 | **Resources** | Requests, limits and right-sizing per watched namespace |
 | **Terminal** | A read-only kubectl: `get`, `describe`, `logs`, `version`, `help` |
 | **Settings** | The watch scope, fix ceiling and fix scope, each with what it does, how it works and why it exists; one checkbox per watched namespace to change where the agent may fix (see 6.4) |

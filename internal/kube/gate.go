@@ -40,6 +40,11 @@ type mutation struct {
 	Apply      func() error
 	ApprovedBy string   // who approved an R3 change (phase 15); empty when none was needed
 	Fix        *fixSpec // the change as data, set on R3 proposals so the approval queue can store it (PLAN-004)
+	// Housekeeping marks cleanup (evicted pods, old failed jobs). It keeps
+	// mode, fix scope, quiet hours and policy limits, but uses its own rate
+	// budget instead of the blast radius, circuit breaker and fix limiter,
+	// so cleanup never uses up what fixes need (ISS-025).
+	Housekeeping bool
 }
 
 // approvalNote adds who approved the change to an audit detail.
@@ -92,7 +97,11 @@ func applyMutation(ctx context.Context, deps *Deps, m mutation) (out gateOutcome
 		return gateBlocked, fmt.Sprintf("_Blocked_: %s.\n", why)
 	}
 	// A missing limiter fails closed: no limiter means no budget, not no limit.
-	if deps.Limiter == nil || !deps.Limiter.Allow() {
+	limiter := deps.Limiter
+	if m.Housekeeping {
+		limiter = deps.HousekeepingLimiter
+	}
+	if limiter == nil || !limiter.Allow() {
 		klog.Infof("gate: RATE LIMITED %s %s/%s reason=%s", m.ActionType, m.Namespace, m.Workload, m.Reason)
 		obs.RateLimitedTotal.Inc()
 		auditAction(deps, m.ActionType, m.Namespace, m.Workload, m.Pod, m.Reason, "blocked", approvalNote(m, "rate limited"))

@@ -15,8 +15,8 @@ func checkGuardrails(ctx context.Context, deps *Deps, m mutation) (bool, string)
 		return true, "quiet hours active: actions suppressed"
 	}
 
-	// Blast radius
-	if deps.BlastRadius != nil && !deps.BlastRadius.AllowAction(ns) {
+	// Blast radius (housekeeping has its own budget, ISS-025)
+	if !m.Housekeeping && deps.BlastRadius != nil && !deps.BlastRadius.AllowAction(ns) {
 		return true, "blast radius limit: too many namespaces affected this hour"
 	}
 
@@ -26,7 +26,7 @@ func checkGuardrails(ctx context.Context, deps *Deps, m mutation) (bool, string)
 	}
 
 	// Circuit breaker
-	if deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
+	if !m.Housekeeping && deps.Breaker != nil && !deps.Breaker.RecordAndCheck(ns, wl) {
 		if deps.AlertManager != nil {
 			deps.AlertManager.FireCircuitBreaker(ctx, ns, wl)
 		}

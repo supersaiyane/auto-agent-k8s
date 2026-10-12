@@ -172,7 +172,7 @@ func cleanupOldFailedJobs(ctx context.Context, deps *Deps, ns, cronJobName strin
 	}
 
 	_, msg := applyMutation(ctx, deps, mutation{
-		Namespace: ns, Workload: cronJobName, Reason: "JobFailed", ActionType: "delete_job",
+		Namespace: ns, Workload: cronJobName, Reason: "JobFailed", ActionType: "delete_job", Housekeeping: true,
 		SuccessMsg: fmt.Sprintf("cleaned up %d old failed jobs for CronJob `%s`", len(old), cronJobName),
 		SuggestMsg: fmt.Sprintf("delete %d failed jobs older than 1h for CronJob `%s`", len(old), cronJobName),
 		Apply: func() error {

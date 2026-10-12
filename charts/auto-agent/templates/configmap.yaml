@@ -14,6 +14,7 @@ data:
   LEADER_LEASE_NAMESPACE: "{{ include "auto-agent.leaseNamespace" . }}"
   CIRCUIT_BREAKER_THRESHOLD: "{{ .Values.guardrails.circuitBreakerThreshold }}"
   BLAST_RADIUS_MAX_NAMESPACES: "{{ .Values.guardrails.blastRadiusMaxNamespaces }}"
+  HOUSEKEEPING_MAX_ACTIONS_PER_10M: "{{ .Values.guardrails.housekeepingMaxPer10m }}"
   WATCH_NAMESPACES: "{{ join "," .Values.agent.watchNamespaces }}"
   FIX_NAMESPACES: "{{ join "," .Values.agent.fixNamespaces }}"
   FIX_CEILING: "{{ include "auto-agent.fixCeiling" . }}"
