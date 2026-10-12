@@ -59,7 +59,9 @@ func (g *githubIssues) CreateOrUpdate(ctx context.Context, key string, t Ticket)
 	// Search for existing issue by key in title
 	existing, err := g.findByKey(ctx, apiBase, key)
 	if err != nil {
-		klog.V(3).Infof("tickets/github: search failed: %v", err)
+		// Without the search we cannot know the issue exists: creating one
+		// now would duplicate it. The next incident tries again (ISS-104).
+		return "", fmt.Errorf("tickets/github: search: %w", err)
 	}
 
 	if existing != nil {
@@ -76,7 +78,8 @@ func (g *githubIssues) CreateOrUpdate(ctx context.Context, key string, t Ticket)
 			patchURL := fmt.Sprintf("%s/repos/%s/issues/%d", apiBase, g.repo, existing.Number)
 			_, err := g.doPatch(ctx, patchURL, map[string]string{"state": "open"})
 			if err != nil {
-				klog.Warningf("tickets/github: failed to reopen #%d: %v", existing.Number, err)
+				// Commented, but still closed: nobody's open queue shows it.
+				return existing.HTMLURL, fmt.Errorf("tickets/github: commented on #%d but could not reopen it: %w", existing.Number, err)
 			}
 		}
 
@@ -225,7 +228,8 @@ func (j *jiraClient) CreateOrUpdate(ctx context.Context, key string, t Ticket) (
 	// Search for existing issue by the dedup key in summary
 	existing, err := j.findByKey(ctx, key)
 	if err != nil {
-		klog.V(3).Infof("tickets/jira: search failed: %v", err)
+		// See the GitHub client: no search, no create (ISS-104).
+		return "", fmt.Errorf("tickets/jira: search: %w", err)
 	}
 
 	if existing != nil {

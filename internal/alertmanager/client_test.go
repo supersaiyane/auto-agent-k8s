@@ -56,3 +56,23 @@ func TestFireIncidentAndCircuitBreaker(t *testing.T) {
 		t.Fatal("an unconfigured client does nothing")
 	}
 }
+
+// PLAN-004 phase 6 (B5): a nil client is "Alertmanager not configured" and
+// does nothing; a failing Alertmanager is logged, never fatal to a handler.
+func TestConvenienceAlerts_NilClientAndFailures(t *testing.T) {
+	var none *Client
+	none.FireIncident(context.Background(), "OOMKilled", "ns", "wl", "pod", "msg", "critical")
+	none.FireCircuitBreaker(context.Background(), "ns", "wl")
+
+	s := httpxtest.New(reply(500))
+	defer s.Close()
+	c := New(s.URL, s.Client(time.Second))
+	c.FireIncident(context.Background(), "OOMKilled", "ns", "wl", "pod", "msg", "critical")
+	c.FireCircuitBreaker(context.Background(), "ns", "wl")
+	if n := len(s.Requests()); n != 2 {
+		t.Fatalf("both alerts are attempted even when Alertmanager fails, got %d", n)
+	}
+	if err := New("http://bad host", s.Client(time.Second)).Fire(context.Background(), Alert{}); err == nil {
+		t.Fatal("a URL that cannot make a request is an error")
+	}
+}

@@ -91,8 +91,9 @@ type agent struct {
 	leads       func() bool // le.IsLeader on controllers; tests swap it
 	srv         *httpapi.Server
 	loopsDone   chan struct{}
-	reloader    *kube.Reloader // config reload on controllers (PLAN-002 Part A); nil when off
-	leading     atomic.Bool    // this process announced leadership and still leads
+	reloader    *kube.Reloader     // config reload on controllers (PLAN-002 Part A); nil when off
+	webhook     *webhook.Validator // admission webhook; nil when off, stopped by shutdown (ISS-101)
+	leading     atomic.Bool        // this process announced leadership and still leads
 }
 
 // run wires and runs the agent until ctx is cancelled (PLAN-002 9.5).
@@ -118,7 +119,7 @@ func run(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) e
 	fwdCtx, stopForwarding := context.WithCancel(context.Background())
 	defer stopForwarding()
 	a.ev = startEvents(ctx, fwdCtx, conf, cl, rl, opts, a.isLeader)
-	if err := startWebhook(conf, rl); err != nil {
+	if a.webhook, err = startWebhook(conf, rl); err != nil {
 		return err
 	}
 	if err := a.buildDeps(ctx, cl); err != nil {
@@ -211,17 +212,17 @@ func startEvents(ctx, fwdCtx context.Context, conf config.Config, cl Clients, rl
 }
 
 // startWebhook starts the admission validator (optional, needs TLS certs;
-// controller only).
-func startWebhook(conf config.Config, rl roles) error {
+// controller only) and returns it so shutdown can stop it; nil when off.
+func startWebhook(conf config.Config, rl roles) (*webhook.Validator, error) {
 	if !rl.controller {
-		return nil
+		return nil, nil
 	}
 	mirror, err := imageMirror(conf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !conf.Webhook.Enabled() {
-		return nil
+		return nil, nil
 	}
 	// An unset list is empty, not [""]; an empty prefix would block every
 	// image (ISS-041).
@@ -233,10 +234,10 @@ func startWebhook(conf config.Config, rl roles) error {
 		Mirror:           mirror,
 	})
 	if err := wh.Start(conf.Webhook.CertFile, conf.Webhook.KeyFile); err != nil {
-		return err
+		return nil, err
 	}
 	klog.Infof("webhook: admission validator enabled on :8443")
-	return nil
+	return wh, nil
 }
 
 // imageMirror checks images.mirror (ISS-012). Turned on, it needs a prefix,
@@ -427,6 +428,11 @@ func (a *agent) shutdown(stopForwarding context.CancelFunc) {
 	defer cancel()
 	if err := a.srv.Shutdown(hctx); err != nil {
 		klog.Warningf("http shutdown: %v", err)
+	}
+	if a.webhook != nil { // finish admission reviews in flight (ISS-101)
+		if err := a.webhook.Shutdown(hctx); err != nil {
+			klog.Warningf("webhook shutdown: %v", err)
+		}
 	}
 	if !a.deps.WaitIdle(handlerGrace) {
 		klog.Warningf("shutdown: handlers still running after %s", handlerGrace)

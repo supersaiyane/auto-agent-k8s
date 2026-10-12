@@ -3,6 +3,7 @@ package kube
 import (
 	"bytes"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"strconv"
 	"strings"
 
@@ -111,9 +112,16 @@ func roundUpNice(v int) int {
 
 // GenerateMemoryBumpContent creates a kustomize-style patch file that bumps
 // one container's memory limit, for when no values file can be patched.
-func GenerateMemoryBumpContent(ns, workload, container, currentLimit string, bumpPercent int) (string, string) {
-	// Generate a kustomize-style strategic merge patch
-	currentMi := parseMemoryMi(currentLimit)
+// The current limit is read as a Kubernetes quantity ("1.5Gi", "512M",
+// "1G"); one it cannot read, or that is not above zero, is an error, never a
+// patch that would lower the limit (ISS-105).
+func GenerateMemoryBumpContent(ns, workload, container, currentLimit string, bumpPercent int) (string, string, error) {
+	q, err := resource.ParseQuantity(strings.TrimSpace(currentLimit))
+	if err != nil || q.Sign() <= 0 {
+		return "", "", fmt.Errorf("cannot read the current memory limit %q", currentLimit)
+	}
+	const mib = 1024 * 1024
+	currentMi := int((q.Value() + mib - 1) / mib) // rounded up, never down
 	newMi := currentMi + (currentMi * bumpPercent / 100)
 	newMi = roundUpNice(newMi)
 
@@ -136,25 +144,7 @@ spec:
 		deploymentName(workload), ns, container, newMi)
 
 	change := fmt.Sprintf("%s -> %dMi (+%d%%)", currentLimit, newMi, bumpPercent)
-	return patch, change
-}
-
-func parseMemoryMi(s string) int {
-	s = strings.TrimSpace(s)
-	if strings.HasSuffix(s, "Gi") {
-		var v int
-		fmt.Sscanf(s, "%dGi", &v)
-		return v * 1024
-	}
-	if strings.HasSuffix(s, "Mi") {
-		var v int
-		fmt.Sscanf(s, "%dMi", &v)
-		return v
-	}
-	// Try plain number (bytes)
-	var v int
-	fmt.Sscanf(s, "%d", &v)
-	return v / (1024 * 1024)
+	return patch, change, nil
 }
 
 func deploymentName(workload string) string {

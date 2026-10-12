@@ -183,7 +183,7 @@ func CleanupEvictedPods(ctx context.Context, deps *Deps) {
 			FieldSelector: "status.phase=Failed",
 		})
 		if err != nil {
-			klog.V(3).Infof("evicted: failed to list in %s: %v", ns, err)
+			countAPIError(err, "pods", ns)
 			continue
 		}
 

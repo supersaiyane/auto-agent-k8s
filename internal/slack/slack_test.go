@@ -77,3 +77,25 @@ func TestNoWebhookSendsNothing(t *testing.T) {
 
 // testBlocks is a minimal Block Kit message for the posting tests.
 var testBlocks = []map[string]interface{}{{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": "detail"}}}
+
+// PLAN-004 phase 6 (B5): blocks to an empty channel go to the default hook;
+// a hook that is gone or answers non-200 is an error; long text is cut.
+func TestBlocks_FailuresAndDefaults(t *testing.T) {
+	s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	c := New(s.URL+"/default", 0, s.Client(time.Second))
+	if err := c.PostBlocksToChannel("", testBlocks); err != nil {
+		t.Fatalf("an empty channel uses the default hook: %v", err)
+	}
+	s.Close()
+	if err := c.PostBlocks(testBlocks); err == nil {
+		t.Fatal("a hook that is gone is an error")
+	}
+	bad := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	defer bad.Close()
+	if err := New(bad.URL, 0, bad.Client(time.Second)).PostBlocks(testBlocks); err == nil {
+		t.Fatal("a non-200 answer to blocks is an error")
+	}
+	if got := truncate(strings.Repeat("a", 20), 5); got != "aaaaa..." {
+		t.Fatalf("truncate: %q", got)
+	}
+}

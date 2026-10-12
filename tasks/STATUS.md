@@ -60,8 +60,10 @@ learning code removed with its doc claims (ISS-095); coverage 89.4 percent
 counted. Phase 5 done
 2026-10-12: the HTTP API at 95.3 percent, hidden API failures counted
 (ISS-098), unwired Slack buttons removed and the wiki corrected (ISS-100);
-coverage 92.3 percent counted. Owner question added: ISS-099. Next: phase 6
-(B5 and B6, the remaining packages and the floor to 95). Owner questions: ISS-020, ISS-025, ISS-077.
+coverage 92.3 percent counted. Owner question added: ISS-099. Phase 6 part 1
+done 2026-10-12: every package at 90 percent or more, total 94.3 counted;
+five bugs found and fixed (ISS-101 to ISS-105, two High). Next: phase 6
+part 2, the last 0.7 percent and the floor to 95. Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 
