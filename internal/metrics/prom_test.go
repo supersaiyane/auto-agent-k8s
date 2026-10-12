@@ -107,3 +107,45 @@ func TestQueryVector(t *testing.T) {
 		t.Fatalf("the stub says no Prometheus: %v", err)
 	}
 }
+
+// PLAN-004 phase 6 (B5): an answer Prometheus could give but the agent
+// cannot read is an error, never a zero that looks like a real reading.
+func TestQueryVector_UnreadableAnswers(t *testing.T) {
+	for name, body := range map[string]string{
+		"value not a string": `{"status":"success","data":{"result":[{"metric":{},"value":[1,0.5]}]}}`,
+		"value not a number": `{"status":"success","data":{"result":[{"metric":{},"value":[1,"high"]}]}}`,
+	} {
+		b := body
+		s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 200, b) })
+		p, _ := NewProvider("prometheus", s.URL, s.Client(time.Second))
+		_, err := p.QueryVector(context.Background(), "x")
+		s.Close()
+		if err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+	long := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 500, strings.Repeat("e", 300)) })
+	defer long.Close()
+	p, _ := NewProvider("prometheus", long.URL, long.Client(time.Second))
+	if _, err := p.QueryVector(context.Background(), "x"); err == nil || strings.Contains(err.Error(), strings.Repeat("e", 201)) {
+		t.Fatalf("an error status is an error with its body cut to 200 bytes: %v", err)
+	}
+	bad, _ := NewProvider("prometheus", "http://bad host", long.Client(time.Second))
+	if _, err := bad.QueryVector(context.Background(), "x"); err == nil {
+		t.Fatal("a URL that cannot make a request is an error")
+	}
+}
+
+func TestAvgDeploymentCPU_DefaultWindow(t *testing.T) {
+	var query string
+	s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query().Get("query")
+		httpxtest.JSON(w, 200, `{"status":"success","data":{"result":[{"metric":{},"value":[1,"0.4"]}]}}`)
+	})
+	defer s.Close()
+	p, _ := NewProvider("prometheus", s.URL, s.Client(time.Second))
+	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"}}
+	if _, err := p.AvgDeploymentCPU(context.Background(), d, ""); err != nil || !strings.Contains(query, "[5m]") {
+		t.Fatalf("an empty window means 5m: %q %v", query, err)
+	}
+}

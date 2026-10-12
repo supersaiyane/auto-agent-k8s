@@ -6,7 +6,6 @@ import (
 	"time"
 
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
-	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
 )
 
 // DryRunLog records what the agent WOULD do in fix mode without actually doing it.
@@ -59,11 +58,6 @@ func (d *DryRunLog) Recent(n int) []DryRunEntry {
 		result[i] = d.entries[total-1-i]
 	}
 	return result
-}
-
-// IsDryRun returns true if the policy mode is "dry-run".
-func IsDryRun(pol *policy.Policy) bool {
-	return pol.Mode == policy.DryRun
 }
 
 // SimulateAction records what would happen without executing it.

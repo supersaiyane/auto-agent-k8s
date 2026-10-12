@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phases 1 to 5 done 2026-10-12 (ISS-078 fixed, ADR-003; B1 to B4). Phase 6 (B5, B6) next.
+Status: phases 1 to 5 done 2026-10-12; phase 6 part 1 done 2026-10-12 (B5, every package at 90, total 94.3). Part 2: the last 0.7 percent and the floor to 95.
 
 ## Goal
 
@@ -231,3 +231,20 @@ the replay refused. ISS-091 (a doubled refusal message) found on the way.
   their test. Redaction of nested Block Kit lists keeps its direct test.
 - Measured 2026-10-12: `internal/httpapi` 82.7 to 95.3 percent; total
   92.3 counted (92.0 over every package). Floor 89.4 to 92.3.
+
+## Done 2026-10-12: phase 6 part 1 (B5)
+
+- Every package at or above 90 percent (measured): alertmanager, escalation,
+  slack, metrics and cmd/auto-agent were below it.
+- Failure sweeps: every GitOps and ticket call failing at each step, with
+  unparseable answers and unbuildable requests; every SMTP refusal; the
+  policy reload's numeric keys, validation and scope informer; the scaler's
+  and the network checks' read failures.
+- `main` is now `realMain`, which returns an exit code, so deferred work
+  runs and every exit is tested.
+- Bugs found and fixed: ISS-101 (webhook never shut down), ISS-102 (GitOps
+  commits on a guess), ISS-103 (scaler fought an HPA it could not see),
+  ISS-104 (duplicate tickets on a failed search), ISS-105 (OOM bump read
+  "512M" as 0 and proposed a 0Mi limit).
+- Measured 2026-10-12 with `make verify`: total 94.3 percent counted (94.0
+  over every package). Floor 92.3 to 94.3.

@@ -28,30 +28,46 @@ var version = "dev"
 // main reads configuration, builds clients and calls run (PLAN-002 9.5).
 // The environment is read here and in internal/config only.
 func main() {
-	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
-		os.Exit(command(os.Args[1:], os.Getenv, config.Environ(), os.Stdout))
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	code := realMain(ctx, os.Args[1:], os.Getenv, config.Environ(), os.Stdout, rest.InClusterConfig, run)
+	cancel()
+	os.Exit(code)
+}
+
+// runFunc is run's signature, so realMain can be tested without a cluster.
+type runFunc func(ctx context.Context, conf config.Config, cl Clients, opts RunOptions) error
+
+// realMain is main without the process: it returns the exit code instead
+// of exiting, so deferred work runs and every path can be tested.
+func realMain(ctx context.Context, args []string, get config.Getenv, environ []string, w io.Writer,
+	inCluster func() (*rest.Config, error), runAgent runFunc) int {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return command(args, get, environ, w)
 	}
-	klog.InitFlags(nil)
-	conf := config.Load(os.Getenv)
+	if flag.Lookup("v") == nil { // once per process: a second InitFlags panics
+		klog.InitFlags(nil)
+	}
+	conf := config.Load(get)
 	setLogLevel(conf.Policy.LogLevel)
 	logging.Init(conf.LogFormat)
-	for _, k := range config.UnknownKeys(config.Environ()) {
+	for _, k := range config.UnknownKeys(environ) {
 		klog.Warningf("config: %s is set but the agent does not read it; check the spelling (auto-agent check-config)", k)
 	}
-
-	rc, err := restConfig(rest.InClusterConfig)
+	rc, err := restConfig(inCluster)
 	if err != nil {
-		klog.Fatalf("kubernetes config: %v", err)
+		klog.Errorf("kubernetes config: %v", err)
+		return 1
 	}
 	cl, err := newClients(rc, conf)
 	if err != nil {
-		klog.Fatalf("%v", err)
+		klog.Errorf("%v", err)
+		return 1
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-	if err := run(ctx, conf, cl, RunOptions{}); err != nil {
-		klog.Fatalf("auto-agent: %v", err)
+	if err := runAgent(ctx, conf, cl, RunOptions{}); err != nil {
+		klog.Errorf("auto-agent: %v", err)
+		return 1
 	}
+	return 0
 }
 
 // command runs a subcommand and returns the exit code (ISS-056).
@@ -92,6 +108,12 @@ func setLogLevel(level string) {
 	v, ok := config.KlogVerbosity(level)
 	if !ok {
 		klog.Warningf("unknown LOG_LEVEL %q, keeping klog defaults", level)
+		return
+	}
+	if flag.Lookup("v") == nil {
+		// Setting a flag before it is defined makes its later definition
+		// panic, so never touch one klog has not registered.
+		klog.Warningf("LOG_LEVEL %q not applied: klog flags are not registered", level)
 		return
 	}
 	if err := flag.Set("v", strconv.Itoa(v)); err != nil {

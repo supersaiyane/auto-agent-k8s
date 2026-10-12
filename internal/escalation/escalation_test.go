@@ -251,3 +251,64 @@ func TestEmail_AuthNeedsServerSupport(t *testing.T) {
 		t.Fatalf("want an AUTH refusal, got %v", err)
 	}
 }
+
+// refusingSMTP answers like fakeSMTP but refuses the first command that
+// starts with verb ("." refuses the end of the message).
+func refusingSMTP(t *testing.T, verb string) (host, port string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		r := bufio.NewReader(conn)
+		fmt.Fprint(conn, "220 fake\r\n")
+		inData := false
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			switch {
+			case inData && line == ".\r\n":
+				inData = false
+				if verb == "." {
+					fmt.Fprint(conn, "554 rejected\r\n")
+					continue
+				}
+				fmt.Fprint(conn, "250 queued\r\n")
+			case inData:
+			case strings.HasPrefix(line, verb):
+				fmt.Fprint(conn, "550 refused\r\n")
+			case strings.HasPrefix(line, "DATA"):
+				inData = true
+				fmt.Fprint(conn, "354 go\r\n")
+			case strings.HasPrefix(line, "QUIT"):
+				fmt.Fprint(conn, "221 bye\r\n")
+				return
+			default:
+				fmt.Fprint(conn, "250 ok\r\n")
+			}
+		}
+	}()
+	h, p, _ := net.SplitHostPort(ln.Addr().String())
+	return h, p
+}
+
+// PLAN-004 phase 6 (B5): a mail server that refuses any step of a send makes
+// the send fail, so the escalation is counted as failed, never as sent.
+func TestEmail_EveryRefusalIsAnError(t *testing.T) {
+	for _, verb := range []string{"MAIL", "RCPT", "DATA", "."} {
+		host, port := refusingSMTP(t, verb)
+		err := NewEmail(host, port, "", "", "agent@corp.test", "oncall@corp.test").Send(context.Background(), Incident{Title: "t", Body: "b"})
+		if err == nil {
+			t.Errorf("a server refusing %s: want an error", verb)
+		}
+	}
+}

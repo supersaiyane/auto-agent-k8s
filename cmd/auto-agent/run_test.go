@@ -472,3 +472,52 @@ func TestApprovalErr_KeepsTheReasonOnceAndTheStatus(t *testing.T) {
 		t.Fatal("other errors and nil pass through")
 	}
 }
+
+// The approval adapter (PLAN-002 phase 15) maps the kube queue to the HTTP
+// server: list, approve, reject and the approver check, with the queue's
+// errors turned into the server's status errors.
+func TestApprovalsAdapter(t *testing.T) {
+	if approvalsFor(&agent{rl: roles{node: true}}) != nil {
+		t.Fatal("node agents serve no approval queue")
+	}
+	a := &agent{rl: roles{controller: true}, deps: &kube.Deps{Approvals: kube.NewApprovals(time.Minute, []string{"slack:U1"})}}
+	api := approvalsFor(a)
+	if items := api.List(); len(items) != 0 {
+		t.Fatalf("an empty queue lists nothing: %+v", items)
+	}
+	if _, err := api.Approve(context.Background(), "nope", "slack:U1"); !errors.Is(err, httpapi.ErrApprovalNotFound) {
+		t.Fatalf("approving an unknown id is not found: %v", err)
+	}
+	if err := api.Reject("nope", "slack:U1"); !errors.Is(err, httpapi.ErrApprovalNotFound) {
+		t.Fatalf("rejecting an unknown id is not found: %v", err)
+	}
+	if !api.IsApprover("slack:U1") || api.IsApprover("slack:U2") {
+		t.Fatal("only listed users are approvers")
+	}
+}
+
+// A setting the agent cannot work with stops the start with an error that
+// names it, instead of an agent that runs without it.
+func TestRun_BadSettingsStopTheStart(t *testing.T) {
+	for name, extra := range map[string]map[string]string{
+		"webhook certificate missing": {"WEBHOOK_CERT_FILE": "/does/not/exist.crt", "WEBHOOK_KEY_FILE": "/does/not/exist.key"},
+		"prometheus without a URL":    {"METRICS_PROVIDER": "prometheus"},
+	} {
+		env := map[string]string{"POD_NAME": "agent-0", "POD_NAMESPACE": "auto-agent", "NODE_NAME": "node-a",
+			"LEADER_LEASE_NAMESPACE": "auto-agent", "AUDIT_LOG_PATH": t.TempDir() + "/audit.jsonl", "LOG_STORE": "none"}
+		for k, v := range extra {
+			env[k] = v
+		}
+		conf := config.Load(func(k string) string { return env[k] })
+		dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+			{Group: "autoagent.io", Version: "v1alpha1", Resource: "autoremediationpolicies"}: "AutoRemediationPolicyList",
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		err := run(ctx, conf, Clients{Kube: fake.NewClientset(), Dynamic: dyn, HTTP: &http.Client{Timeout: time.Second}},
+			RunOptions{HTTPAddr: freeAddr(t), EventsPath: t.TempDir() + "/events.jsonl"})
+		cancel()
+		if err == nil {
+			t.Errorf("%s: run must refuse to start", name)
+		}
+	}
+}

@@ -212,15 +212,21 @@ func (g *githubClient) createOrUpdateFile(ctx context.Context, apiBase, branch, 
 	url := fmt.Sprintf("%s/repos/%s/contents/%s", apiBase, g.repo, path)
 
 	// Check if file exists to get its SHA (needed for update)
+	// A missing file is created; a lookup that fails stops the commit
+	// rather than guessing (ISS-102).
 	var fileSHA string
 	body, err := g.doGetOptional(ctx, url+"?ref="+branch)
-	if err == nil && body != nil {
+	if err != nil {
+		return nil, fmt.Errorf("look up %s: %w", path, err)
+	}
+	if body != nil {
 		var existing struct {
 			SHA string `json:"sha"`
 		}
-		if json.Unmarshal(body, &existing) == nil {
-			fileSHA = existing.SHA
+		if err := json.Unmarshal(body, &existing); err != nil {
+			return nil, fmt.Errorf("look up %s: parse: %w", path, err)
 		}
+		fileSHA = existing.SHA
 	}
 
 	payload := map[string]interface{}{
@@ -422,21 +428,9 @@ func (g *gitlabClient) Commit(ctx context.Context, ch GitOpsChange) (string, err
 // commitFile commits ch.Content to branch, creating or updating the file.
 func (g *gitlabClient) commitFile(ctx context.Context, apiBase, branch string, ch GitOpsChange) ([]byte, error) {
 	commitURL := fmt.Sprintf("%s/projects/%s/repository/commits", apiBase, g.project)
-	action := "update"
-	// Check if file exists
-	fileCheckURL := fmt.Sprintf("%s/projects/%s/repository/files/%s?ref=%s",
-		apiBase, g.project, urlEncodePath(ch.FilePath), branch)
-	req, err := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	action, err := g.fileAction(ctx, apiBase, branch, ch.FilePath)
 	if err != nil {
-		return nil, fmt.Errorf("gitlab: file check request: %w", err)
-	}
-	req.Header.Set("PRIVATE-TOKEN", g.token)
-	resp, err := g.client.Do(req)
-	if err != nil || resp.StatusCode == 404 {
-		action = "create"
-	}
-	if resp != nil {
-		resp.Body.Close()
+		return nil, err
 	}
 
 	commitPayload := map[string]interface{}{
@@ -458,6 +452,33 @@ func (g *gitlabClient) commitFile(ctx context.Context, apiBase, branch string, c
 		return nil, fmt.Errorf("gitops/gitlab: commit: %w", err)
 	}
 	return body, nil
+}
+
+// fileAction asks whether path exists on branch: 404 means the commit
+// creates it, 2xx means it updates it. Any other answer, or none, is an
+// error: guessing would commit the wrong action (ISS-102).
+func (g *gitlabClient) fileAction(ctx context.Context, apiBase, branch, path string) (string, error) {
+	fileCheckURL := fmt.Sprintf("%s/projects/%s/repository/files/%s?ref=%s",
+		apiBase, g.project, urlEncodePath(path), branch)
+	req, err := http.NewRequestWithContext(ctx, "HEAD", fileCheckURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("gitops/gitlab: file check request: %w", err)
+	}
+	req.Header.Set("PRIVATE-TOKEN", g.token)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("gitops/gitlab: file check: %w", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		klog.V(2).Infof("gitops/gitlab: closing the file check body: %v", err)
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return "create", nil
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return "update", nil
+	}
+	return "", fmt.Errorf("gitops/gitlab: file check for %s: status %d", path, resp.StatusCode)
 }
 
 // openMR opens a merge request from branch into the base branch.

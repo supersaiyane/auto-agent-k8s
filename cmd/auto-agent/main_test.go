@@ -186,3 +186,40 @@ func TestTermAgent(t *testing.T) {
 		t.Fatal("node agents serve no agent commands")
 	}
 }
+
+// main's body, without the process (PLAN-004 phase 6): every way it can end
+// is an exit code, and deferred work runs before the process exits.
+func TestRealMain_ExitCodes(t *testing.T) {
+	ctx := context.Background()
+	env := func(string) string { return "" }
+	var out strings.Builder
+	if code := realMain(ctx, []string{"version"}, env, nil, &out, nil, nil); code != 0 || strings.TrimSpace(out.String()) != version {
+		t.Fatalf("version: %d %q", code, out.String())
+	}
+	broken := func() (*rest.Config, error) { return nil, errors.New("no cluster") }
+	if code := realMain(ctx, nil, env, []string{"AUTO_MODEE=fix"}, io.Discard, broken, nil); code != 1 {
+		t.Fatalf("a cluster config that cannot load exits 1, got %d", code)
+	}
+	cluster := func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s.test"}, nil }
+	ranWith := ""
+	ok := func(_ context.Context, conf config.Config, cl Clients, _ RunOptions) error {
+		ranWith = string(conf.Policy.Mode)
+		if cl.Kube == nil || cl.Dynamic == nil {
+			return errors.New("clients were not built")
+		}
+		return nil
+	}
+	if code := realMain(ctx, nil, env, nil, io.Discard, cluster, ok); code != 0 || ranWith != "dry-run" {
+		t.Fatalf("a clean run exits 0 with the default dry-run mode, got %d %q", code, ranWith)
+	}
+	fails := func(context.Context, config.Config, Clients, RunOptions) error { return errors.New("port in use") }
+	if code := realMain(ctx, nil, env, nil, io.Discard, cluster, fails); code != 1 {
+		t.Fatalf("a run that fails exits 1, got %d", code)
+	}
+	bad := func() (*rest.Config, error) { // a CA file that does not exist: no client can be built
+		return &rest.Config{Host: "https://k8s.test", TLSClientConfig: rest.TLSClientConfig{CAFile: "/does/not/exist"}}, nil
+	}
+	if code := realMain(ctx, nil, env, nil, io.Discard, bad, ok); code != 1 {
+		t.Fatalf("clients that cannot be built exit 1, got %d", code)
+	}
+}

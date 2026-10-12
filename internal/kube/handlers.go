@@ -385,7 +385,10 @@ func memoryBumpChange(ctx context.Context, deps *Deps, ns, wl, cname, memLimit s
 		klog.Warningf("handler: OOM pull request for %s/%s: %s not patched: %v", ns, name, vf, err)
 		note = fmt.Sprintf("`%s` was not patched (%v), so a standalone patch file is proposed instead.", vf, err)
 	}
-	patch, desc := GenerateMemoryBumpContent(ns, wl, cname, memLimit, pct)
+	patch, desc, err := GenerateMemoryBumpContent(ns, wl, cname, memLimit, pct)
+	if err != nil {
+		return "", nil, "", err.Error() // nothing to propose (ISS-105)
+	}
 	return fmt.Sprintf("patches/%s/%s-memory-bump.yaml", ns, name), []byte(patch), desc, note
 }
 
@@ -404,6 +407,11 @@ func memoryBumpGitOps(ctx context.Context, deps *Deps, pod *corev1.Pod, ns, wl, 
 	}
 	title := fmt.Sprintf("Bump memory for %s/%s by %d%%", ns, wl, bumpPct)
 	filePath, content, changeDesc, note := memoryBumpChange(ctx, deps, ns, wl, cname, memLimit, bumpPct)
+	if content == nil {
+		klog.Warningf("handler: no OOM memory change for %s/%s: %s", ns, wl, note)
+		obs.HandlerErrorsTotal.WithLabelValues("oom", "limit").Inc()
+		return fmt.Sprintf("_GitOps_: no change proposed: %s\n", note)
+	}
 	body := fmt.Sprintf("Container `%s` was OOMKilled with limit `%s`.\n\nChange: %s\n\nIncident log: `%s`", cname, memLimit, changeDesc, url)
 	if note != "" {
 		body += "\n\n" + note

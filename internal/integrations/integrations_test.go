@@ -338,3 +338,206 @@ func TestCommitToBaseBranch(t *testing.T) {
 		t.Fatal("no token is an error")
 	}
 }
+
+// PLAN-004 phase 6 (B5): a GitOps change fails cleanly at every step. A
+// server that fails the nth request, one that is gone, and answers that do
+// not parse each return an error, never a URL.
+func TestGitOps_EveryStepCanFail(t *testing.T) {
+	ctx := context.Background()
+	// good answers every request the happy path makes, for both providers.
+	good := func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "HEAD":
+			w.WriteHeader(200)
+		case strings.Contains(r.URL.Path, "/git/ref/heads/"):
+			httpxtest.JSON(w, 200, `{"object":{"sha":"base123"}}`)
+		case strings.HasSuffix(r.URL.Path, "/raw"):
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("a: 1\n"))
+		case strings.Contains(r.URL.Path, "/contents/") && r.Method == "GET":
+			httpxtest.JSON(w, 200, `{"sha":"file456","encoding":"base64","content":"YTogMQo="}`)
+		case strings.HasSuffix(r.URL.Path, "/pulls"):
+			httpxtest.JSON(w, 201, `{"html_url":"https://gh/pull/3"}`)
+		case strings.HasSuffix(r.URL.Path, "/merge_requests"):
+			httpxtest.JSON(w, 201, `{"web_url":"https://gl/mr/5"}`)
+		case strings.Contains(r.URL.Path, "/repository/commits"):
+			httpxtest.JSON(w, 201, `{"web_url":"https://gl/commit/9"}`)
+		case strings.Contains(r.URL.Path, "/contents/"):
+			httpxtest.JSON(w, 200, `{"commit":{"html_url":"https://gh/commit/9"}}`)
+		default:
+			httpxtest.JSON(w, 201, `{}`)
+		}
+	}
+	ch := GitOpsChange{FilePath: "env/values.yaml", Content: []byte("a: 2\n"), Title: "bump", Body: "b", Branch: "auto-agent/x"}
+	ops := map[string]func(GitOps) error{
+		"open":   func(g GitOps) error { _, err := g.OpenPR(ctx, ch); return err },
+		"commit": func(g GitOps) error { _, err := g.Commit(ctx, ch); return err },
+		"read":   func(g GitOps) error { _, err := g.ReadFile(ctx, "env/values.yaml"); return err },
+	}
+	providers := map[string]func(*http.Client) GitOps{
+		"github": func(c *http.Client) GitOps { return NewGitHub("tok", "o/r", "main", c) },
+		"gitlab": func(c *http.Client) GitOps { return NewGitLab("tok", "grp%2Fproj", "main", c) },
+	}
+	for pname, newClient := range providers {
+		for oname, op := range ops {
+			ok := httpxtest.New(good)
+			if err := op(newClient(ok.Client(time.Second))); err != nil {
+				t.Fatalf("%s %s on a healthy server: %v", pname, oname, err)
+			}
+			steps := len(ok.Requests())
+			ok.Close()
+			for fail := 1; fail <= steps; fail++ {
+				n := 0
+				s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+					n++
+					if n == fail {
+						httpxtest.JSON(w, 500, strings.Repeat("x", 300)) // also a body long enough to be cut
+						return
+					}
+					good(w, r)
+				})
+				err := op(newClient(s.Client(time.Second)))
+				s.Close()
+				if err == nil {
+					t.Errorf("%s %s with request %d of %d failing: want an error", pname, oname, fail, steps)
+				}
+			}
+			gone := httpxtest.New(good)
+			c := gone.Client(time.Second)
+			gone.Close()
+			if err := op(newClient(c)); err == nil {
+				t.Errorf("%s %s with the server gone: want an error", pname, oname)
+			}
+		}
+	}
+
+	for name, body := range map[string]string{"not json": `nope`, "not base64": `{"encoding":"base64","content":"%%%"}`, "other encoding": `{"encoding":"none"}`} {
+		b := body
+		s := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 200, b) })
+		_, err := NewGitHub("tok", "o/r", "main", s.Client(time.Second)).ReadFile(ctx, "x.yaml")
+		s.Close()
+		if err == nil {
+			t.Errorf("github read, %s: want an error", name)
+		}
+	}
+	if truncBody([]byte(strings.Repeat("y", 250))) != strings.Repeat("y", 200)+"..." || truncBody([]byte("short")) != "short" {
+		t.Fatal("truncBody keeps 200 bytes and marks the cut")
+	}
+}
+
+// A step whose answer cannot be read fails the change; so does a request
+// that cannot even be built (a repository name with a control character).
+func TestGitOps_UnreadableAnswersAndUnbuildableRequests(t *testing.T) {
+	ctx := context.Background()
+	ch := GitOpsChange{FilePath: "env/values.yaml", Content: []byte("a: 2\n"), Title: "bump", Branch: "auto-agent/x"}
+	garbageAt := func(match func(r *http.Request) bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case match(r):
+				httpxtest.JSON(w, 200, `not json`)
+			case r.Method == "HEAD":
+				w.WriteHeader(200)
+			case strings.Contains(r.URL.Path, "/git/ref/heads/"):
+				httpxtest.JSON(w, 200, `{"object":{"sha":"base"}}`)
+			case strings.Contains(r.URL.Path, "/contents/") && r.Method == "GET":
+				httpxtest.JSON(w, 200, `{"sha":"f"}`)
+			default:
+				httpxtest.JSON(w, 201, `{"html_url":"https://gh/x","web_url":"https://gl/x","commit":{"html_url":"https://gh/c"}}`)
+			}
+		}
+	}
+	for name, tc := range map[string]struct {
+		match func(*http.Request) bool
+		op    func(GitOps) error
+		gh    bool
+	}{
+		"github base ref":      {func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/git/ref/heads/") }, func(g GitOps) error { _, err := g.OpenPR(ctx, ch); return err }, true},
+		"github file lookup":   {func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/contents/") && r.Method == "GET" }, func(g GitOps) error { _, err := g.Commit(ctx, ch); return err }, true},
+		"github commit answer": {func(r *http.Request) bool { return r.Method == "PUT" }, func(g GitOps) error { _, err := g.Commit(ctx, ch); return err }, true},
+		"github pull request":  {func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/pulls") }, func(g GitOps) error { _, err := g.OpenPR(ctx, ch); return err }, true},
+		"gitlab commit answer": {func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/repository/commits") }, func(g GitOps) error { _, err := g.Commit(ctx, ch); return err }, false},
+		"gitlab merge request": {func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/merge_requests") }, func(g GitOps) error { _, err := g.OpenPR(ctx, ch); return err }, false},
+	} {
+		s := httpxtest.New(garbageAt(tc.match))
+		g := NewGitLab("tok", "grp%2Fproj", "main", s.Client(time.Second))
+		if tc.gh {
+			g = NewGitHub("tok", "o/r", "main", s.Client(time.Second))
+		}
+		err := tc.op(g)
+		s.Close()
+		if err == nil {
+			t.Errorf("%s: an answer that does not parse must be an error", name)
+		}
+	}
+
+	for name, g := range map[string]GitOps{"github": NewGitHub("tok", "o/\x7fr", "main", nil), "gitlab": NewGitLab("tok", "p\x7f", "main", nil)} {
+		if _, err := g.OpenPR(ctx, ch); err == nil {
+			t.Errorf("%s open: an unbuildable request is an error", name)
+		}
+		if _, err := g.Commit(ctx, ch); err == nil {
+			t.Errorf("%s commit: an unbuildable request is an error", name)
+		}
+		if _, err := g.ReadFile(ctx, "x"); err == nil {
+			t.Errorf("%s read: an unbuildable request is an error", name)
+		}
+	}
+}
+
+// Tickets fail cleanly at every step too.
+func TestTickets_EveryStepCanFail(t *testing.T) {
+	ctx := context.Background()
+	tk := Ticket{Title: "t", Body: "b", Labels: []string{"x"}, Assignees: []string{"oncall"}}
+	for name, tc := range map[string]struct {
+		search string
+		mk     func(*http.Client) Ticketer
+	}{
+		"github create": {`{"total_count":0,"items":[]}`, func(c *http.Client) Ticketer { return NewGitHubIssues("tok", "o/r", c) }},
+		"github reopen": {`{"total_count":1,"items":[{"number":7,"state":"closed","html_url":"https://gh/7"}]}`, func(c *http.Client) Ticketer { return NewGitHubIssues("tok", "o/r", c) }},
+		"jira create":   {`{"total":0,"issues":[]}`, func(c *http.Client) Ticketer { return NewJira("tok", "https://jira.test", "OPS", "a@corp.test", c) }},
+		"jira comment":  {`{"total":1,"issues":[{"key":"OPS-1"}]}`, func(c *http.Client) Ticketer { return NewJira("tok", "https://jira.test", "OPS", "a@corp.test", c) }},
+	} {
+		good := func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.Contains(r.URL.Path, "search"):
+				httpxtest.JSON(w, 200, tc.search)
+			case r.Method == "POST" && (r.URL.Path == "/repos/o/r/issues" || strings.HasSuffix(r.URL.Path, "/issue")):
+				httpxtest.JSON(w, 201, `{"number":1,"html_url":"https://gh/1","key":"OPS-2"}`)
+			default:
+				httpxtest.JSON(w, 201, `{}`)
+			}
+		}
+		ok := httpxtest.New(good)
+		if _, err := tc.mk(ok.Client(time.Second)).CreateOrUpdate(ctx, "k", tk); err != nil {
+			t.Fatalf("%s on a healthy server: %v", name, err)
+		}
+		steps := len(ok.Requests())
+		ok.Close()
+		for fail := 1; fail <= steps; fail++ {
+			n := 0
+			s := httpxtest.New(func(w http.ResponseWriter, r *http.Request) {
+				n++
+				if n == fail {
+					httpxtest.JSON(w, 500, `{}`)
+					return
+				}
+				good(w, r)
+			})
+			_, err := tc.mk(s.Client(time.Second)).CreateOrUpdate(ctx, "k", tk)
+			s.Close()
+			if err == nil {
+				t.Errorf("%s with request %d of %d failing: want an error", name, fail, steps)
+			}
+		}
+		garbage := httpxtest.New(func(w http.ResponseWriter, _ *http.Request) { httpxtest.JSON(w, 200, `not json`) })
+		if _, err := tc.mk(garbage.Client(time.Second)).CreateOrUpdate(ctx, "k", tk); err == nil {
+			t.Errorf("%s: a search answer that does not parse must be an error", name)
+		}
+		garbage.Close()
+	}
+	if _, err := NewGitHubIssues("tok", "o/\x7fr", nil).CreateOrUpdate(ctx, "k", tk); err == nil {
+		t.Error("github: an unbuildable request is an error")
+	}
+	if _, err := NewJira("tok", "https://jira\x7f.test", "OPS", "a@corp.test", nil).CreateOrUpdate(ctx, "k", tk); err == nil {
+		t.Error("jira: an unbuildable request is an error")
+	}
+}

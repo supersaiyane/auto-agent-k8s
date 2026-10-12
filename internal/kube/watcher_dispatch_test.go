@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,8 +18,10 @@ import (
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/alertmanager"
 	eventsvc "github.com/supersaiyane/auto-agent-k8s/internal/events"
+	"github.com/supersaiyane/auto-agent-k8s/internal/integrations"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
+	"github.com/supersaiyane/auto-agent-k8s/internal/storage"
 )
 
 // dispatchPod is a pod of ReplicaSet api-7d9f (deployment "api") on node-1, created created ago,
@@ -285,4 +288,73 @@ func TestStartWatchers_WithoutANodeNameStartsAndStops(t *testing.T) {
 	cancel()
 	StartWatchers(ctx, h.deps) // must return once its context is done
 	h.deps.inflight.Wait()
+}
+
+// failingSink cannot store a log bundle.
+type failingSink struct{}
+
+func (failingSink) Save(context.Context, string, *storage.Record) (string, error) {
+	return "", errors.New("bucket gone")
+}
+
+// failingTicketer cannot open a ticket.
+type failingTicketer struct{}
+
+func (failingTicketer) CreateOrUpdate(context.Context, string, integrations.Ticket) (string, error) {
+	return "", errors.New("tracker down")
+}
+
+// PLAN-004 phase 6 (B5): a log bundle or a ticket that cannot be stored is
+// counted, and the incident is still reported.
+func TestPodHandlers_StorageAndTicketFailuresAreCounted(t *testing.T) {
+	for label, pod := range map[string]*corev1.Pod{
+		"crashloop": dispatchPod(time.Hour, corev1.ContainerStatus{State: waiting("CrashLoopBackOff", "")}),
+		"imagepull": dispatchPod(time.Hour, corev1.ContainerStatus{State: waiting("ErrImagePull", "")}),
+		"oom": dispatchPod(time.Hour, corev1.ContainerStatus{State: runningSince(time.Minute), Ready: true, RestartCount: 1,
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"}}}),
+		"notready": dispatchPod(time.Hour, corev1.ContainerStatus{State: runningSince(notReadyAfter + time.Minute)}),
+	} {
+		h := dispatchHarness(t, pod)
+		h.deps.Sink = failingSink{}
+		h.deps.Ticketer = failingTicketer{}
+		storageFails := obs.HandlerErrorsTotal.WithLabelValues(label, "storage")
+		ticketFails := obs.HandlerErrorsTotal.WithLabelValues("ticket", "create")
+		sBefore, tBefore := testutil.ToFloat64(storageFails), testutil.ToFloat64(ticketFails)
+		handlePodUpdate(context.Background(), h.deps, pod, pod)
+		if len(recordedIncidents(h)) != 1 {
+			t.Fatalf("%s: the incident is reported even when its logs cannot be stored", label)
+		}
+		if testutil.ToFloat64(storageFails) != sBefore+1 {
+			t.Errorf("%s: a log bundle that cannot be stored must be counted", label)
+		}
+		if label != "notready" && label != "imagepull" && testutil.ToFloat64(ticketFails) <= tBefore {
+			t.Errorf("%s: a ticket that cannot be opened must be counted", label)
+		}
+	}
+}
+
+func TestHandlePending_NamesTheSchedulingCause(t *testing.T) {
+	for reason, want := range map[string]string{
+		"0/3 nodes are available: 3 node(s) didn't match Pod's node affinity": "no nodes match scheduling constraints",
+		"pod has unbound immediate persistentvolumeclaims":                    "PVC not bound",
+	} {
+		p := dispatchPod(pendingAfter+time.Minute, corev1.ContainerStatus{State: waiting("ContainerCreating", "")})
+		p.Status.Phase = corev1.PodPending
+		p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionFalse, Message: reason}}
+		h := dispatchHarness(t, p)
+		handlePodUpdate(context.Background(), h.deps, p, p)
+		if msgs := strings.Join(h.slack.Messages(), "\n"); !strings.Contains(msgs, want) {
+			t.Errorf("%q: want %q in %s", reason, want, msgs)
+		}
+	}
+}
+
+func TestTryFixAction_RecordsTheFixForVerification(t *testing.T) {
+	pod := dispatchPod(time.Hour, corev1.ContainerStatus{State: runningSince(notReadyAfter + time.Minute)})
+	h := dispatchHarness(t, pod)
+	h.deps.FixTracker = NewFixTracker(10)
+	handlePodUpdate(context.Background(), h.deps, pod, pod)
+	if p := h.deps.FixTracker.Pending(); len(p) != 1 || p[0].Action != "delete_pod" || p[0].Reason != "NotReady" {
+		t.Fatalf("an applied fix is queued for recovery verification: %+v", p)
+	}
 }

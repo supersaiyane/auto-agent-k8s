@@ -30,7 +30,7 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 	for _, ns := range watchedNamespaces(ctx, deps) {
 		dl, err := deps.Client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			klog.V(2).Infof("scaler: failed to list deployments in %s: %v", ns, err)
+			countAPIError(err, "deployments", ns)
 			continue
 		}
 
@@ -51,7 +51,10 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			if pol.HPACoexistence && !lim.overrideHPA {
 				hasHPA, err := deploymentHasHPA(ctx, deps, ns, d.Name)
 				if err != nil {
-					klog.V(3).Infof("scaler: HPA check failed for %s/%s: %v", ns, d.Name, err)
+					// Unknown is not "no HPA": scaling now could fight an
+					// autoscaler, so skip this pass (ISS-103).
+					countAPIError(err, "horizontalpodautoscalers", ns)
+					continue
 				}
 				if hasHPA {
 					klog.V(4).Infof("scaler: skipping %s/%s (HPA present)", ns, d.Name)
@@ -67,7 +70,8 @@ func EvaluateAndScale(ctx context.Context, deps *Deps) {
 			// Query CPU
 			cpu, err := deps.Metrics.AvgDeploymentCPU(ctx, d, pol.ScaleWindow)
 			if err != nil {
-				klog.V(3).Infof("scaler: CPU query failed for %s/%s: %v", ns, d.Name, err)
+				klog.V(2).Infof("scaler: CPU query failed for %s/%s: %v", ns, d.Name, err)
+				obs.HandlerErrorsTotal.WithLabelValues("scaler", "cpu").Inc()
 				continue
 			}
 
@@ -173,7 +177,7 @@ func evaluateGates(ctx context.Context, deps *Deps) (bool, bool) {
 func deploymentHasHPA(ctx context.Context, deps *Deps, ns, deploymentName string) (bool, error) {
 	hpaList, err := deps.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return false, fmt.Errorf("list HPAs: %w", err)
+		return false, err // a Kubernetes API error, counted by the caller
 	}
 	for _, hpa := range hpaList.Items {
 		ref := hpa.Spec.ScaleTargetRef
