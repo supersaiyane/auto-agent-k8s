@@ -53,8 +53,8 @@ Prometheus rows need `METRICS_PROVIDER=prometheus` and stay silent without it.
 | Deprecated API use, with the replacement (Prometheus scraping the API server) | `DeprecatedAPIInUse` | R1 | `internal/kube/promchecks.go` | `TestDeprecatedAPIs` |
 
 `TestEveryDetectorHasATest` (`internal/kube/detector_guard_test.go`) fails
-when an exported `Check*` detector has no test; the older ones are listed
-there until PLAN-002 phase 12 tests them.
+when an exported `Check*` detector has no test. Its list of exceptions is
+empty since PLAN-002 phase 12 (ISS-039) and must stay empty.
 
 ## Code Exists: Needs Configuration to Activate
 
@@ -62,17 +62,20 @@ there until PLAN-002 phase 12 tests them.
 
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
-| **Slack** | Sends incident alerts with logs and LLM diagnosis. Interactive buttons are not sent yet (`BuildIncidentBlocks` has no caller, ISS-012); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and replies that no action was taken | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
+| **Slack** | Sends incident alerts with logs and LLM diagnosis. R3 approval requests carry Approve and Reject buttons (`internal/kube/approvals.go`); the callback endpoint verifies Slack signatures (`SLACK_SIGNING_SECRET`) and only a listed approver can approve (`internal/httpapi/slack_actions.go`) | Set `SLACK_WEBHOOK_URL` in secrets | Agent detects and fixes silently: visible only in dashboard |
 | **Alertmanager** | Sends structured alerts (AutoAgentIncident, AutoAgentCircuitBreaker) | Set `ALERTMANAGER_URL` (e.g., `http://alertmanager:9093`) | No Alertmanager alerts fired: `FireIncident()` returns nil |
 | **PagerDuty** | Triggers an incident for every critical finding and every fix the API server refused, after Slack, deduplicated, redacted, in the background with a 10s timeout (ISS-080). Code: `internal/kube/gate.go` (`escalate`, `escalateFailedFix`), `internal/escalation/escalation.go`. Test: `TestEscalation_CriticalFindingsAndFailedFixes` | Set `PAGERDUTY_ROUTING_KEY` in secrets | No pages |
 | **OpsGenie** | Creates an alert for the same events as PagerDuty (ISS-080). Code and test as PagerDuty | Set `OPSGENIE_API_KEY` in secrets | No OG alerts |
 | **Email** | Sends an email for the same events; SMTP bounded by a 10s timeout, STARTTLS when offered (ISS-080). Tests: `TestEmail_BoundedByContext`, `TestEveryChannelIsRedacted` | Set `SMTP_HOST`, `SMTP_FROM`, `ESCALATION_EMAIL_TO` | No emails |
 
-### Chart values that nothing reads
+### GitOps mode and image mirror
 
-Checked 2026-10-07 (ISS-012): `gitops.mode` (`GITOPS_MODE`) and
-`images.mirror.*` (`IMAGE_MIRROR_*`) are rendered into the ConfigMap, but no
-Go code reads them. Setting them changes nothing.
+Both were unread chart values until ISS-012 was closed. `gitops.mode: live`
+commits the OOM memory bump straight to the branch through the mutation gate
+(`internal/kube/handlers.go`, `memoryBumpGitOps`). `images.mirror` rewrites
+allowListed image references at admission (`internal/webhook/mirror.go`,
+wired in `cmd/auto-agent/run.go`, `imageMirror`). Both are off by default and
+warn at startup when on; see [CONFIGURATION.md](../CONFIGURATION.md).
 
 ### Ticketing & GitOps
 
@@ -105,7 +108,7 @@ Go code reads them. Setting them changes nothing.
 | Feature | What it does | How to activate | Without it |
 |---------|-------------|-----------------|------------|
 | **Admission webhook** | Validates deployments have limits, probes, non-blocked images | Set `webhook.enabled` (cert-manager, or `webhook.tls.secretName` and `webhook.caBundle`) | No admission validation: bad deployments are not prevented, only detected after the fact |
-| **Namespace-scoped RBAC** | Per-namespace Role/RoleBinding instead of ClusterRole | Set `namespacedRBAC.enabled=true` in Helm values | ClusterRole grants access to all namespaces (agent only acts on allowlist though) |
+| **Fix anywhere** | One write ClusterRole instead of a Role per `fixCeiling` namespace, so the Settings tab can enable fixing in any non-system namespace | Set `rbac.fixAnywhere: true` | Writes are granted only by namespaced Roles in `fixCeiling` (the default) |
 
 ## Quick Activation Guide
 

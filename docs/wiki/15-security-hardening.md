@@ -9,15 +9,16 @@ missing or unused grant.
 - **ClusterRole `auto-agent`**: read-only (`get`/`list`/`watch` on what the
   detectors read) plus `patch` on nodes, which are cluster-scoped and are only
   cordoned by the agent running on that node.
-- **Role `auto-agent-write` in each allowlisted namespace**: delete pods,
+- **Role `auto-agent-write` in each `fixCeiling` namespace**: delete pods,
   create pod evictions, patch/update deployments, delete jobs. No workload
-  write exists outside the allowlist. Each allowlisted namespace must exist
-  before install.
+  write exists outside the fix ceiling (ADR-002). Each of these namespaces
+  must exist before install. `rbac.fixAnywhere` swaps the Roles for one
+  ClusterRole.
 - **Role `auto-agent-leader` in the agent's namespace**: create leases, and get/update
   only the `auto-agent-leader` lease.
 - **Role `auto-agent-config` in the agent namespace**: read its ConfigMap.
 - **TLS secrets**: `rbac.readTLSSecrets: true` grants secret list in
-  allowlisted namespaces and turns on the certificate expiry check
+  the `fixCeiling` namespaces and turns on the certificate expiry check
   (`TLS_CERT_CHECK`). Off by default.
 
 A read the chart does not grant is counted in

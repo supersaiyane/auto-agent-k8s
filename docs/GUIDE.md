@@ -68,7 +68,7 @@ kind create cluster
 ```
 
 `deploy.sh` builds the image, loads it into kind, applies the manifests in
-`deployment/` (namespace `auto-agent`, allowlist `test1,test2,chaos`),
+`deployment/` (namespace `auto-agent`, watch and fix scope `test1,test2,chaos`),
 creates the Secret once with generated tokens and waits for the node agents
 and the controller. It prints the dashboard address and the command that
 reads the token. `deploy.sh --help` lists its flags; `teardown.sh` removes
@@ -216,7 +216,7 @@ defaults and effect, plus the chart values that do nothing yet) is in
 the code and the chart.
 
 All settings are Helm values. The chart turns them into the
-`auto-agent-config` ConfigMap (live-reloaded for the mode, allowlist and
+`auto-agent-config` ConfigMap (live-reloaded for the mode, scopes and
 scaling settings) and the `auto-agent-secrets` Secret.
 
 ### 5.1 Core
@@ -434,8 +434,8 @@ agent fixes nowhere. **Return to the Helm values** clears the choice, after
 its own confirmation, and `agent.fixNamespaces` applies again. Every change
 and every refused attempt is an audit event (Audit tab).
 
-Until named approvers arrive (PLAN-002 phase 15), anyone with the dashboard
-token can change the fix scope; the tab says so. With `rbac.fixAnywhere` the
+Named approvers (PLAN-002 phase 15) gate R3 approvals only: anyone with the
+dashboard token can change the fix scope; the tab says so. With `rbac.fixAnywhere` the
 tab can enable any non-system namespace and shows a warning: a leaked token
 could then disrupt any namespace.
 
@@ -733,14 +733,14 @@ Two roles of one binary (ADR-001, `docs/adr/ADR-001-node-and-controller-roles.md
    every action, either role: applyMutation: mode -> guardrails -> rate limit
                               --> Kubernetes API (patch / delete / evict)
    alerts, tickets, PRs, LLM prompts --> internal/redact --> Slack, Jira, GitHub, LLM, Alertmanager
-   dashboard + API --> allowlisted namespaces only
+   dashboard + API --> watched namespaces only
 ```
 
 | Package | Responsibility |
 | --- | --- |
 | `cmd/auto-agent` | Wiring per role (`AGENT_ROLE`), leader loops, leader proxy target |
 | `internal/kube` | Detectors, handlers, the mutation gate, guardrails, dry-run log, audit log |
-| `internal/policy` | Mode, allowlist, thresholds; ConfigMap hot reload with immutable snapshots |
+| `internal/policy` | Mode, watch and fix scope, thresholds; ConfigMap hot reload with immutable snapshots |
 | `internal/crd` | AutoRemediationPolicy watcher and matching |
 | `internal/leader` | Lease-based leader election; reports who leads |
 | `internal/events` | Event log on the controller, forwarder on node agents |
@@ -758,7 +758,8 @@ These are in [CLAUDE.md](../CLAUDE.md) and enforced by tests:
 2. Safe by default: dry-run.
 3. One actor per target: node actions only on the agent's own node; cluster
    loops only on the leader.
-4. The allowlist applies to every read and write, dashboard included.
+4. The watch scope applies to every read and the fix scope to every write,
+   dashboard included (ADR-002).
 5. Policy is an immutable snapshot (`Deps.Policy()`).
 6. Writes are conflict safe: merge patches, or re-read and retry.
 7. RBAC matches the code exactly (`TestRBAC_ChartMatchesCode`).
@@ -771,7 +772,7 @@ These are in [CLAUDE.md](../CLAUDE.md) and enforced by tests:
 
 1. The pod informer on that node sees the container waiting with reason
    `CrashLoopBackOff`.
-2. The pod's namespace is checked against the allowlist and its annotations
+2. The pod's namespace is checked against the watch scope and its annotations
    against `auto-agent.io/disable`; duplicates within the dedup window stop here.
 3. Logs and events are collected and saved as a log bundle; the LLM is asked
    for a diagnosis if enabled.
@@ -793,7 +794,7 @@ In `dry-run`, step 5 is replaced by an entry in the dry-run log.
 | Concern | How it is handled |
 | --- | --- |
 | Who can see the dashboard | Bearer token on every `/api/` route, constant-time compare; NetworkPolicy on port 8080 |
-| What the agent can change | Writes only via namespaced Roles in allowlisted namespaces, plus node patch; no secrets by default |
+| What the agent can change | Writes only via namespaced Roles in the `fixCeiling` namespaces (one ClusterRole with `rbac.fixAnywhere`), plus node patch; no secrets by default |
 | Leader lock abuse | Lease `get`/`update` pinned to `auto-agent-leader` |
 | Forged Slack actions | Slack v0 signature with a 5 minute replay window |
 | Data leaving the cluster | Redaction of keys, tokens, URL credentials, JWTs, emails and IPs in LLM, Slack, tickets, PR text and alerts; LLM off by default |
@@ -851,6 +852,5 @@ Work is planned in [docs/plans/](plans/), tracked in
 
 ### 12.4 Known gaps
 
-See [tasks/ISSUES.md](../tasks/ISSUES.md). The main open items: `gitops.mode` and
-`images.mirror` are not implemented (ISS-012, PLAN-002 phase 17), and some
-packages still lack tests (ISS-021).
+See [tasks/ISSUES.md](../tasks/ISSUES.md). No issue is open as of 2026-10-12.
+Planned work is listed under Upcoming features in the [README](../README.md).

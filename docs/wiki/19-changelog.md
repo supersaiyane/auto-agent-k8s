@@ -1,14 +1,14 @@
 # Changelog
 
-Generated from git history on 2026-10-08 by `make changelog`. Counts are
+Generated from git history on 2026-10-12 by `make changelog`. Counts are
 measured with `git rev-list --count --no-merges`; nothing here is written by
-hand. The project has no release tags yet.
+hand. Releases are the git tags `v*`.
 
-## Unreleased (branch plan-002 after PR #2)
+## v1.0.0 (2026-10-12)
 
-PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings tab, shutdown order, check-config, docs.
+Everything after PR #2: watch scope and fix scope (ADR-002), the Settings tab, the read-only terminal (PLAN-003), network checks, config reload, escalation, live GitOps, the image mirror, durable approvals (ADR-003), 95 percent coverage with mutation testing (PLAN-004), and every issue closed.
 
-12 commits, 2026-10-08 to 2026-10-08. By type: 5 docs, 4 feat, 2 fix, 1 test.
+54 commits, 2026-10-08 to 2026-10-12. By type: 20 docs, 15 feat, 11 fix, 8 test.
 
 - `d68b9a7` docs: PLAN-003 read-only terminal, after PLAN-002 phase 13
 - `c3e88c4` feat: separate watch scope and fix scope (PLAN-002 11.8 step 1)
@@ -22,6 +22,48 @@ PLAN-002 phase 11 continued: watch scope and fix scope (ADR-002), the Settings t
 - `ff6f96b` docs: project map checked after PR #3
 - `762c7bd` feat: native config reload (PLAN-002 phase 13, Part A)
 - `aefe6e5` feat: read-only terminal from one command table (PLAN-003)
+- `cd60b90` feat: network checks from every node and the leader (PLAN-002 phase 14)
+- `040ce5c` feat: approve to fix, rung R3 (PLAN-002 phase 15)
+- `17c0e51` fix: bind the HTTP port before reporting ready
+- `48dcab3` feat: wire escalation and tighten fix verification (PLAN-002 phase 16)
+- `ff30698` feat: every AutoRemediationPolicy field takes effect (PLAN-002 phase 16)
+- `0025475` test: read the helm test result from its phase, not its logs
+- `06e77ba` feat: learned CPU baselines set the scale-up threshold (PLAN-002 phase 16)
+- `43e2ee1` feat: OOM pull requests patch gitops.valuesFile and use gitops.author
+- `0645d0b` test: cover storage, logging, obs and webhook (PLAN-002 phase 16, D6)
+- `2e89921` docs: checkpoint after PR #5 merged and PR #6 opened
+- `f2a5200` feat: the admission webhook gets a certificate and serves it (PLAN-002 phase 16)
+- `d141d2a` feat: opt-in tracing and bounded metric labels (PLAN-002 phase 16)
+- `9a137a8` docs: checkpoint with phase 16 webhook, tracing and D8 progress
+- `0e8ec4b` test: mutation testing on the safety-critical code (PLAN-002 phase 16, D8)
+- `1393961` docs: checkpoint, phase 16 complete on PR #7
+- `f2b8877` feat: gitops.mode live commits the OOM fix through the gate (PLAN-002 phase 17)
+- `d4581ae` feat: image mirror, Argo Rollouts reload, final floor (PLAN-002 phase 17)
+- `ecce315` docs: checkpoint, PLAN-002 complete (PR #8 merged)
+- `d5c3aaf` docs: project map checked after PR #8
+- `c6dd155` docs: close ISS-021 and ISS-058, both done
+- `ee4920b` fix: terminal gets its full width; the UI is never served stale
+- `9a2755c` test: the browser test checks the command list under Settings
+- `40d47a1` docs: close ISS-032; STATUS header matches where the project is
+- `e1cd990` docs: PLAN-004 for durable approvals and 95 percent coverage
+- `cc56090` fix: approvals survive a restart and a change of leader
+- `74c5e50` fix: remove dead runbook code, make log retention visible and tested
+- `f9b8012` docs: project map and checkpoint after PLAN-004 phases 1 and 2
+- `d64d271` test: the pod and node informer paths are tested end to end
+- `01502d0` fix: the agent's own records are tested, failures counted, dead code removed
+- `b433789` test: the dashboard API at 95 percent; hidden API failures counted
+- `fe69af8` docs: project map and checkpoint after PLAN-004 phase 5
+- `625042f` fix: five bugs found by the phase 6 failure sweeps; every package at 90
+- `e1d4f8a` test: coverage 95 percent with every package at 90; PLAN-004 complete
+- `aede63a` docs: project map and checkpoint after PLAN-004
+- `285e86a` fix: deploy.sh restarts the agent after loading a local image
+- `976c8e8` feat: housekeeping has its own budget
+- `ccbeb30` fix: node figures read pods only in watched namespaces
+- `bc1ce10` docs: ISS-020 accepted; every issue closed
+- `67d9999` docs: project map and checkpoint after PR 19
+- `f6e2772` fix: incidents name the Deployment, not its ReplicaSet
+- `a7f163c` docs: project map and checkpoint for ISS-108
+- `34faafd` docs: tidy stale docs and rewrite the README for v1.0.0
 
 ## PR #2: PLAN-002 phases 8 to 11 (merged 2026-10-08)
 

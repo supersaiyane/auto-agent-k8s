@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-12
 
+Release v1.0.0 in preparation on branch docs-release (2026-10-12): stale docs
+tidied (allowlist wording replaced by the ADR-002 scopes, unread values and
+unsent Slack buttons claims removed), README rewritten from the code with an
+Upcoming features section, and the CI image job fixed (ISS-109). The tag is
+pushed only after the image job passes on master.
+
 ## Active plan
 
 `docs/plans/PLAN-002-reload-coverage-and-gaps.md`: phase 8 done 2026-10-07
