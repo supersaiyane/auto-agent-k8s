@@ -144,8 +144,8 @@ func TestHandlePodUpdate_DispatchesEveryPodState(t *testing.T) {
 				}
 				return
 			}
-			if len(got) != 1 || got[0].Reason != tc.reason || got[0].Severity != tc.severity || got[0].Workload != "replicaset/api-7d9f" {
-				t.Fatalf("want one %s incident (%s) on replicaset/api-7d9f, got %+v", tc.reason, tc.severity, got)
+			if len(got) != 1 || got[0].Reason != tc.reason || got[0].Severity != tc.severity || got[0].Workload != "deployment/api" {
+				t.Fatalf("want one %s incident (%s) on deployment/api, got %+v", tc.reason, tc.severity, got)
 			}
 			if msgs := strings.Join(h.slack.Messages(), "\n"); !strings.Contains(msgs, tc.msg) {
 				t.Fatalf("Slack message should mention %q: %s", tc.msg, msgs)
