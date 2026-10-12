@@ -63,8 +63,8 @@ counted. Phase 5 done
 coverage 92.3 percent counted. Owner question added: ISS-099. PLAN-004 done
 2026-10-12: coverage 95.0 percent counted with every package at 90 or more,
 both enforced by `make coverage-check` (ISS-088 closed); ISS-101 to ISS-106
-fixed in phase 6. No plan is active. Owner questions: ISS-020, ISS-025,
-ISS-077, ISS-099. Owner questions: ISS-020, ISS-025, ISS-077.
+fixed in phase 6. No plan is active. Every issue is closed: ISS-025 and ISS-099 fixed,
+ISS-077 and ISS-030 closed, ISS-020 accepted by the owner (2026-10-12).
 
 ## Previous plan
 
