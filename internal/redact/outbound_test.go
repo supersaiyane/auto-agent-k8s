@@ -60,8 +60,8 @@ func TestOutboundClientsRedact(t *testing.T) {
 		}},
 		{"slack post", func(hc *http.Client) { _ = slack.New("https://hooks.slack.test/x", 5, hc).Post(leakyLog) }},
 		{"slack blocks", func(hc *http.Client) {
-			_ = slack.New("https://hooks.slack.test/x", 5, hc).PostBlocks(
-				slack.BuildIncidentBlocks("CrashLoop", leakyLog, "default", "api", "inc-1"))
+			_ = slack.New("https://hooks.slack.test/x", 5, hc).PostBlocks([]map[string]interface{}{ // as the approval buttons send
+				{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": "*Approve to fix* " + leakyLog}}})
 		}},
 		{"alertmanager", func(hc *http.Client) {
 			_ = alertmanager.New("https://am.test", hc).Fire(ctx, alertmanager.Alert{

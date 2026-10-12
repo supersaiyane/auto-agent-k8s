@@ -140,21 +140,28 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 
 	// Try Kubecost/OpenCost first if configured
 	if s.cost.KubecostURL != "" {
-		if data, err := s.cost.fetchKubecostData(ctx, s.http); err == nil {
+		data, err := s.cost.fetchKubecostData(ctx, s.http)
+		if err == nil {
 			writeJSON(w, data)
 			return
 		}
-		klog.V(3).Infof("cost: kubecost fetch failed, falling back to computed")
+		costFallback("kubecost", err)
 	}
 	if s.cost.OpenCostURL != "" {
-		if data, err := s.cost.fetchOpenCostData(ctx, s.http); err == nil {
+		data, err := s.cost.fetchOpenCostData(ctx, s.http)
+		if err == nil {
 			writeJSON(w, data)
 			return
 		}
-		klog.V(3).Infof("cost: opencost fetch failed, falling back to computed")
+		costFallback("opencost", err)
 	}
 
 	result := clusterCost{Config: s.cost}
+	if result.Config.Source == "kubecost" || result.Config.Source == "opencost" {
+		// Neither configured source answered: say so, never label computed
+		// prices with the source's name (ISS-098).
+		result.Config.Source = "computed"
+	}
 
 	// --- Nodes ---
 	nodes, err := s.kc.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -415,6 +422,13 @@ func (c CostConfig) fetchAllocation(ctx context.Context, client *http.Client, so
 }
 
 // --- Helpers ---
+
+// costFallback logs and counts a configured cost source that did not
+// answer, so computed prices are never shown without a trace (ISS-098).
+func costFallback(source string, err error) {
+	klog.Warningf("cost: %s did not answer, showing computed prices: %v", source, err)
+	obs.HandlerErrorsTotal.WithLabelValues("cost", source).Inc()
+}
 
 func podResourceRequests(p *corev1.Pod) (cpuCores float64, memMiB float64) {
 	for _, c := range p.Spec.Containers {

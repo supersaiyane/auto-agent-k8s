@@ -52,10 +52,12 @@
 | 2026-10-12 | PR #11 merged (b8d79c5, PLAN-004 phase 1); PR #12 open (phase 2), CI running | phase 2 commit 74c5e50 plus master merge 5271d9f pushed on `plan-004-phase2`; project map header updated | CI poll b0i6l4hv1 | `project_map.md:3`, `internal/kube/retention.go:22`, `internal/kube/approval_store.go` |
 | 2026-10-12 | PR #12 merged (b94a297); PLAN-004 phase 3 done on `plan-004-phase3` | dispatch, dedup, runHandler and informer tests in `watcher_dispatch_test.go`; router clock injected; checkBreaker and podAge deleted (ISS-094); make verify passes, coverage 87.8 counted, floor 87.8 | none | `internal/kube/watcher.go:17` (window constants), `internal/kube/watcher_dispatch_test.go`, `tasks/ISSUES.md` ISS-094 |
 | 2026-10-12 | PR #13 merged (13179cf); PLAN-004 phase 4 done on `plan-004-phase4` | records tested (`records_test.go`, `internal/events/persist_test.go`); ISS-095 to ISS-097 fixed; make verify passes; coverage 89.4 counted, floor 89.4 | none | `internal/kube/learning.go` (`Save`, `AllBaselines`), `internal/kube/auditlog.go` (`auditFailed`), `internal/events/recorder.go` (`persistFailed`) |
+| 2026-10-12 | PR #14 merged (4062e83); PLAN-004 phase 5 done on `plan-004-phase5` | `api_views_test.go`, `terminal_paths_test.go`; ISS-098 and ISS-100 fixed, ISS-099 open; make verify passes; httpapi 95.3, total 92.3 counted, floor 92.3 | none | `internal/httpapi/cost.go` (`costFallback`, computed label), `internal/httpapi/http.go` (`writeJSON`), `internal/httpapi/slack_actions.go` |
+| 2026-10-12 | PR #15 open (phase 5), CI running; project map header updated | map lists the dead code removed in phases 3 to 5 | none | `project_map.md:3`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (phase 5 section), `tasks/ISSUES.md` ISS-099 |
 ## Next action
 
-1. Merge PR for phase 4 on the owner's go once CI is green.
-2. PLAN-004 phase 5 (B4): `internal/httpapi` `http.go`, `cost.go`,
-   `terminal_read.go`, `terminal_get.go`, `terminal_describe.go`,
-   `slack_actions.go`, `resources.go`; the package to 95 percent.
-3. Owner questions: ISS-020, ISS-025, ISS-077.
+1. Merge the phase 5 PR on the owner's go once CI is green.
+2. PLAN-004 phase 6 (B5, B6): `integrations/gitops.go`, `cmd/auto-agent`,
+   `policy/reload.go`, `escalation`, `netchecks.go`, `netprobe.go`,
+   `scaler.go`, `workloads.go`; floor to 95.
+3. Owner questions: ISS-020, ISS-025, ISS-077, ISS-099.

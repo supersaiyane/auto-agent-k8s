@@ -7,12 +7,12 @@
 **Features**:
 - Incident alerts with logs, events, LLM diagnosis
 - Per-channel routing via CRD `slackChannel` field
-- Block Kit interactive buttons (Approve / Rollback / Silence)
-- Callback endpoint: `POST /api/slack/actions`
+- Approve and Reject buttons for approve to fix (R3), when `approvals.groups` and `slack.signingSecret` are set
+- Callback endpoint: `POST /api/slack/actions`, verified by Slack signature
 
 **Per-policy Slack channels**:
 
-Each CRD policy can route alerts to a different Slack channel. The agent uses `RegisterChannel()` to map channel names to webhook URLs, and `PostToChannel()` to route messages:
+Each CRD policy can route alerts to a different Slack channel: the policy names the channel, and `slack.channelWebhooks` maps channel names to webhook URLs (`SLACK_CHANNEL_WEBHOOKS`, see CONFIGURATION.md). A channel with no webhook falls back to the default one.
 
 ```yaml
 # CRD policy routes this workload's alerts to a specific channel
@@ -21,20 +21,20 @@ spec:
     slackChannel: "#prod-incidents"
 ```
 
-To register channel webhooks, set env vars:
-```bash
-kubectl patch cm auto-agent-config -n auto-agent --type merge \
-  -p '{"data":{"SLACK_CHANNEL_prod-incidents":"https://hooks.slack.com/services/T.../B.../xxx"}}'
+To register channel webhooks, set them in the chart (they live in the Secret):
+```yaml
+slack:
+  channelWebhooks:
+    "#prod-incidents": https://hooks.slack.com/services/T.../B.../xxx
 ```
 
-**Interactive buttons (Block Kit)**:
+**Approve and Reject buttons**:
 
-When the agent sends an incident alert, it includes interactive buttons built via `BuildIncidentBlocks()`:
-- **Approve Fix**: allows the pending action to execute
-- **Rollback**: triggers a deployment rollback
-- **Silence 1h**: suppresses alerts for this workload for 1 hour
-
-Button clicks are received at `POST /api/slack/actions` and processed by `SlackActionHandler`.
+A finding with an R3 fix queues the exact change and posts Approve and
+Reject buttons (`internal/kube/approvals.go`). A listed approver's press,
+verified by Slack signature, applies the change once through the gate. There
+are no Rollback or Silence buttons: an unwired builder for them was removed
+on 2026-10-12 (ISS-100).
 
 **Runbook link**:
 
