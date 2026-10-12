@@ -7,8 +7,14 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -217,5 +223,71 @@ func TestDescribe_EventsThatCannotBeReadAreSaid(t *testing.T) {
 	}
 	if out, err := run(t, e, "describe pod api-1"); err != nil || !strings.Contains(out, "Terminated") {
 		t.Fatalf("a terminated container is described: %q %v", out, err)
+	}
+}
+
+// Columns that only fill in for objects that have the field.
+func TestTerminal_GetShowsOptionalColumns(t *testing.T) {
+	e := termCluster(t)
+	kc := e.kc.(*fake.Clientset)
+	cls, sc := "nginx", "gp3"
+	quarter := intstr.FromString("25%")
+	last := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+	objs := []runtime.Object{
+		&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "broken", Namespace: "default"},
+			Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue}}}},
+		&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "hourly", Namespace: "default"}, Spec: batchv1.CronJobSpec{Schedule: "0 * * * *"},
+			Status: batchv1.CronJobStatus{LastScheduleTime: &last}},
+		&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "classy", Namespace: "default"}, Spec: networkingv1.IngressSpec{IngressClassName: &cls}},
+		&policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: "quarter", Namespace: "default"}, Spec: policyv1.PodDisruptionBudgetSpec{MaxUnavailable: &quarter}},
+		&corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "big", Namespace: "default"}, Spec: corev1.PersistentVolumeClaimSpec{StorageClassName: &sc},
+			Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound, Capacity: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("10Gi")}}},
+		&corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "pods", Namespace: "default"},
+			Status: corev1.ResourceQuotaStatus{Hard: corev1.ResourceList{corev1.ResourcePods: resource.MustParse("10")}, Used: corev1.ResourceList{corev1.ResourcePods: resource.MustParse("3")}}},
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp-1", Labels: map[string]string{"node-role.kubernetes.io/control-plane": ""}}},
+	}
+	for _, o := range objs {
+		if err := kc.Tracker().Add(o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for cmd, want := range map[string]string{
+		"get jobs": "Failed", "get cronjobs": "2h", "get ingresses": "nginx", "get pdb": "25%",
+		"get pvc": "gp3", "get resourcequotas": "pods", "get nodes": "control-plane",
+	} {
+		out, err := run(t, e, cmd)
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("%q should show %q: %q %v", cmd, want, out, err)
+		}
+	}
+	if out, err := run(t, e, "get pvc"); err != nil || !strings.Contains(out, "10Gi") {
+		t.Errorf("get pvc shows capacity: %q %v", out, err)
+	}
+}
+
+func TestTerminal_HistoryDescribeAndLogsEdges(t *testing.T) {
+	e := termCluster(t)
+	kc := e.kc.(*fake.Clientset)
+	sel := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "lone"}}
+	lone := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "lone", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{Selector: sel, Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "lone:1",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("64Mi")}}}}}}},
+		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, Reason: "MinimumReplicasAvailable"}}}}
+	if err := kc.Tracker().Add(lone); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, e, "rollout history deploy/lone"); err != nil || !strings.Contains(out, "no revisions found") {
+		t.Fatalf("a Deployment with no ReplicaSets has no history: %q %v", out, err)
+	}
+	out, err := run(t, e, "describe deployment lone")
+	if err != nil || !strings.Contains(out, "Available=True (MinimumReplicasAvailable)") || !strings.Contains(out, "cpu=100m,memory=64Mi") || !strings.Contains(out, "limits <none>") {
+		t.Fatalf("describe shows conditions and resources: %q %v", out, err)
+	}
+	if _, err := run(t, e, "logs deploy/lone"); err == nil || !strings.Contains(err.Error(), "has no pod") {
+		t.Fatalf("logs of a Deployment with no pod: %v", err)
+	}
+	kc.PrependReactor("list", "pods", deny("pods"))
+	if _, err := run(t, e, "logs deploy/api"); err == nil {
+		t.Fatal("logs of a Deployment whose pods cannot be listed is an error")
 	}
 }

@@ -16,12 +16,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/supersaiyane/auto-agent-k8s/internal/config"
 	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 	"github.com/supersaiyane/auto-agent-k8s/internal/policy"
+	"github.com/supersaiyane/auto-agent-k8s/internal/ratelimit"
 )
 
 // PLAN-004 phase 6 (B5): the network checks on their other paths.
@@ -264,5 +266,184 @@ func TestGenerateMemoryBumpContent_ReadsEveryQuantity(t *testing.T) {
 	path, content, _, note := memoryBumpChange(context.Background(), h.deps, "default", "deployment/api", "app", "lots", 20)
 	if path != "" || content != nil || !strings.Contains(note, "cannot read") {
 		t.Fatalf("an unreadable limit proposes nothing and says why: %q %q %q", path, content, note)
+	}
+}
+
+// stuckDeployment has passed its progress deadline.
+func stuckDeployment(name string) *appsv1.Deployment {
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentProgressing,
+			Status: corev1.ConditionFalse, Reason: "ProgressDeadlineExceeded"}}}}
+}
+
+func replicaSet(name, owner, rev string) *appsv1.ReplicaSet {
+	return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default",
+		Annotations:     map[string]string{"deployment.kubernetes.io/revision": rev},
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: owner}}}}
+}
+
+// PLAN-004 phase 6 part 2: a rollback only happens with an earlier revision
+// of the same Deployment, and every read it depends on is counted.
+func TestRollbackDeployment_EveryPath(t *testing.T) {
+	ctx := context.Background()
+	h := newFindingHarness(t, stuckDeployment("api"), replicaSet("api-2", "api", "2"), replicaSet("other-1", "other", "1"))
+	if msg := rollbackDeployment(ctx, h.deps, "default", "api", nil); !strings.Contains(msg, "no previous revision") {
+		t.Fatalf("one revision of its own (another Deployment's does not count): %q", msg)
+	}
+
+	h = newFindingHarness(t, stuckDeployment("api"))
+	fakeOf(h).PrependReactor("list", "replicasets", refuse("replicasets"))
+	refused := obs.APIErrorsTotal.WithLabelValues("replicasets", "forbidden")
+	before := testutil.ToFloat64(refused)
+	if msg := rollbackDeployment(ctx, h.deps, "default", "api", nil); !strings.Contains(msg, "cannot list ReplicaSets") {
+		t.Fatalf("a refused list is reported: %q", msg)
+	}
+	if testutil.ToFloat64(refused) != before+1 {
+		t.Fatal("a refused ReplicaSet list must be counted (ISS-106)")
+	}
+
+	// The Deployment is gone by the time the rollback is applied.
+	h = newFindingHarness(t, replicaSet("api-1", "api", "1"), replicaSet("api-2", "api", "2"))
+	h.deps.Limiter = ratelimit.NewActionLimiter(100, 10*time.Minute)
+	if msg := rollbackDeployment(ctx, h.deps, "default", "api", nil); !strings.Contains(strings.ToLower(msg), "fail") {
+		t.Fatalf("a rollback whose Deployment vanished fails: %q", msg)
+	}
+}
+
+func TestCheckStuckRollouts_OncePerWindow(t *testing.T) {
+	h := newFindingHarness(t, stuckDeployment("api"))
+	h.deps.Limiter = ratelimit.NewActionLimiter(100, 10*time.Minute)
+	skipped := obs.DedupSkippedTotal.WithLabelValues("RolloutStuck")
+	before := testutil.ToFloat64(skipped)
+	CheckStuckRollouts(context.Background(), h.deps)
+	CheckStuckRollouts(context.Background(), h.deps)
+	if testutil.ToFloat64(skipped) != before+1 {
+		t.Fatal("the same stuck rollout is reported once per dedup window")
+	}
+}
+
+func TestPodState(t *testing.T) {
+	ready := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
+	if podState(ready) != "Running, ready" || podState(&corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodPending}}) != "Pending, not ready" {
+		t.Fatal("podState")
+	}
+}
+
+func TestNetworkPolicyHelpers(t *testing.T) {
+	pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web"}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}}}}}}
+	if policyBlocks(&corev1.Service{}, []corev1.Pod{pod}, nil) != nil {
+		t.Fatal("a Service with no selector has no backing pods to check")
+	}
+	if policyBlocks(&corev1.Service{Spec: corev1.ServiceSpec{Selector: map[string]string{"app": "none"}}}, []corev1.Pod{pod}, nil) != nil {
+		t.Fatal("a selector matching nothing is CheckServiceEndpoints' finding, not this one")
+	}
+	five, end := intstr.FromInt(9000), int32(9100)
+	named := intstr.FromString("http")
+	for name, tc := range map[string]struct {
+		target intstr.IntOrString
+		rule   networkingv1.NetworkPolicyIngressRule
+		want   bool
+	}{
+		"rule with no ports allows all":  {intstr.FromInt(8080), networkingv1.NetworkPolicyIngressRule{}, true},
+		"port with no number allows all": {intstr.FromInt(8080), networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{}}}, true},
+		"named port matches":             {named, networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{Port: &named}}}, true},
+		"inside a port range":            {intstr.FromInt(9050), networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{Port: &five, EndPort: &end}}}, true},
+		"outside every rule":             {intstr.FromInt(8080), networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{Port: &five}}}, false},
+	} {
+		pol := &networkingv1.NetworkPolicy{Spec: networkingv1.NetworkPolicySpec{Ingress: []networkingv1.NetworkPolicyIngressRule{tc.rule}}}
+		if got := portAllowed(tc.target, &pod, []*networkingv1.NetworkPolicy{pol}); got != tc.want {
+			t.Errorf("%s: portAllowed = %v, want %v", name, got, tc.want)
+		}
+	}
+	if n, s := resolvePort(intstr.FromString("metrics"), &pod); n != 0 || s != "metrics" {
+		t.Fatalf("a name no container declares: %d %q", n, s)
+	}
+	if n, s := resolvePort(intstr.FromInt(9999), &pod); n != 9999 || s != "" {
+		t.Fatalf("a number no container declares: %d %q", n, s)
+	}
+	if trunc("abcdef", 3) != "abc..." || trunc("ab", 3) != "ab" || firstLabel(map[string]string{}, "a", "b") != "unknown" {
+		t.Fatal("trunc and firstLabel")
+	}
+}
+
+func TestCheckIngressTLS_ScopeAndReadErrors(t *testing.T) {
+	ing := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "site", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{TLS: []networkingv1.IngressTLS{{Hosts: []string{"shop.example.test"}, SecretName: "site-tls"}}}}
+	h := newFindingHarness(t, ing)
+	checkIngressTLS(context.Background(), h.deps)
+	if len(fakeOf(h).Actions()) != 0 {
+		t.Fatal("without TLS_CERT_CHECK nothing is read")
+	}
+	h.deps.TLSCertCheck = true
+	checkIngressTLS(context.Background(), h.deps)
+	if got := recordedIncidents(h); len(got) == 0 {
+		t.Fatal("a TLS secret that does not exist is reported")
+	}
+	for _, res := range []string{"ingresses", "secrets"} {
+		h := newFindingHarness(t, ing)
+		h.deps.TLSCertCheck = true
+		fakeOf(h).PrependReactor("list", res, refuse(res))
+		refused := obs.APIErrorsTotal.WithLabelValues(res, "forbidden")
+		before := testutil.ToFloat64(refused)
+		checkIngressTLS(context.Background(), h.deps)
+		if testutil.ToFloat64(refused) != before+1 {
+			t.Errorf("a refused %s list must be counted", res)
+		}
+	}
+	h = newFindingHarness(t, ing)
+	h.deps.TLSCertCheck = true
+	p := testPolicy()
+	p.FixCeiling = policy.NamespaceSet()
+	h.deps.Policies = policy.Static(p)
+	checkIngressTLS(context.Background(), h.deps)
+	if len(fakeOf(h).Actions()) != 0 {
+		t.Fatal("outside the fix ceiling no secret is read")
+	}
+}
+
+func TestProbeHelpers_StartupProbe(t *testing.T) {
+	startup := &corev1.Probe{PeriodSeconds: 7}
+	p := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", StartupProbe: startup}}}}
+	if probeKind("Startup probe failed: connection refused") != "startup" || probeKind("something else") != "" {
+		t.Fatal("probeKind reads the probe from the event message")
+	}
+	if probeOf(p, "app", "startup") != startup || probeOf(p, "missing", "startup") != nil {
+		t.Fatal("probeOf finds the container's startup probe")
+	}
+}
+
+func TestCheckPodStates_RefusedPodListIsCounted(t *testing.T) {
+	h := newFindingHarness(t)
+	fakeOf(h).PrependReactor("list", "pods", refuse("pods"))
+	refused := obs.APIErrorsTotal.WithLabelValues("pods", "forbidden")
+	before := testutil.ToFloat64(refused)
+	CheckPodStates(context.Background(), h.deps)
+	if testutil.ToFloat64(refused) != before+1 {
+		t.Fatal("a refused pod list must be counted")
+	}
+}
+
+func TestReloadTemplate_WorkloadGone(t *testing.T) {
+	h := newReloadHarness(t, config.Reload{Enabled: true})
+	if _, ok := h.r.reloadTemplate(context.Background(), "default", workloadRef{Kind: "Deployment", Name: "web"}); ok {
+		t.Fatal("a workload that no longer exists has no template to reload")
+	}
+}
+
+// An Unhealthy event that is not about a probe is not a probe finding.
+func TestCheckPodStates_UnhealthyWithoutAProbeIsIgnored(t *testing.T) {
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "default", UID: "u1"},
+		Spec: corev1.PodSpec{NodeName: "node-1", Containers: []corev1.Container{{Name: "app"}}}, Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+	ev := &corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "e1", Namespace: "default"}, Reason: "Unhealthy", Count: 9,
+		Message:        "Container app is restarting",
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "api-1", UID: "u1", FieldPath: "spec.containers{app}"},
+		LastTimestamp:  metav1.NewTime(testNow.Add(-time.Minute))}
+	h := newFindingHarness(t, pod, ev)
+	CheckPodStates(context.Background(), h.deps)
+	for _, e := range recordedIncidents(h) {
+		if strings.Contains(e.Reason, "Probe") {
+			t.Fatalf("a non-probe Unhealthy event was reported as %s", e.Reason)
+		}
 	}
 }

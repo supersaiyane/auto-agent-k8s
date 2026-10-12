@@ -55,10 +55,10 @@
 | 2026-10-12 | PR #14 merged (4062e83); PLAN-004 phase 5 done on `plan-004-phase5` | `api_views_test.go`, `terminal_paths_test.go`; ISS-098 and ISS-100 fixed, ISS-099 open; make verify passes; httpapi 95.3, total 92.3 counted, floor 92.3 | none | `internal/httpapi/cost.go` (`costFallback`, computed label), `internal/httpapi/http.go` (`writeJSON`), `internal/httpapi/slack_actions.go` |
 | 2026-10-12 | PR #15 open (phase 5), CI running; project map header updated | map lists the dead code removed in phases 3 to 5 | none | `project_map.md:3`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (phase 5 section), `tasks/ISSUES.md` ISS-099 |
 | 2026-10-12 | PR #15 merged (9c54eef); PLAN-004 phase 6 part 1 on `plan-004-phase6` | ISS-101 to ISS-105 fixed; every package at 90; make verify passes; total 94.3 counted, floor 94.3 | none | `internal/kube/gitops_content.go` (`GenerateMemoryBumpContent`), `internal/kube/scaler.go` (HPA skip), `internal/integrations/tickets.go`, `cmd/auto-agent/main.go` (`realMain`) |
+| 2026-10-12 | PR #16 merged (b4c95f4); PLAN-004 complete on `plan-004-phase6b` | coverage 95.02 counted (7364/7750), per-package floor 90 enforced and falsified; ISS-106 fixed; ISS-088 closed; make verify run before commit | none | `scripts/coverage-check.sh` (PACKAGE_FLOOR), `.coverage-floor`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (Result) |
 ## Next action
 
-1. Open the phase 6 part 1 PR; merge on the owner's go once CI is green.
-2. Phase 6 part 2: the last 0.7 percent (about 55 statements) and the floor
-   to 95. Largest left: `cmd/auto-agent/run.go` shutdown warnings,
-   `internal/kube/workloads.go` rollback paths, `netchecks.go`.
-3. Owner questions: ISS-020, ISS-025, ISS-077, ISS-099.
+1. Merge the PLAN-004 final PR on the owner's go once CI is green.
+2. No plan is active. Owner questions: ISS-020 (Jira URL in history),
+   ISS-025 (housekeeping budget), ISS-077 (quota ceiling), ISS-099 (node
+   aggregates read pods in every namespace).

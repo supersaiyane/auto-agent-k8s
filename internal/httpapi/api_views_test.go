@@ -480,3 +480,30 @@ func TestViews_WithoutAClusterAnswerEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestCostView_PerNamespaceFailuresAndTopTwenty(t *testing.T) {
+	three := int32(3)
+	objs := []runtime.Object{&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "default"}, Spec: appsv1.StatefulSetSpec{Replicas: &three}}}
+	for i := 0; i < 22; i++ {
+		objs = append(objs, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "d" + strconv.Itoa(i), Namespace: "default"}})
+	}
+	s := viewServer(t, fake.NewSimpleClientset(objs...), Options{}, nil)
+	got := decode[clusterCost](t, call(s, "GET", "/api/cost", ""))
+	if len(got.TopWorkloads) != 20 {
+		t.Fatalf("the top list keeps 20 workloads, got %d", len(got.TopWorkloads))
+	}
+	for _, res := range []string{"pods", "deployments", "statefulsets", "namespaces"} {
+		kc := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+			&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}})
+		kc.PrependReactor("list", res, deny(res))
+		refused := obs.APIErrorsTotal.WithLabelValues(res, "forbidden")
+		before := testutil.ToFloat64(refused)
+		if rec := call(viewServer(t, kc, Options{}, nil), "GET", "/api/cost", ""); rec.Code != http.StatusOK {
+			t.Fatalf("a refused %s list still answers: %d", res, rec.Code)
+		}
+		if testutil.ToFloat64(refused) < before+1 {
+			t.Errorf("a refused %s list must be counted", res)
+		}
+	}
+}

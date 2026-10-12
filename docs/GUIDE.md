@@ -816,7 +816,7 @@ More: [docs/wiki/15-security-hardening.md](wiki/15-security-hardening.md).
 | `make vuln` | govulncheck |
 | `make check-writing` | Fails on em or en dashes anywhere (project writing rule) |
 | `make helm-lint` | Lints the chart |
-| `make coverage-check` | Fails if total coverage drops below `.coverage-floor` or the gate, redaction, rate limiting or API auth code is below 100 percent. The test helper `internal/httpx/httpxtest` is left out of the total by name, since it ships no code |
+| `make coverage-check` | Fails if total coverage drops below `.coverage-floor` or the gate, redaction, rate limiting or API auth code is below 100 percent. The test helper `internal/httpx/httpxtest` is left out of the total by name, since it ships no code. It also fails any package below 90 percent |
 | `make verify` | All of the above; the definition of done |
 | `make e2e` | Full kind test (section 3, option C) |
 | `make manifests` | Regenerates `deployment/02-rbac.yaml` from the chart |

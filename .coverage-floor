@@ -19,4 +19,5 @@
 # 2026-10-12: 89.4 measured at the end of PLAN-004 phase 4 (records tested, dead code removed; 89.1 with httpxtest).
 # 2026-10-12: 92.3 measured at the end of PLAN-004 phase 5 (internal/httpapi 95.3; 92.0 with httpxtest).
 # 2026-10-12: 94.3 measured at the end of PLAN-004 phase 6 part 1 (every package at 90 or more; 94.0 with httpxtest).
-94.3
+# 2026-10-12: 95.0 measured at the end of PLAN-004 (7364 of 7750 statements, 95.02 percent; every package at 90 or more, enforced).
+95.0

@@ -312,3 +312,21 @@ func TestEmail_EveryRefusalIsAnError(t *testing.T) {
 		}
 	}
 }
+
+// A background escalation that fails is logged and counted, and a long body
+// is cut before it leaves the cluster.
+func TestSend_BackgroundFailureAndLongBody(t *testing.T) {
+	s := httpxtest.New(reply(500))
+	defer s.Close()
+	c := NewChain(config.Escalation{PagerDutyRoutingKey: "rk"}, s.Client(time.Second))
+	failed := obs.HandlerErrorsTotal.WithLabelValues("escalation", "pagerduty")
+	before := testutil.ToFloat64(failed)
+	c.Send(Incident{Title: "t", Body: strings.Repeat("b", 900), Severity: SevCritical, Namespace: "ns", Workload: "api"})
+	c.Wait()
+	if testutil.ToFloat64(failed) <= before {
+		t.Fatal("a failed background escalation must be counted")
+	}
+	if reqs := s.Requests(); len(reqs) != 1 || strings.Contains(reqs[0].Body, strings.Repeat("b", 501)) || !strings.Contains(reqs[0].Body, "...") {
+		t.Fatal("the body sent to PagerDuty is cut to 500 characters")
+	}
+}
