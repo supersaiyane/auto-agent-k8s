@@ -61,7 +61,10 @@
 | 2026-10-12 | Owner: finish every open issue. ISS-107 in PR #18 (CI running); ISS-025, ISS-099 fixed and ISS-077, ISS-030 closed on `housekeeping-budget`, not committed | make verify passes, coverage 95.04 exact; mutation run in progress (bash task boe5ic3so); ISS-020 needs the owner (history rewrite) | demo port-forward bhidlj2r6 on 18080 | `internal/kube/gate.go` (Housekeeping, limiter choice), `internal/kube/guardrails.go:19,29`, `internal/httpapi/http.go` (`watchedPodsByNode`), `internal/kube/housekeeping_test.go` |
 | 2026-10-12 | PR #18 (371e19e) and PR #19 (518bfe4) merged; ISS-020 accepted by the owner; demo redeployed | every issue closed; deploy.sh now restarts the agent itself | port-forward on 18080 | `tasks/ISSUES.md` (ISS-020), `deployment/deploy.sh:123` |
 | 2026-10-12 | PR #20 open (ISS-020 accepted, docs only), CI running; project map header updated | demo on image 5d1194ac, pods restarted by deploy.sh itself; dashboard 200 on localhost:18080 | port-forward bscbwnc5p | `project_map.md:3`, `tasks/ISSUES.md` (ISS-020), `tasks/STATUS.md` |
+| 2026-10-12 | PR #20 merged (b3d2ee8); merged branches deleted (12 local, 12 remote); ISS-108 on `incident-deployment-name` | incidents name the Deployment; deploymentName keeps real names; falsified once | port-forward on 18080 | `internal/kube/helpers.go:26` (`ownerName`), `internal/kube/gitops_content.go` (`deploymentName`) |
+| 2026-10-12 | PR #21 open (ISS-108), CI running; project map header updated | branches cleaned; incidents name the Deployment | port-forward on 18080 | `project_map.md:3`, `internal/kube/helpers.go:26` |
 ## Next action
 
-No open issue and no active plan. The demo runs master on kind-auto-agent-demo
-with the dashboard on localhost:18080.
+1. Merge PR #21 on the owner's go once CI is green, then redeploy the demo
+   (`deployment/deploy.sh --context kind-auto-agent-demo --no-port-forward`).
+2. No open issue and no active plan after that.

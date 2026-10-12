@@ -22,10 +22,19 @@ func dedupKey(ns, workloadOrName, reason string) string {
 	return fmt.Sprintf("%s/%s/%s", ns, workloadOrName, reason)
 }
 
-// ownerName returns "kind/name" of the controlling owner, or "pod/name".
+// ownerName returns "kind/name" of the controlling owner, or "pod/name". A
+// pod of a Deployment is named after the Deployment, not its ReplicaSet, so
+// one app keeps one name across rollouts in incidents, dedup and the
+// circuit breaker (ISS-108). The Deployment is the ReplicaSet's name less
+// the pod's pod-template-hash; a ReplicaSet with no Deployment keeps its own.
 func ownerName(p *corev1.Pod) string {
 	for _, o := range p.OwnerReferences {
 		if o.Controller != nil && *o.Controller {
+			if o.Kind == "ReplicaSet" {
+				if hash := p.Labels["pod-template-hash"]; hash != "" && strings.HasSuffix(o.Name, "-"+hash) {
+					return "deployment/" + strings.TrimSuffix(o.Name, "-"+hash)
+				}
+			}
 			return fmt.Sprintf("%s/%s", strings.ToLower(o.Kind), o.Name)
 		}
 	}

@@ -447,3 +447,49 @@ func TestCheckPodStates_UnhealthyWithoutAProbeIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+// ISS-108: a pod is named after its Deployment, so one app keeps one name
+// across rollouts; a ReplicaSet with no Deployment keeps its own name.
+func TestOwnerName_NamesTheDeployment(t *testing.T) {
+	yes := true
+	pod := func(kind, owner, hash string) *corev1.Pod {
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Labels: map[string]string{}}}
+		if hash != "" {
+			p.Labels["pod-template-hash"] = hash
+		}
+		if kind != "" {
+			p.OwnerReferences = []metav1.OwnerReference{{Kind: kind, Name: owner, Controller: &yes}}
+		}
+		return p
+	}
+	for want, p := range map[string]*corev1.Pod{
+		"deployment/order-service": pod("ReplicaSet", "order-service-7d9f84fd6c", "7d9f84fd6c"),
+		"replicaset/standalone":    pod("ReplicaSet", "standalone", ""),
+		"replicaset/other-abc":     pod("ReplicaSet", "other-abc", "zzz"), // the hash is not this ReplicaSet's
+		"statefulset/db":           pod("StatefulSet", "db", ""),
+		"pod/p":                    pod("", "", ""),
+	} {
+		if got := ownerName(p); got != want {
+			t.Errorf("ownerName = %q, want %q", got, want)
+		}
+	}
+	if deploymentName("deployment/order-service") != "order-service" || deploymentName("replicaset/api-7d9f84fd6c") != "api" {
+		t.Fatal("only a ReplicaSet name has a hash to strip")
+	}
+}
+
+func TestIncidents_OneNameAcrossARollout(t *testing.T) {
+	yes := true
+	crash := func(name, rs, hash string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"pod-template-hash": hash},
+			OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: rs, Controller: &yes}}},
+			Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "app", State: waiting("CreateContainerConfigError", "missing")}}}}
+	}
+	before, after := crash("api-old-1", "api-6c8d", "6c8d"), crash("api-new-1", "api-7d9f", "7d9f")
+	h := dispatchHarness(t, before)
+	handlePodUpdate(context.Background(), h.deps, before, before)
+	handlePodUpdate(context.Background(), h.deps, after, after) // the same app after a rollout
+	if got := recordedIncidents(h); len(got) != 1 || got[0].Workload != "deployment/api" {
+		t.Fatalf("one app is one incident across a rollout: %+v", got)
+	}
+}

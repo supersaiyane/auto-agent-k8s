@@ -147,11 +147,16 @@ spec:
 	return patch, change, nil
 }
 
+// deploymentName returns the Deployment a workload belongs to. Only a
+// ReplicaSet name carries a hash to strip: "deployment/order-service" is
+// "order-service", never "order" (ISS-108).
 func deploymentName(workload string) string {
-	// workload is "replicaset/name-hash" or "deployment/name"
 	parts := strings.SplitN(workload, "/", 2)
 	if len(parts) == 2 {
 		name := parts[1]
+		if parts[0] != "replicaset" {
+			return name
+		}
 		// Strip ReplicaSet hash suffix (last -xxxxx)
 		if idx := strings.LastIndex(name, "-"); idx > 0 {
 			// Check if suffix looks like a hash
