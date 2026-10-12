@@ -1,7 +1,7 @@
 # PLAN-001: Safety hardening
 
 Created: 2026-10-07
-Status: proposed, not started
+Status: done 2026-10-07, merged in PR #1.
 Issues: `tasks/ISSUES.md` ISS-001 to ISS-021
 Rules: `CLAUDE.md` (definition of done, architectural constraints)
 

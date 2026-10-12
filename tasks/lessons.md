@@ -75,3 +75,9 @@ outranks the kernel's "orchestrator never executes".
 **Correction:** Owner: move the command list under Settings; the terminal formatting is disturbed; the welcome line is not needed.
 **Rule:** Before claiming a dashboard change done, open it in the browser pane at desktop and narrow width, take a screenshot of the changed tab, and check alignment, spacing and wrapping by eye. A second layout rule for an element (a later `display:` override) must be removed, not stacked.
 **Triggers:** UI change, app.css, index.html, a new panel or tab, "layout", "dashboard".
+
+## 2026-10-11: a feature that loses its own work is a bug
+**Mistake:** I recorded ISS-078 (pending approvals lost on restart or leader change) as a Low "limitation" and listed it as optional.
+**Correction:** Owner: it is a bug; if the pending fixes are dropped, the automated fix is of no use.
+**Rule:** When a shipped feature can lose the state it exists to hold (a queue, an approval, a pending action) on a restart, failover or upgrade, record it as a bug at High or above and plan the fix; never as a limitation or an optional item.
+**Triggers:** in memory, lost on restart, leader change, failover, "limitation", queue, pending
