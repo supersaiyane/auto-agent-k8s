@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## Active plan
 
@@ -45,11 +45,12 @@ agent commands), refuses writes, exec and secrets with the reason, and shows
 the table in a panel; ISS-063 fixed. Phase 14 done 2026-10-08 (ISS-033,
 ISS-036): per-node DNS, Service and egress probes; sandbox and CNI events;
 NetworkPolicy analysis; conntrack and CoreDNS; Ingress TLS secrets. Phase 15 done 2026-10-08: approve to fix (R3), a queue applied once through the gate after a listed Slack approver presses Approve; six fixes live behind it; Approvals tab; ISS-077 (quota ceiling, OPEN) and ISS-078 (queue in memory) recorded. Phase 16 done 2026-10-11: escalation, CRD policy fields, learned thresholds, gitops values file, webhook certificates, tracing and bounded metrics, D6 tests, D8 mutation testing (`make mutation`, own CI job). Phase 17 done 2026-10-11: gitops.mode live through the gate, images.mirror webhook, Argo Rollouts in config reload, every chart key read, floor 83.0 measured (95 target not met, ISS-088). PLAN-002 complete, merged in PR #9 (3620892) on 2026-10-11.
-PLAN-001 (PR #1) and PLAN-003 are complete too. Next plan:
-`docs/plans/PLAN-004-durable-approvals-and-coverage.md` (proposed
-2026-10-11): phase 1 fixes ISS-078 (approvals lost on restart, a bug),
-phases 2 to 6 take coverage to 95 percent (ISS-088). Owner questions:
-ISS-020, ISS-025, ISS-077, and the PLAN-004 store (ConfigMap or CRD).
+PLAN-001 (PR #1) and PLAN-003 are complete too. Active plan:
+`docs/plans/PLAN-004-durable-approvals-and-coverage.md`. Phase 1 done
+2026-10-12: ISS-078 fixed, the approval queue is stored in a ConfigMap
+(ADR-003) and survives a leader change in the kind e2e. Next: phase 2 (B1,
+dead or wired: `runbook.go`, `retention.go`), then phases 3 to 6 for
+coverage to 95 percent (ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 

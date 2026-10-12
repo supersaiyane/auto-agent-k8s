@@ -28,7 +28,7 @@ fail() { echo "e2e: FAIL: $*"; exit 1; }
 # Every check reaches the cluster through a port-forward to one of these
 # local ports. If something already listens on one, the forward fails
 # quietly and the checks talk to that instead (ISS-086), so stop first.
-for p in 18080 18081 18089 18090 18091 18099 18100 18110; do
+for p in 18080 18081 18089 18090 18091 18099 18100 18110 18120 18121; do
 	if curl -s -m 1 -o /dev/null "http://127.0.0.1:$p/"; then
 		fail "local port $p is already in use; stop whatever listens there (a port-forward?) and rerun"
 	fi
@@ -300,6 +300,126 @@ echo "$FIX" | grep -q '"workload":"deployment/reload-demo","result":"restarted"'
 [ "$(rs_count)" = "$((RS_BEFORE + 1))" ] || fail "fix mode rolled the Deployment $(( $(rs_count) - RS_BEFORE )) times for three quick edits, want 1"
 log "fix mode: three quick edits, one restart"
 
+log "checking approvals survive a leader change (ISS-078, PLAN-004 phase 1)"
+# Test values for this throwaway cluster only.
+APPROVER_ID="UE2E"
+SIGNING_SECRET="e2e-signing-secret"
+helm upgrade auto-agent "$CHART" --kube-context "$CTX" -n "$NS_AGENT" --reuse-values \
+	--set "approvals.groups={slack:$APPROVER_ID}" --set "slack.signingSecret=$SIGNING_SECRET" --wait --timeout 180s >/dev/null
+k -n "$NS_AGENT" rollout restart deployment/auto-agent-controller >/dev/null
+k -n "$NS_AGENT" rollout status deployment/auto-agent-controller --timeout 120s >/dev/null
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"fix"}}' >/dev/null
+k -n "$NS_TEST" create cronjob approve-demo --image=busybox:1.36 --schedule='0 0 1 1 *' -- sh -c 'echo ran' >/dev/null
+CJ_UID=$(k -n "$NS_TEST" get cronjob approve-demo -o jsonpath='{.metadata.uid}')
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+k apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Event
+metadata:
+  name: approve-demo.missed
+  namespace: $NS_TEST
+involvedObject:
+  apiVersion: batch/v1
+  kind: CronJob
+  name: approve-demo
+  namespace: $NS_TEST
+  uid: $CJ_UID
+reason: MissSchedule
+message: "Missed scheduled time to start a job (e2e)"
+type: Warning
+firstTimestamp: $NOW
+lastTimestamp: $NOW
+count: 1
+source:
+  component: cronjob-controller
+YAML
+leader() { k -n "$NS_AGENT" get lease auto-agent-leader -o jsonpath='{.spec.holderIdentity}'; }
+# After the restart the lease can still name a pod that is shutting down;
+# wait for a holder that is a Ready pod.
+ready_leader() {
+	deadline=$(( $(date +%s) + 120 ))
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		h=$(leader)
+		if [ -n "$h" ] && k -n "$NS_AGENT" wait --for=condition=Ready "pod/$h" --timeout=5s >/dev/null 2>&1; then
+			echo "$h"
+			return 0
+		fi
+		sleep 3
+	done
+	return 1
+}
+LEADER=$(ready_leader) || fail "no Ready lease holder after the controller restart"
+k -n "$NS_AGENT" port-forward "pod/$LEADER" 18120:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+APPROVAL_ID=""
+deadline=$(( $(date +%s) + 120 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+	APPROVAL_ID=$(curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18120/api/approvals \
+		| python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin)
+except ValueError:
+    items = []  # not answering yet: poll again
+print(next((a["id"] for a in items if a["workload"] == "cronjob/approve-demo" and a["state"] == "pending"), ""))')
+	[ -n "$APPROVAL_ID" ] && break
+	sleep 5
+done
+kill "$PF" 2>/dev/null || true
+[ -n "$APPROVAL_ID" ] || fail "no pending approval for cronjob/approve-demo within 120s"
+STORED=$(k -n "$NS_AGENT" get configmap auto-agent-approvals -o jsonpath='{.data.queue\.json}')
+echo "$STORED" | grep -q "\"id\":\"$APPROVAL_ID\"" || fail "approval $APPROVAL_ID is not in the auto-agent-approvals ConfigMap: $STORED"
+log "approval $APPROVAL_ID queued by $LEADER and stored in the ConfigMap"
+
+k -n "$NS_AGENT" delete pod "$LEADER" --wait=false >/dev/null
+NEW_LEADER="$LEADER"
+deadline=$(( $(date +%s) + 90 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+	NEW_LEADER=$(leader)
+	[ -n "$NEW_LEADER" ] && [ "$NEW_LEADER" != "$LEADER" ] && break
+	sleep 3
+done
+[ "$NEW_LEADER" != "$LEADER" ] || fail "no controller took over after $LEADER was deleted"
+k -n "$NS_AGENT" wait --for=condition=Ready "pod/$NEW_LEADER" --timeout=90s >/dev/null
+k -n "$NS_AGENT" port-forward "pod/$NEW_LEADER" 18121:8080 >/dev/null 2>&1 &
+PF=$!
+sleep 3
+AFTER=$(curl -s -H 'Authorization: Bearer e2e-token' http://127.0.0.1:18121/api/approvals)
+echo "$AFTER" | grep -q "\"id\":\"$APPROVAL_ID\"" || { kill "$PF"; fail "new leader $NEW_LEADER lost approval $APPROVAL_ID: $AFTER"; }
+log "leader moved from $LEADER to $NEW_LEADER; approval $APPROVAL_ID is still pending"
+
+# A signed Slack Approve press, exactly as Slack sends it.
+slack_press() {
+	PAYLOAD="{\"type\":\"block_actions\",\"user\":{\"id\":\"$APPROVER_ID\",\"username\":\"e2e\"},\"actions\":[{\"action_id\":\"approve_fix\",\"value\":\"$APPROVAL_ID\"}]}"
+	BODY="payload=$(printf '%s' "$PAYLOAD" | python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))')"
+	TS=$(date +%s)
+	SIG="v0=$(printf 'v0:%s:%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | sed 's/^.* //')"
+	curl -s -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+		-H "X-Slack-Request-Timestamp: $TS" -H "X-Slack-Signature: $SIG" --data-binary "$BODY" \
+		http://127.0.0.1:18121/api/slack/actions
+}
+jobs_made() { k -n "$NS_TEST" get jobs --no-headers 2>/dev/null | grep -c '^approve-demo-manual-' || true; }
+PRESS=$(slack_press)
+sleep 3
+FIRST=$(jobs_made)
+REPLAY=$(slack_press)
+sleep 3
+SECOND=$(jobs_made)
+kill "$PF" 2>/dev/null || true
+k -n "$NS_AGENT" patch configmap auto-agent-config --type merge -p '{"data":{"AUTO_MODE":"dry-run"}}' >/dev/null
+log "approve -> $PRESS"
+log "replay -> $REPLAY"
+k -n "$NS_TEST" get jobs | grep -E 'NAME|approve-demo' || true
+[ "$FIRST" = "1" ] || fail "the approved change made $FIRST jobs, want 1"
+[ "$SECOND" = "1" ] || fail "a replayed approval made another job ($SECOND in all)"
+STORED=$(k -n "$NS_AGENT" get configmap auto-agent-approvals -o jsonpath='{.data.queue\.json}')
+echo "$STORED" | python3 -c "import json,sys; r=[a for a in json.load(sys.stdin) if a['id']=='$APPROVAL_ID'][0]; sys.exit(0 if (r['state'],r.get('by'),r.get('result'))==('approved','slack:$APPROVER_ID','applied') else 1)" \
+	|| fail "stored approval is not approved and applied: $STORED"
+k -n "$NS_TEST" delete cronjob approve-demo >/dev/null   # its Jobs go with it (owner references)
+log "approved on the new leader: one job made, the replay refused, the ConfigMap records who approved"
+AGENT_POD="$NEW_LEADER"
+
 log "checking the pods run non-root and RBAC covers every detector (ISS-009, ISS-010)"
 for pod in "$AGENT_POD" "$NODE_POD"; do
 	RUN_AS=$(kubectl --context "$CTX" -n "$NS_AGENT" get pod "$pod" -o jsonpath='{.spec.securityContext.runAsUser}')
@@ -354,4 +474,4 @@ OTHER=$(kubectl --context "$CTX" -n "$NS_TEST" run unmirrored --image=registry.k
 [ "$OTHER" = "registry.k8s.io/pause:3.9" ] || fail "the mirror rewrote an image outside its allowlist: $OTHER"
 log "mirror rewrote busybox:1.36 to $MIRRORED and left registry.k8s.io alone"
 
-log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, non-root, RBAC complete, admission webhook over TLS, image mirror"
+log "PASS: dry-run untouched, API requires token, kubectl scoped, fix scope from the dashboard, config reload, network probes, node findings on every controller, history kept across two leader changes, approvals kept across a leader change, non-root, RBAC complete, admission webhook over TLS, image mirror"

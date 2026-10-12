@@ -179,6 +179,7 @@ var (
 	ctrlRoots = []string{"main.leaderLoops", "main.newLeaderTarget", "main.newPeerResolver", "leader.Start", "httpapi.NewServer",
 		"policy.HotReloader.Start", "crd.StartController",
 		"kube.SaveFixScope",         // handed to httpapi as a closure in run.go, which the graph cannot follow
+		"kube.Approvals.StoreIn",    // the approval store, set up for controllers only in run.go (ADR-003)
 		"kube.Reloader.WatchConfig"} // started from run() through the agent struct
 )
 

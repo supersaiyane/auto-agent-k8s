@@ -85,6 +85,9 @@ rules:
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
   verbs: ["list"]
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["get"]   # run a missed CronJob now: read its current template when the approval is applied
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["list"]
@@ -346,6 +349,22 @@ rules:
   verbs: ["create"]
 ---
 # Source: auto-agent/templates/roles.yaml
+# The approval queue (ADR-003, ISS-078): the controller stores pending
+# approvals in the auto-agent-approvals ConfigMap so they survive a restart
+# and a change of leader. get and patch are pinned to it; create comes from
+# the auto-agent-scope Role above.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-agent-approvals
+  namespace: auto-agent
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["auto-agent-approvals"]
+  verbs: ["get", "patch"]
+---
+# Source: auto-agent/templates/roles.yaml
 # Policy hot reload reads the agent's ConfigMap in its own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -472,6 +491,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: auto-agent-scope
+subjects:
+- kind: ServiceAccount
+  name: auto-agent
+  namespace: auto-agent
+---
+# Source: auto-agent/templates/roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-agent-approvals
+  namespace: auto-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auto-agent-approvals
 subjects:
 - kind: ServiceAccount
   name: auto-agent

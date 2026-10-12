@@ -38,7 +38,8 @@ type mutation struct {
 	SuccessMsg string // shown when applied, e.g. "deleted pod"
 	SuggestMsg string // shown in suggest mode, e.g. "delete the pod"
 	Apply      func() error
-	ApprovedBy string // who approved an R3 change (phase 15); empty when none was needed
+	ApprovedBy string   // who approved an R3 change (phase 15); empty when none was needed
+	Fix        *fixSpec // the change as data, set on R3 proposals so the approval queue can store it (PLAN-004)
 }
 
 // approvalNote adds who approved the change to an audit detail.

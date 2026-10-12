@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/supersaiyane/auto-agent-k8s/internal/httpapi"
 	"github.com/supersaiyane/auto-agent-k8s/internal/kube"
 )
@@ -13,6 +15,17 @@ import (
 // approvalsAPI adapts the kube approval queue to the HTTP server, which
 // does not import kube (PLAN-002 phase 15).
 type approvalsAPI struct{ a *agent }
+
+// newApprovalQueue builds the approval queue. On controllers it is stored
+// in the agent's own ConfigMap, so pending approvals survive a restart and
+// a change of leader (ISS-078); node agents never propose or approve.
+func newApprovalQueue(a *agent, kc kubernetes.Interface) *kube.Approvals {
+	q := kube.NewApprovals(a.conf.Approvals.TTL, a.conf.Approvals.Approvers)
+	if a.rl.controller {
+		q = q.StoreIn(kc, a.podNS)
+	}
+	return q
+}
 
 // approvalsFor serves the queue on controllers; node agents have none.
 func approvalsFor(a *agent) httpapi.Approvals {

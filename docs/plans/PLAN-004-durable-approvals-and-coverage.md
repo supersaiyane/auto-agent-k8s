@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: proposed 2026-10-11, not started. Owner asked for it on 2026-10-11.
+Status: phase 1 done 2026-10-12 (ISS-078 fixed, ADR-003; owner chose the ConfigMap store). Phase 2 next.
 
 ## Goal
 
@@ -137,6 +137,17 @@ These 15 files hold 766 of the 1304 uncovered statements.
 | 5 | B4 | |
 | 6 | B5, B6 | Floor raised to the final number |
 
-## Owner decisions needed
+## Owner decisions
 
-- A.2: ConfigMap (recommended) or a new `Approval` CRD for the store.
+- A.2: ConfigMap, decided 2026-10-12 (ADR-003).
+
+## Done 2026-10-12: phase 1
+
+All of A1.1 to A1.9. Two changes from the design above, both forced by the
+code: a queued change was a closure, so each R3 change is now stored as a
+`fixSpec` and rebuilt by `buildFix`; and every queue step reads and writes
+the stored copy with a resourceVersion precondition, so no separate load at
+the start of a leader term is needed. Run now reads the CronJob at approval
+time. Kind e2e: approval `8ade4f33759a5027` queued on one leader, the leader
+deleted, approved by a signed Slack press on the new leader, one Job created,
+the replay refused. ISS-091 (a doubled refusal message) found on the way.

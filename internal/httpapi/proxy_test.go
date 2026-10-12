@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,5 +96,32 @@ func TestLeaderServesLocally(t *testing.T) {
 		if w := serve(s, "GET", "/api/status", "Bearer dash", nil); w.Code != http.StatusOK {
 			t.Fatalf("%s: %d", name, w.Code)
 		}
+	}
+}
+
+// ISS-078: a Slack Approve press that the Service sends to the standby
+// reaches the leader, which holds the approval queue, with the body and the
+// signature headers unchanged so the leader can verify the signature.
+func TestStandbyForwardsSlackApprovalsUnchanged(t *testing.T) {
+	var got string
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("leader read: %v", err)
+		}
+		got = r.URL.Path + " sig=" + r.Header.Get("X-Slack-Signature") + " ts=" + r.Header.Get("X-Slack-Request-Timestamp") + " body=" + string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer leader.Close()
+	s := standby(t, func() (string, error) { return leader.URL, nil })
+
+	r := httptest.NewRequest("POST", slackActionsPath, strings.NewReader("payload=%7B%22x%22%3A1%7D"))
+	r.Header.Set("X-Slack-Signature", "v0=abc")
+	r.Header.Set("X-Slack-Request-Timestamp", "1760000000")
+	w := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(w, r)
+	want := slackActionsPath + " sig=v0=abc ts=1760000000 body=payload=%7B%22x%22%3A1%7D"
+	if w.Code != http.StatusOK || got != want {
+		t.Fatalf("standby must forward the Slack action unchanged: %d, leader saw %q", w.Code, got)
 	}
 }

@@ -27,6 +27,7 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 | `NewReloader`, `Reloader.WatchConfig`, `Reloader.Records`, `ReloadRecord`, `ReloadOutcome` | `internal/kube/reload.go`, `reload_watch.go` | Config reload (PLAN-002 Part A): watch ConfigMaps (and Secrets when enabled), restart the workloads that use changed keys one at a time through the gate; the record behind `/api/reloads` |
 | `StartNetworkProbes`, `CheckSandboxFailures`, `CheckSystemNetworkPods`, `CheckNetworkPolicyBlocks`, `CheckConntrack`, `CheckCoreDNS` | `internal/kube/netprobe.go`, `netchecks.go` | Network checks (PLAN-002 phase 14): probes from each node agent, and leader checks |
 | `Approvals`, `NewApprovals`, `ApproveFix`, `RejectFix`, `ListApprovals`, `ApprovalView`, `Deps.Approvals`, `ErrApprovalsOff`, `ErrApprovalUnknown`, `ErrApprovalDecided`, `ErrNotApprover` | `internal/kube/approvals.go` | R3 approval queue (PLAN-002 phase 15): a finding's exact change waits for a listed approver, then goes once through `applyMutation`; wired to Slack and `/api/approvals` by `cmd/auto-agent/approvals.go` |
+| `Approvals.StoreIn(kc, ns)`, `ApprovalsConfigMap` | `internal/kube/approval_store.go` | Durable queue (ADR-003, ISS-078): stored in the `auto-agent-approvals` ConfigMap, read and written per step with a resourceVersion precondition; controllers only (`newApprovalQueue` in `cmd/auto-agent/approvals.go`). Changes are stored as `fixSpec` and rebuilt by `buildFix` (`approval_fixes.go`) |
 | `PolicyBudget`, `NewPolicyBudget`, `Deps.PolicyBudget`, `Deps.TicketerFor` | `internal/kube/policycheck.go`, `deps.go` | AutoRemediationPolicy limits (ISS-037): hourly action budget per policy for `safety.maxActionsPerHour` (nil refuses, fail closed); per-policy ticketer for `escalation.ticketing` |
 | `SimulateAction` | `internal/kube/dryrun.go` | Dry-run record; takes the pod labels since 2026-10-08 so it sees the same policy refusals as the gate (ISS-081) |
 | `GatePreview`, `GateCheck` | `internal/kube/gate_preview.go` | The terminal's `agent gate`: each guardrail's answer for a namespace, from read-only calls only, so nothing is spent (PLAN-003 3.3) |
@@ -36,5 +37,5 @@ new or removed exported symbol (CLAUDE.md routing table). Started 2026-10-07.
 Unexported but central: `applyMutation` (`internal/kube/gate.go`), the only
 path that changes workloads; `tryFixAction` (`handlers.go`), its wrapper for
 remediations that need recovery verification; and `writeAgentSetting`
-(`scope_settings.go`), the only path that writes the agent's own settings
-ConfigMap. `watchedNamespaces` (`namespaces.go`) lists the watch scope.
+(`scope_settings.go`), the only path that writes the agent's own ConfigMaps,
+`auto-agent-scope` and `auto-agent-approvals`, and nothing else. `watchedNamespaces` (`namespaces.go`) lists the watch scope.

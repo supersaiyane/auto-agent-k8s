@@ -13,7 +13,7 @@ set -eu
 GREMLINS="${GREMLINS:-bin/tools/gremlins}"
 [ -x "$GREMLINS" ] || { echo "gremlins missing: run 'make tools'"; exit 1; }
 
-KUBE_TARGETS="gate.go guardrails.go approvals.go policycheck.go"
+KUBE_TARGETS="gate.go guardrails.go approvals.go approval_store.go policycheck.go"
 
 run() {
 	pkg="$1"

@@ -50,10 +50,24 @@ func SaveFixScope(ctx context.Context, deps *Deps, ns string, names []string, fr
 	return nil
 }
 
-// writeAgentSetting runs a write to the agent's own settings. It exists so
-// the mutation guard can tell these writes from remediation, which must go
-// through applyMutation.
-func writeAgentSetting(write func() error) error { return write() }
+// errNotAgentSetting refuses a write to anything but the agent's own
+// ConfigMaps.
+var errNotAgentSetting = errors.New("not one of the agent's own ConfigMaps")
+
+// agentSettings are the only objects writeAgentSetting may write (ADR-002,
+// ADR-003): the fix scope choice and the approval queue.
+var agentSettings = map[string]bool{policy.ScopeConfigMap: true, ApprovalsConfigMap: true}
+
+// writeAgentSetting runs a write to one of the agent's own ConfigMaps,
+// named by name. It exists so the mutation guard can tell these writes from
+// remediation, which must go through applyMutation, and it refuses any
+// other name.
+func writeAgentSetting(name string, write func() error) error {
+	if !agentSettings[name] {
+		return fmt.Errorf("%s: %w", name, errNotAgentSetting)
+	}
+	return write()
+}
 
 // writeScopeConfigMap merge-patches the choice into the ConfigMap, creating
 // it on first use. A merge patch only touches the one key (constraint 6).
@@ -69,7 +83,7 @@ func writeScopeConfigMap(ctx context.Context, deps *Deps, ns string, names []str
 		}},
 		Data: map[string]string{policy.ScopeKey: strings.Join(names, ",")},
 	}
-	return writeAgentSetting(func() error {
+	return writeAgentSetting(policy.ScopeConfigMap, func() error {
 		_, err := deps.Client.CoreV1().ConfigMaps(ns).Patch(ctx, policy.ScopeConfigMap, types.MergePatchType, patch, metav1.PatchOptions{})
 		if !apierrors.IsNotFound(err) {
 			return err

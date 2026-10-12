@@ -234,14 +234,14 @@ func TestApprovals_SameChangeQueuedOnce(t *testing.T) {
 func TestApprovals_QueueBounded(t *testing.T) {
 	a := NewApprovals(time.Minute, []string{approver})
 	for i := 0; i < maxApprovals; i++ {
-		if _, _, err := a.propose(mutation{ActionType: "x", Namespace: "default", Workload: fmt.Sprintf("w%d", i)}, "", testNow); err != nil {
+		if _, _, err := a.propose(nil, mutation{ActionType: "x", Namespace: "default", Workload: fmt.Sprintf("w%d", i)}, "", testNow); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := a.propose(mutation{ActionType: "y"}, "", testNow); !errors.Is(err, errApprovalQueueFull) {
+	if _, _, err := a.propose(nil, mutation{ActionType: "y"}, "", testNow); !errors.Is(err, errApprovalQueueFull) {
 		t.Fatalf("a full queue of pending items must refuse more, got %v", err)
 	}
-	if _, _, err := a.propose(mutation{ActionType: "y"}, "", testNow.Add(2*time.Minute)); err != nil {
+	if _, _, err := a.propose(nil, mutation{ActionType: "y"}, "", testNow.Add(2*time.Minute)); err != nil {
 		t.Fatalf("expired items must make room: %v", err)
 	}
 }
@@ -412,17 +412,17 @@ func TestTracing_FindingAndGateSpans(t *testing.T) {
 func TestApprovals_ProposeMatchesOnlyAPendingSameChange(t *testing.T) {
 	a := NewApprovals(time.Hour, []string{approver})
 	m := mutation{ActionType: "raise_hpa_max", Namespace: "default", Workload: "deployment/web", SuggestMsg: "raise to 6"}
-	first, isNew, err := a.propose(m, "", testNow)
+	first, isNew, err := a.propose(nil, m, "", testNow)
 	if err != nil || !isNew {
 		t.Fatal(err)
 	}
 	other := m
 	other.Namespace = "payments"
-	if p, isNew, _ := a.propose(other, "", testNow); !isNew || p.id == first.id {
+	if p, isNew, _ := a.propose(nil, other, "", testNow); !isNew || p.id == first.id {
 		t.Fatal("the same action in another namespace is a new approval")
 	}
 	first.state = approvalRejected
-	if p, isNew, _ := a.propose(m, "", testNow); !isNew || p.id == first.id {
+	if p, isNew, _ := a.propose(nil, m, "", testNow); !isNew || p.id == first.id {
 		t.Fatal("a decided item never absorbs a new proposal")
 	}
 }
@@ -511,7 +511,7 @@ func TestApprovals_IsApprover(t *testing.T) {
 func TestQueueApproval_FullQueueIsReported(t *testing.T) {
 	h, bs, _ := approvalHarness(t, []string{approver}, testHPA())
 	for i := 0; i < maxApprovals; i++ {
-		if _, _, err := h.deps.Approvals.propose(mutation{ActionType: "x", Namespace: "default", Workload: fmt.Sprintf("w%d", i)}, "", testNow); err != nil {
+		if _, _, err := h.deps.Approvals.propose(nil, mutation{ActionType: "x", Namespace: "default", Workload: fmt.Sprintf("w%d", i)}, "", testNow); err != nil {
 			t.Fatal(err)
 		}
 	}

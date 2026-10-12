@@ -57,6 +57,9 @@ rules:
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
   verbs: ["list"]
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["get"]   # run a missed CronJob now: read its current template when the approval is applied
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["list"]
