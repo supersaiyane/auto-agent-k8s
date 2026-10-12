@@ -50,11 +50,11 @@
 
 | 2026-10-12 | PLAN-004 phase 1 PR #11 open (CI running); phase 2 done on branch `plan-004-phase2`, not committed | runbook.go deleted (ISS-092), retention.go fixed and tested (ISS-093), ISS-091 fixed, httpxtest excluded by name; coverage 85.0 counted, floor 85.0 | none | `internal/kube/retention.go:22`, `cmd/auto-agent/approvals.go:60` (`approvalErr`), `scripts/coverage-check.sh` (EXCLUDE), `docs/wiki/07-integrations.md` (Runbook link) |
 | 2026-10-12 | PR #11 merged (b8d79c5, PLAN-004 phase 1); PR #12 open (phase 2), CI running | phase 2 commit 74c5e50 plus master merge 5271d9f pushed on `plan-004-phase2`; project map header updated | CI poll b0i6l4hv1 | `project_map.md:3`, `internal/kube/retention.go:22`, `internal/kube/approval_store.go` |
+| 2026-10-12 | PR #12 merged (b94a297); PLAN-004 phase 3 done on `plan-004-phase3` | dispatch, dedup, runHandler and informer tests in `watcher_dispatch_test.go`; router clock injected; checkBreaker and podAge deleted (ISS-094); make verify passes, coverage 87.8 counted, floor 87.8 | none | `internal/kube/watcher.go:17` (window constants), `internal/kube/watcher_dispatch_test.go`, `tasks/ISSUES.md` ISS-094 |
 ## Next action
 
-1. Merge PR #12 when its CI (verify, e2e, mutation) is green (owner said go
-   2026-10-12); commit this map and checkpoint update with it or after.
-2. PLAN-004 phase 3 (B2): `internal/kube/watcher.go`, `handlers.go`,
-   `handlers_extended.go`, `pod_extended.go` through fake informers, each to
-   90 percent.
+1. Push `plan-004-phase3`, open its PR, merge on the owner's go once CI is
+   green.
+2. PLAN-004 phase 4 (B3): `internal/events/recorder.go`, `internal/kube/auditlog.go`,
+   `learning.go`, `fixtracker.go`, `correlation.go`, each to 90 percent.
 3. Owner questions: ISS-020, ISS-025, ISS-077.

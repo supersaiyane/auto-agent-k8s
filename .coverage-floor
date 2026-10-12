@@ -15,4 +15,5 @@
 # 2026-10-11: 83.0 measured at the end of PLAN-002 phase 17 (final floor of PLAN-002; target 95 not met, ISS-088).
 # 2026-10-12: 83.4 measured at the end of PLAN-004 phase 1 (durable approvals, ISS-078).
 # 2026-10-12: 85.0 measured at the end of PLAN-004 phase 2 (runbook.go deleted, retention tested; httpxtest excluded by name, 84.8 with it).
-85.0
+# 2026-10-12: 87.8 measured at the end of PLAN-004 phase 3 (pod and node informer paths tested; 87.6 with httpxtest).
+87.8

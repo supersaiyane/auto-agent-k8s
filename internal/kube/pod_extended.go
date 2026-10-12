@@ -148,8 +148,3 @@ func isAdditionalPodReason(reason string) bool {
 	_, ok := additionalPodReasons[reason]
 	return ok
 }
-
-// podAge returns age since creation.
-func podAge(pod *corev1.Pod) time.Duration {
-	return time.Since(pod.CreationTimestamp.Time)
-}

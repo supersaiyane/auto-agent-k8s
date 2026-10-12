@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phases 1 and 2 done 2026-10-12 (ISS-078 fixed, ADR-003; B1). Phase 3 (B2) next.
+Status: phases 1 to 3 done 2026-10-12 (ISS-078 fixed, ADR-003; B1; B2). Phase 4 (B3) next.
 
 ## Goal
 
@@ -165,3 +165,23 @@ the replay refused. ISS-091 (a doubled refusal message) found on the way.
 - ISS-091 (doubled refusal text) fixed.
 - Measured with `make test` and `make coverage-check` on 2026-10-12: 84.8
   percent over every package, 85.0 percent counted. Floor 83.4 to 85.0.
+
+## Done 2026-10-12: phase 3 (B2)
+
+- One table test drives `handlePodUpdate` through every pod state it routes
+  (init container, crash loop, image pull, OOM, config error, restart storm,
+  four extra waiting reasons, NotReady and Pending on both sides of their
+  windows, unwatched namespace, healthy), each sent twice to prove dedup.
+  NotReady deletes the pod in fix mode; Alertmanager receives incidents.
+- `runHandler`: a full pool drops the event, a free slot runs it with a
+  deadline and releases the slot. `StartWatchers`: a pod update and a node
+  pressure change reach their handlers through real informers on the fake
+  clientset.
+- The router reads the clock from `deps` (D2) for its NotReady and Pending
+  windows, named `notReadyAfter` and `pendingAfter`.
+- `checkBreaker` and `podAge` had no caller: deleted (ISS-094).
+- Falsified once: inverting the Pending window and skipping the ConfigError
+  dedup failed three cases.
+- Measured 2026-10-12: watcher.go 98.6, handlers.go 92.2,
+  handlers_extended.go 93.9, pod_extended.go 94.2 percent; total 87.8
+  percent counted (87.6 over every package). Floor 85.0 to 87.8.
