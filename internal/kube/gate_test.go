@@ -53,6 +53,7 @@ func openGuardrails(deps *Deps) {
 	deps.BlastRadius = NewBlastRadiusTracker(100, time.Hour)
 	deps.Breaker = ratelimit.NewCircuitBreaker(100, time.Hour)
 	deps.Limiter = ratelimit.NewActionLimiter(100, time.Hour)
+	deps.HousekeepingLimiter = ratelimit.NewActionLimiter(100, time.Hour)
 	deps.DryRunLog = NewDryRunLog(50)
 }
 
@@ -244,14 +245,21 @@ func TestGate_NoMutationOutsideFixOrWhenBlocked(t *testing.T) {
 		{"fix, rate limit exhausted", func(deps *Deps) {
 			deps.Policy().Mode = policy.Fix
 			deps.Limiter = ratelimit.NewActionLimiter(0, time.Hour)
+			deps.HousekeepingLimiter = ratelimit.NewActionLimiter(0, time.Hour)
 		}},
 		{"fix, no rate limiter", func(deps *Deps) {
 			deps.Policy().Mode = policy.Fix
-			deps.Limiter = nil
+			deps.Limiter, deps.HousekeepingLimiter = nil, nil
 		}},
 	}
+	// Housekeeping has its own budget, so the blast radius does not stop it
+	// (ISS-025); every other state must.
+	housekeeping := map[string]bool{"cleanup evicted pods": true, "cleanup old failed jobs": true}
 	for _, s := range states {
 		for _, d := range mutatingDrivers {
+			if s.name == "fix, blast radius exhausted" && housekeeping[d.name] {
+				continue
+			}
 			t.Run(s.name+"/"+d.name, func(t *testing.T) {
 				if got := runDriver(t, d, s.configure); len(got) != 0 {
 					t.Fatalf("expected no writes, got %v", got)

@@ -200,7 +200,7 @@ func CleanupEvictedPods(ctx context.Context, deps *Deps) {
 
 		cleaned := 0
 		outcome, gmsg := applyMutation(ctx, deps, mutation{
-			Namespace: ns, Workload: "evicted-pods", Reason: "CleanupEvicted", ActionType: "cleanup_evicted",
+			Namespace: ns, Workload: "evicted-pods", Reason: "CleanupEvicted", ActionType: "cleanup_evicted", Housekeeping: true,
 			SuccessMsg: fmt.Sprintf("removed evicted or failed pods in %s", ns),
 			SuggestMsg: fmt.Sprintf("remove %d evicted or failed pods in %s", len(names), ns),
 			Apply: func() error {

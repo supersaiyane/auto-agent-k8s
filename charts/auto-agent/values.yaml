@@ -154,6 +154,7 @@ leaderElection:
 guardrails:
   circuitBreakerThreshold: 5       # actions per workload per hour before the breaker trips
   blastRadiusMaxNamespaces: 5      # distinct namespaces acted on per hour
+  housekeepingMaxPer10m: 10        # cleanup actions (evicted pods, old failed jobs) per 10 minutes; own budget
   quietHours: ""                   # UTC windows with no actions, e.g. "02:00-06:00,22:00-23:00"
 
 # Optional PromQL "gates" for scale-up. If any is set, scale-up needs CPU over

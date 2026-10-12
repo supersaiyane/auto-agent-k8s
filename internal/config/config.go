@@ -67,6 +67,7 @@ type Config struct {
 
 	// Guardrails and leader election.
 	BlastRadiusMaxNamespaces int
+	HousekeepingMaxPer10m    int // HOUSEKEEPING_MAX_ACTIONS_PER_10M: budget for cleanup actions (ISS-025)
 	CircuitBreakerThreshold  int
 	QuietHours               string
 	LeaderLeaseNamespace     string
@@ -240,6 +241,7 @@ func Load(get Getenv) Config {
 		InternalToken: r.str("INTERNAL_TOKEN", ""),
 
 		BlastRadiusMaxNamespaces: r.positiveInt("BLAST_RADIUS_MAX_NAMESPACES", 5),
+		HousekeepingMaxPer10m:    r.positiveInt("HOUSEKEEPING_MAX_ACTIONS_PER_10M", 10),
 		CircuitBreakerThreshold:  r.positiveInt("CIRCUIT_BREAKER_THRESHOLD", 5),
 		QuietHours:               r.str("QUIET_HOURS", ""),
 		LeaderLeaseNamespace:     r.str("LEADER_LEASE_NAMESPACE", "kube-system"),

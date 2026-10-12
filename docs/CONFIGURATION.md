@@ -61,6 +61,7 @@ env:
 | --- | --- | --- | --- | --- | --- |
 | `MAX_ACTIONS_PER_10M` | `agent.maxActionsPer10m` | positive integer | `10` | Global rate limit: actions per 10 minutes, all workloads. Needs a restart | `internal/policy/policy.go` |
 | `BLAST_RADIUS_MAX_NAMESPACES` | `guardrails.blastRadiusMaxNamespaces` | positive integer | `5` | Distinct namespaces acted on per hour before further actions are blocked | `cmd/auto-agent/run.go` |
+| `HOUSEKEEPING_MAX_ACTIONS_PER_10M` | `guardrails.housekeepingMaxPer10m` | positive integer | `10` | Cleanup actions (evicted pods, old failed jobs) per 10 minutes; housekeeping has its own budget and does not use the blast radius, the circuit breaker or the fix rate limit (ISS-025) | `cmd/auto-agent/run.go` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `guardrails.circuitBreakerThreshold` | positive integer | `5` | Actions per workload per hour before the breaker trips and alerts | `cmd/auto-agent/run.go` |
 | `QUIET_HOURS` | `guardrails.quietHours` | comma-separated `HH:MM-HH:MM` in UTC; windows may cross midnight | empty (none) | No actions inside these windows; detection and alerts continue | `cmd/auto-agent/run.go` |
 
