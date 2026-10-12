@@ -104,7 +104,7 @@ Compliance report: total incidents, auto-remediated, MTTR, remediation rate.
 Learning mode baselines: per-workload CPU avg, stddev, auto-tuned thresholds.
 
 ### `GET /api/deploys`
-Recent deployment changes tracked for incident correlation.
+Recent deployment changes (image, revision, replicas) the leader has seen.
 
 ### `GET /api/dry-run`
 Dry-run simulation log (when `AUTO_MODE=dry-run`).

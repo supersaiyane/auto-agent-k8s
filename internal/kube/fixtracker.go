@@ -286,13 +286,6 @@ func (ft *FixTracker) Pending() []FixRecord {
 	return append([]FixRecord(nil), ft.pending...)
 }
 
-// Stats returns counts.
-func (ft *FixTracker) Stats() (pending, fixed, failed int) {
-	ft.mu.Lock()
-	defer ft.mu.Unlock()
-	return len(ft.pending), len(ft.fixed), len(ft.failed)
-}
-
 // clock returns the current time from the injected clock, or time.Now.
 func (ft *FixTracker) clock() time.Time {
 	if ft.now != nil {

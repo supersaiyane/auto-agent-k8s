@@ -1,6 +1,6 @@
 # PLAN-004: durable approvals and coverage to 95 percent
 
-Status: phases 1 to 3 done 2026-10-12 (ISS-078 fixed, ADR-003; B1; B2). Phase 4 (B3) next.
+Status: phases 1 to 4 done 2026-10-12 (ISS-078 fixed, ADR-003; B1 to B3). Phase 5 (B4) next.
 
 ## Goal
 
@@ -185,3 +185,24 @@ the replay refused. ISS-091 (a doubled refusal message) found on the way.
 - Measured 2026-10-12: watcher.go 98.6, handlers.go 92.2,
   handlers_extended.go 93.9, pod_extended.go 94.2 percent; total 87.8
   percent counted (87.6 over every package). Floor 85.0 to 87.8.
+
+## Done 2026-10-12: phase 4 (B3)
+
+- Event history, audit log and learned baselines: tested across a restart
+  (history and ids continue, the audit log appends, baselines load back),
+  with the ring buffer bound and unreadable lines counted.
+- Every failure to open, read or write them is now a warning and counted
+  (ISS-097). The baselines were saved after creating a fixed directory
+  instead of the configured path's; fixed.
+- `AllBaselines` and `GetBaseline` return copies: `/api/baselines` encoded
+  live pointers outside the lock (ISS-096).
+- Unused, deleted with the claims that described them (ISS-095):
+  `CorrelateIncident`, `CostEstimate`, `GetThreshold`, `RecordRestarts`,
+  `FixTracker.Stats`, and three baseline fields nothing wrote.
+- Fix verification falls back to pods when there is no Deployment, and a
+  refused read is counted; tested.
+- Falsified once: the fixed save directory and the live pointers each fail
+  their test.
+- Measured 2026-10-12: recorder.go 90.6, auditlog.go 92.2, learning.go 90.4,
+  fixtracker.go 96.6, correlation.go 96.4 percent; total 89.4 counted (89.1
+  over every package). Floor 87.8 to 89.4.

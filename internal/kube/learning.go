@@ -3,13 +3,18 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"math"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // minLearnedSamples is how many CPU samples a baseline needs before it is
@@ -29,16 +34,13 @@ type LearningMode struct {
 
 // WorkloadBaseline tracks normal behavior for a workload.
 type WorkloadBaseline struct {
-	Workload       string    `json:"workload"`
-	Namespace      string    `json:"namespace"`
-	FirstSeen      time.Time `json:"firstSeen"`
-	SampleCount    int       `json:"sampleCount"`
-	CPUSamples     []float64 `json:"-"` // rolling window
-	AvgCPU         float64   `json:"avgCpu"`
-	StdDevCPU      float64   `json:"stdDevCpu"`
-	AvgRestarts    float64   `json:"avgRestarts"`
-	MaxRestarts    int32     `json:"maxRestarts"`
-	NormalReplicas int32     `json:"normalReplicas"`
+	Workload    string    `json:"workload"`
+	Namespace   string    `json:"namespace"`
+	FirstSeen   time.Time `json:"firstSeen"`
+	SampleCount int       `json:"sampleCount"`
+	CPUSamples  []float64 `json:"-"` // rolling window
+	AvgCPU      float64   `json:"avgCpu"`
+	StdDevCPU   float64   `json:"stdDevCpu"`
 	// Computed thresholds
 	CPUHighThreshold float64 `json:"cpuHighThreshold"` // avg + 2*stddev
 	CPULowThreshold  float64 `json:"cpuLowThreshold"`  // avg - 1.5*stddev
@@ -92,51 +94,32 @@ func (lm *LearningMode) RecordCPU(ns, workload string, cpu float64) {
 	bl.CPULowThreshold = math.Max(0, bl.AvgCPU-1.5*bl.StdDevCPU)
 }
 
-// RecordRestarts adds a restart count observation.
-func (lm *LearningMode) RecordRestarts(ns, workload string, restarts int32) {
-	lm.mu.Lock()
-	defer lm.mu.Unlock()
-	key := ns + "/" + workload
-	bl := lm.baselines[key]
-	if bl == nil {
-		return
-	}
-	if restarts > bl.MaxRestarts {
-		bl.MaxRestarts = restarts
-	}
-}
-
-// GetBaseline returns the baseline for a workload.
+// GetBaseline returns a copy of the baseline for a workload, or nil.
 func (lm *LearningMode) GetBaseline(ns, workload string) *WorkloadBaseline {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
-	return lm.baselines[ns+"/"+workload]
+	bl := lm.baselines[ns+"/"+workload]
+	if bl == nil {
+		return nil
+	}
+	c := *bl
+	c.CPUSamples = append([]float64(nil), bl.CPUSamples...)
+	return &c
 }
 
-// AllBaselines returns all baselines (for API).
+// AllBaselines returns a copy of every baseline, for the API. The copies
+// are taken under the lock, so encoding them cannot race with RecordCPU
+// (ISS-096).
 func (lm *LearningMode) AllBaselines() map[string]*WorkloadBaseline {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
 	result := make(map[string]*WorkloadBaseline, len(lm.baselines))
 	for k, v := range lm.baselines {
-		result[k] = v
+		c := *v
+		c.CPUSamples = nil // not served (json:"-"), and the live slice must not escape
+		result[k] = &c
 	}
 	return result
-}
-
-// GetThreshold returns the learned CPU threshold for a workload,
-// or the global default if no baseline exists.
-func (lm *LearningMode) GetThreshold(ns, workload string, globalDefault float64) float64 {
-	lm.mu.RLock()
-	defer lm.mu.RUnlock()
-	bl := lm.baselines[ns+"/"+workload]
-	if bl == nil || bl.SampleCount < minLearnedSamples {
-		return globalDefault
-	}
-	if bl.CPUHighThreshold > 0 && bl.CPUHighThreshold < 1.0 {
-		return bl.CPUHighThreshold
-	}
-	return globalDefault
 }
 
 // Save persists baselines to disk.
@@ -149,12 +132,16 @@ func (lm *LearningMode) Save() {
 	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		klog.Warningf("learning: save failed: %v", err)
+		learningFailed("save", lm.savePath, err)
 		return
 	}
-	os.MkdirAll("/var/log/auto-agent", 0o755)
+	// The directory of the configured path, not a fixed one (ISS-097).
+	if err := os.MkdirAll(filepath.Dir(lm.savePath), 0o755); err != nil {
+		learningFailed("save", lm.savePath, err)
+		return
+	}
 	if err := os.WriteFile(lm.savePath, b, 0o644); err != nil {
-		klog.Warningf("learning: write failed: %v", err)
+		learningFailed("save", lm.savePath, err)
 		return
 	}
 	klog.V(3).Infof("learning: saved %d baselines to %s", len(data), lm.savePath)
@@ -162,12 +149,16 @@ func (lm *LearningMode) Save() {
 
 func (lm *LearningMode) load() {
 	b, err := os.ReadFile(lm.savePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return // first start
+	}
 	if err != nil {
-		return // file doesn't exist yet
+		learningFailed("load", lm.savePath, err)
+		return
 	}
 	var data map[string]*WorkloadBaseline
 	if err := json.Unmarshal(b, &data); err != nil {
-		klog.Warningf("learning: load failed: %v", err)
+		learningFailed("load", lm.savePath, err)
 		return
 	}
 	lm.baselines = data
@@ -250,4 +241,10 @@ func scaleUpThreshold(deps *Deps, ns, name string, global float64) (float64, str
 		return global, "global"
 	}
 	return math.Min(math.Max(bl.CPUHighThreshold, learnedThresholdMin), learnedThresholdMax), "learned"
+}
+
+// learningFailed logs and counts a failure to save or load baselines.
+func learningFailed(op, path string, err error) {
+	klog.Warningf("learning: cannot %s %s: %v", op, path, err)
+	obs.HandlerErrorsTotal.WithLabelValues("learning", op).Inc()
 }

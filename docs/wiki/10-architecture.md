@@ -39,7 +39,7 @@ internal/
   kube/auditlog.go               Persistent audit log + blast radius + quiet hours
   kube/guardrails.go             Unified guardrail check (all 8 layers)
   kube/fixtracker.go             Verify actions actually fixed the problem
-  kube/correlation.go            Deploy tracker + incident correlation + cost
+  kube/correlation.go            Deploy tracker (recent deploys for /api/deploys)
   kube/compliance.go             MTTR, remediation rate, compliance reports
   kube/learning.go               Baseline collection, threshold auto-tuning
   kube/dryrun.go                 Dry-run simulation logging
@@ -127,7 +127,7 @@ handleCrashLoop() / handleOOM() / etc.
 
 | Component | File | What it does |
 |-----------|------|-------------|
-| **DeployTracker** | `correlation.go` | Records deployment changes (image, revision, replicas). `CorrelateIncident()` links incidents to deploys within 10min window. `ScanDeployments()` runs every 2min. |
+| **DeployTracker** | `correlation.go` | Records deployment changes (image, revision, replicas) for `/api/deploys` and the Deploys tab. `ScanDeployments()` runs in the leader's job loop. Incidents are not linked to deploys (the unused `CorrelateIncident` was removed, ISS-095). |
 | **ComplianceTracker** | `compliance.go` | Collects incidents and actions. `GenerateReport()` produces: total incidents, auto-remediated, MTTR, remediation rate, incidents by reason/namespace. Available via `GET /api/compliance`. |
 | **LearningMode** | `learning.go` | Samples CPU per workload from Prometheus. Computes avg, stddev, auto-tunes thresholds (avg + 2*stddev). Persists to `baselines.json`. `GetThreshold()` returns learned or global default. |
 | **FixTracker** | `fixtracker.go` | Tracks every remediation action. Verifies recovery by checking Deployment ReadyReplicas. Resolves RS name → Deployment name. States: pending → fixed or not-fixed (15min timeout). |

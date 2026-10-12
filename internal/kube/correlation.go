@@ -79,19 +79,6 @@ func (dt *DeployTracker) All() []DeployRecord {
 	return append([]DeployRecord(nil), dt.deploys...)
 }
 
-// CorrelateIncident checks if an incident may be caused by a recent deploy.
-func (dt *DeployTracker) CorrelateIncident(ns, workload string) string {
-	recent := dt.RecentDeploys(ns, 10*time.Minute)
-	if len(recent) == 0 {
-		return ""
-	}
-	for _, d := range recent {
-		return fmt.Sprintf("_Correlation_: deploy `%s` (image: `%s`) happened %s ago: may be the cause.\n",
-			d.Deployment, d.Image, time.Since(d.Timestamp).Round(time.Second))
-	}
-	return ""
-}
-
 // ScanDeployments checks for new/changed deployments and records them.
 func ScanDeployments(ctx context.Context, deps *Deps) {
 	if deps.DeployTracker == nil {
@@ -143,21 +130,6 @@ func parseDeployRevision(d *appsv1.Deployment) int64 {
 	var rev int64
 	fmt.Sscanf(d.Annotations["deployment.kubernetes.io/revision"], "%d", &rev)
 	return rev
-}
-
-// CostEstimate returns a rough monthly cost estimate for a deployment.
-// Uses a simple formula: replicas * (cpu_requests * cpu_price + mem_requests * mem_price).
-func CostEstimate(cpuRequests float64, memRequestsMi float64, replicas int32) string {
-	// Average cloud pricing (rough): $0.05/cpu-hour, $0.005/GiB-hour
-	cpuPricePerHour := 0.05
-	memPricePerGiBHour := 0.005
-	hoursPerMonth := 730.0
-
-	cpuCost := cpuRequests * cpuPricePerHour * hoursPerMonth * float64(replicas)
-	memCost := (memRequestsMi / 1024.0) * memPricePerGiBHour * hoursPerMonth * float64(replicas)
-	total := cpuCost + memCost
-
-	return fmt.Sprintf("~$%.0f/month (%d replicas x %.1f CPU + %.0f Mi)", total, replicas, cpuRequests, memRequestsMi)
 }
 
 // rolledOutAt is when the Deployment's current revision rolled out: the

@@ -3,12 +3,17 @@ package events
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/supersaiyane/auto-agent-k8s/internal/obs"
 )
 
 // EventType categorizes recorded events.
@@ -97,12 +102,12 @@ func (r *Recorder) EnablePersistence(path string) {
 
 	// Open file for appending
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		klog.Warningf("events: cannot create dir for %s: %v", path, err)
+		persistFailed("open", path, err)
 		return
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		klog.Warningf("events: cannot open %s: %v", path, err)
+		persistFailed("open", path, err)
 		return
 	}
 	r.file = f
@@ -110,19 +115,30 @@ func (r *Recorder) EnablePersistence(path string) {
 	klog.Infof("events: persistence enabled at %s (%d events loaded)", path, len(r.events))
 }
 
+// loadFromFile reads the history back. A line that does not parse is
+// skipped and counted (ISS-097); a missing file is a first start.
 func (r *Recorder) loadFromFile() {
 	f, err := os.Open(r.filePath)
-	if err != nil {
-		return // file doesn't exist yet
+	if errors.Is(err, fs.ErrNotExist) {
+		return
 	}
-	defer f.Close()
+	if err != nil {
+		persistFailed("read", r.filePath, err)
+		return
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			persistFailed("read", r.filePath, err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	count := 0
+	count, bad := 0, 0
 	for scanner.Scan() {
 		var e Event
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+			bad++
 			continue
 		}
 		if e.ID >= r.nextID {
@@ -134,9 +150,21 @@ func (r *Recorder) loadFromFile() {
 		r.events = append(r.events, e)
 		count++
 	}
+	if err := scanner.Err(); err != nil {
+		persistFailed("read", r.filePath, err)
+	}
+	if bad > 0 {
+		persistFailed("read", r.filePath, fmt.Errorf("%d unreadable lines skipped", bad))
+	}
 	if count > 0 {
 		klog.Infof("events: loaded %d events from %s", count, r.filePath)
 	}
+}
+
+// persistFailed logs and counts a failure to read or write the history.
+func persistFailed(op, path string, err error) {
+	klog.Warningf("events: cannot %s %s: %v", op, path, err)
+	obs.HandlerErrorsTotal.WithLabelValues("events", op).Inc()
 }
 
 // Record adds an event. If persistence is enabled, also writes to disk.
@@ -158,7 +186,7 @@ func (r *Recorder) Record(e Event) {
 	// Persist to file
 	if r.encoder != nil {
 		if err := r.encoder.Encode(e); err != nil {
-			klog.V(3).Infof("events: write failed: %v", err)
+			persistFailed("write", r.filePath, err)
 		}
 	}
 }
@@ -216,7 +244,9 @@ func (r *Recorder) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.file != nil {
-		r.file.Close()
+		if err := r.file.Close(); err != nil {
+			persistFailed("write", r.filePath, err)
+		}
 		r.file = nil
 		r.encoder = nil
 	}
