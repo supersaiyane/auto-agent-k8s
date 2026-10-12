@@ -18,6 +18,9 @@ const (
 	informerResyncPeriod  = 5 * time.Minute
 	maxConcurrentHandlers = 20
 	handlerTimeout        = 60 * time.Second
+
+	notReadyAfter = 3 * time.Minute // a running container not ready this long is NotReady
+	pendingAfter  = 5 * time.Minute // a scheduled pod Pending this long is reported
 )
 
 // runHandler runs fn in a goroutine, at most maxConcurrentHandlers at a time
@@ -231,7 +234,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 
 		// NotReady (container running but not ready for extended period)
 		if cs.State.Running != nil && !cs.Ready && cs.RestartCount == 0 {
-			if cs.State.Running.StartedAt.Time.Before(time.Now().Add(-3 * time.Minute)) {
+			if cs.State.Running.StartedAt.Time.Before(deps.clock().Add(-notReadyAfter)) {
 				key := dedupKey(newPod.Namespace, wl, "NotReady")
 				if !deps.Dedup.Check(key) {
 					obs.DedupSkippedTotal.WithLabelValues("NotReady").Inc()
@@ -247,7 +250,7 @@ func handlePodUpdate(ctx context.Context, deps *Deps, oldPod, newPod *corev1.Pod
 
 	// Pending pod detection
 	if newPod.Status.Phase == corev1.PodPending {
-		if newPod.CreationTimestamp.Time.Before(time.Now().Add(-5 * time.Minute)) {
+		if newPod.CreationTimestamp.Time.Before(deps.clock().Add(-pendingAfter)) {
 			key := dedupKey(newPod.Namespace, wl, "Pending")
 			if !deps.Dedup.Check(key) {
 				obs.DedupSkippedTotal.WithLabelValues("Pending").Inc()

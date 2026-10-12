@@ -50,9 +50,11 @@ PLAN-001 (PR #1) and PLAN-003 are complete too. Active plan:
 2026-10-12: ISS-078 fixed, the approval queue is stored in a ConfigMap
 (ADR-003) and survives a leader change in the kind e2e. Phase 2 done
 2026-10-12: dead runbook code removed (ISS-092), log retention fixed and
-tested (ISS-093), ISS-091 fixed, coverage 85.0 percent counted. Next: phase
-3 (B2, the informer entry points), then phases 4 to 6 to 95 percent
-(ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
+tested (ISS-093), ISS-091 fixed, coverage 85.0 percent counted. Phase 3 done
+2026-10-12: the pod and node informer paths are tested (watcher.go 98.6
+percent), dead helpers removed (ISS-094), coverage 87.8 percent counted.
+Next: phase 4 (B3: events recorder, audit log, learning, fix tracker,
+correlation), then phases 5 and 6 to 95 percent (ISS-088). Owner questions: ISS-020, ISS-025, ISS-077.
 
 ## Previous plan
 

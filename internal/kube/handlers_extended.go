@@ -99,21 +99,6 @@ func handleRestartStorm(ctx context.Context, deps *Deps, pod *corev1.Pod, cname 
 
 // --- Helpers used by extended handlers ---
 
-// checkBreaker wraps circuit breaker check and fires alert if tripped.
-func checkBreaker(ctx context.Context, deps *Deps, ns, wl string) bool {
-	if deps.Breaker == nil {
-		return true
-	}
-	if !deps.Breaker.RecordAndCheck(ns, wl) {
-		if deps.AlertManager != nil {
-			deps.AlertManager.FireCircuitBreaker(ctx, ns, wl)
-		}
-		obs.HandlerErrorsTotal.WithLabelValues("circuit_breaker", "tripped").Inc()
-		return false
-	}
-	return true
-}
-
 // fireAlert sends an alert to Alertmanager if configured.
 func fireAlert(ctx context.Context, deps *Deps, reason, ns, wl, pod, message, severity string) {
 	if deps.AlertManager != nil {
