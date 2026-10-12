@@ -56,6 +56,7 @@
 | 2026-10-12 | PR #15 open (phase 5), CI running; project map header updated | map lists the dead code removed in phases 3 to 5 | none | `project_map.md:3`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (phase 5 section), `tasks/ISSUES.md` ISS-099 |
 | 2026-10-12 | PR #15 merged (9c54eef); PLAN-004 phase 6 part 1 on `plan-004-phase6` | ISS-101 to ISS-105 fixed; every package at 90; make verify passes; total 94.3 counted, floor 94.3 | none | `internal/kube/gitops_content.go` (`GenerateMemoryBumpContent`), `internal/kube/scaler.go` (HPA skip), `internal/integrations/tickets.go`, `cmd/auto-agent/main.go` (`realMain`) |
 | 2026-10-12 | PR #16 merged (b4c95f4); PLAN-004 complete on `plan-004-phase6b` | coverage 95.02 counted (7364/7750), per-package floor 90 enforced and falsified; ISS-106 fixed; ISS-088 closed; make verify run before commit | none | `scripts/coverage-check.sh` (PACKAGE_FLOOR), `.coverage-floor`, `docs/plans/PLAN-004-durable-approvals-and-coverage.md` (Result) |
+| 2026-10-12 | PR #17 open (PLAN-004 complete), CI running; project map header updated | map notes realMain, IsDryRun removed, per-package coverage floor | none | `project_map.md:3`, `cmd/auto-agent/main.go` (`realMain`), `scripts/coverage-check.sh` (PACKAGE_FLOOR) |
 ## Next action
 
 1. Merge the PLAN-004 final PR on the owner's go once CI is green.
