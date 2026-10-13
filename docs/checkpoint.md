@@ -64,11 +64,10 @@
 | 2026-10-12 | PR #20 merged (b3d2ee8); merged branches deleted (12 local, 12 remote); ISS-108 on `incident-deployment-name` | incidents name the Deployment; deploymentName keeps real names; falsified once | port-forward on 18080 | `internal/kube/helpers.go:26` (`ownerName`), `internal/kube/gitops_content.go` (`deploymentName`) |
 | 2026-10-12 | PR #21 open (ISS-108), CI running; project map header updated | branches cleaned; incidents name the Deployment | port-forward on 18080 | `project_map.md:3`, `internal/kube/helpers.go:26` |
 | 2026-10-12 | Release prep on docs-release: ISS-109 (Trivy pin `.github/workflows/ci.yaml:145`), stale docs tidied, README rewritten with Upcoming features, changelog names v1.0.0 | In progress | README.md, docs/GUIDE.md, docs/wiki/08, 15, 19, 23, context_index.md, chart values comment, scripts/changelog.sh, .gitignore, tasks/ISSUES.md | `README.md` (Upcoming features), `scripts/changelog.sh:21`, `.github/workflows/ci.yaml:145` |
+| 2026-10-13 | v1.0.0 released: PR #22 merged (76ad62d), master CI and tag CI (run 38325629910) passed all four jobs, image pushed and signed. MIT LICENSE and README badges added locally, uncommitted, for the owner to push to master | Done (local changes pending push) | LICENSE (new), README.md:3-12 (badges) | `README.md:3`, `LICENSE:1` |
 ## Next action
 
-1. PR from docs-release, merge on green, then check the image job passes on
-   the master push (it failed on every push since 2026-10-07, ISS-109).
-2. Tag `v1.0.0` on that master commit and push the tag; check the tag's CI run,
-   including the image job.
-3. Upcoming features (README): incident correlation, OIDC dashboard sign-in,
+1. Owner pushes LICENSE and the README badges to master; tag `v1.0.1` if the
+   license should ship inside a release.
+2. Upcoming features (README): incident correlation, OIDC dashboard sign-in,
    ResourceQuota raises behind a ceiling. Each needs a plan first.

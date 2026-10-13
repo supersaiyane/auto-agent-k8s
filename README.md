@@ -1,5 +1,16 @@
 # auto-agent-k8s
 
+[![CI](https://github.com/supersaiyane/auto-agent-k8s/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/supersaiyane/auto-agent-k8s/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/tag/supersaiyane/auto-agent-k8s?sort=semver&label=release&color=blueviolet)](https://github.com/supersaiyane/auto-agent-k8s/tags)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-agent-326CE5?logo=kubernetes&logoColor=white)](docs/GUIDE.md)
+[![Helm](https://img.shields.io/badge/helm%20chart-1.0.0-0F1689?logo=helm&logoColor=white)](charts/auto-agent)
+[![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](scripts/coverage-check.sh)
+[![Mutation tested](https://img.shields.io/badge/mutation%20tested-gremlins-orange)](Makefile)
+[![Image](https://img.shields.io/badge/image-signed%20%2B%20SBOM-success?logo=sigstore&logoColor=white)](.github/workflows/ci.yaml)
+[![Default mode](https://img.shields.io/badge/default%20mode-dry--run-informational)](docs/CONFIGURATION.md)
+
 A Kubernetes remediation agent. It detects unhealthy pods, workloads, nodes,
 storage and networking, and (only where and when you allow it) fixes them:
 restarts a crashlooping pod, rolls back a stuck rollout, scales a deployment,
